@@ -1,0 +1,31 @@
+{
+  "session_id": "session_392357eabe29",
+  "workspace_id": "ws_d62a5611027a",
+  "track_id": "track_backend_api_v1",
+  "backend": "docker",
+  "status": "running",
+  "repo_root": "/Users/joshua/Forge/apps/api/.e2e-real/runtime/workspaces/ws_d62a5611027a/repo",
+  "seeded_file_count": 9,
+  "seeded_files": [
+    "Dockerfile.runtime",
+    "pyproject.toml",
+    "README.md",
+    "app/main.py",
+    "app/routes.py",
+    "tests/test_inventory.py",
+    "tests/__pycache__/test_inventory.cpython-313.pyc",
+    "app/__pycache__/main.cpython-313.pyc",
+    "app/__pycache__/routes.cpython-313.pyc"
+  ],
+  "container_image_ref": "local-dev/warehouse-ops-api:v3",
+  "created_at": "2026-04-24T02:20:42.531599+00:00",
+  "image_ref": "local-dev/warehouse-ops-api:v3",
+  "image_status": "present",
+  "container_name": "verified-ws-ws_d62a5611027a",
+  "container_id": "661786fe8423cd0b3c0da5e9001db1106d439e5bac05946b1688c896f0c788fe",
+  "network_policy": "none",
+  "cpu_limit": "2",
+  "memory_limit": "2g",
+  "timeout_seconds": 21600,
+  "expires_at": 1777018843.040384
+}

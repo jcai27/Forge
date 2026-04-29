@@ -1,0 +1,22 @@
+{
+  "scope": "live",
+  "subject_id": "session_715fd6dacf54",
+  "runtime_id": "ws_0b6683541916",
+  "status": "ready",
+  "backend": "docker",
+  "repo_root": "/Users/joshua/Forge/apps/api/.e2e-real/runtime/workspaces/ws_0b6683541916/repo",
+  "host": "127.0.0.1",
+  "port": 41203,
+  "local_url": "http://127.0.0.1:41203",
+  "readiness_path": "/health",
+  "default_path": "/docs",
+  "started_at": "2026-04-24T02:16:48.284990+00:00",
+  "last_accessed_at": "2026-04-24T02:16:51.030766+00:00",
+  "last_ready_at": "2026-04-24T02:16:49.511709+00:00",
+  "stopped_at": null,
+  "error": null,
+  "log_path": "/Users/joshua/Forge/apps/api/.e2e-real/runtime/workspaces/ws_0b6683541916/logs/preview.log",
+  "container_name": "verified-preview-live-ws_0b6683541916",
+  "container_id": "a8cbc1d0af8f9842ddbae839686107a69ff7ec088fc8f5e2033d99b91e7ac82b",
+  "image_ref": "local-dev/warehouse-ops-api:v3"
+}

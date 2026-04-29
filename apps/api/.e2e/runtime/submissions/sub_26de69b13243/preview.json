@@ -1,0 +1,20 @@
+{
+  "scope": "frozen",
+  "subject_id": "sub_26de69b13243",
+  "runtime_id": "sub_26de69b13243",
+  "status": "ready",
+  "backend": "e2e",
+  "repo_root": "/Users/joshua/Forge/apps/api/.e2e/runtime/submissions/sub_26de69b13243/repo",
+  "host": "127.0.0.1",
+  "port": 41000,
+  "local_url": "http://127.0.0.1:41000",
+  "readiness_path": "/health",
+  "default_path": "/docs",
+  "started_at": "2026-04-26T17:16:59.251309+00:00",
+  "last_accessed_at": "2026-04-26T17:16:59.273539+00:00",
+  "last_ready_at": "2026-04-26T17:16:59.251375+00:00",
+  "stopped_at": null,
+  "error": null,
+  "image_ref": "local-dev/warehouse-ops-api:v3",
+  "log_path": "/Users/joshua/Forge/apps/api/.e2e/runtime/submissions/sub_26de69b13243/logs/preview.log"
+}

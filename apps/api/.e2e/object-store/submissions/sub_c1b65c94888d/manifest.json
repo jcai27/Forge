@@ -1,0 +1,38 @@
+{
+  "workspace_id": "ws_c1806fac396f",
+  "artifact_created_at": "2026-04-24T02:20:21.022691+00:00",
+  "repo_root": "/Users/joshua/Forge/apps/api/.e2e/runtime/submissions/sub_c1b65c94888d/repo",
+  "file_count": 9,
+  "workspace_summary": {
+    "session_id": "session_fbf872e90608",
+    "workspace_id": "ws_c1806fac396f",
+    "track_id": "track_backend_api_v1",
+    "backend": "filesystem",
+    "status": "provisioned",
+    "repo_root": "/Users/joshua/Forge/apps/api/.e2e/runtime/workspaces/ws_c1806fac396f/repo",
+    "seeded_file_count": 9,
+    "seeded_files": [
+      "Dockerfile.runtime",
+      "pyproject.toml",
+      "README.md",
+      "app/main.py",
+      "app/routes.py",
+      "tests/test_inventory.py",
+      "tests/__pycache__/test_inventory.cpython-313.pyc",
+      "app/__pycache__/main.cpython-313.pyc",
+      "app/__pycache__/routes.cpython-313.pyc"
+    ],
+    "container_image_ref": "local-dev/warehouse-ops-api:v3",
+    "created_at": "2026-04-24T02:20:17.815827+00:00"
+  },
+  "runtime_finalization": {},
+  "provided_snapshot": {},
+  "evidence_uris": {
+    "manifest": "object://submissions/sub_c1b65c94888d/manifest.json",
+    "events": "object://submissions/sub_c1b65c94888d/events.jsonl",
+    "checkpoints": "object://submissions/sub_c1b65c94888d/checkpoints",
+    "build_log": "object://submissions/sub_c1b65c94888d/build.log",
+    "test_log": "object://submissions/sub_c1b65c94888d/tests.log",
+    "artifact": "object://submissions/sub_c1b65c94888d/repo"
+  }
+}

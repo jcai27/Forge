@@ -1,0 +1,47 @@
+{
+  "workspace_id": "ws_b5436f97d97c",
+  "artifact_created_at": "2026-04-29T01:20:43.810322+00:00",
+  "repo_root": "/Users/joshua/Forge/apps/api/.e2e/runtime/submissions/sub_c1cc588d1dbf/repo",
+  "file_count": 11,
+  "workspace_summary": {
+    "session_id": "session_6bc6dbdfe6f3",
+    "workspace_id": "ws_b5436f97d97c",
+    "track_id": "track_backend_api_v1",
+    "backend": "filesystem",
+    "status": "provisioned",
+    "repo_root": "/Users/joshua/Forge/apps/api/.e2e/runtime/workspaces/ws_b5436f97d97c/repo",
+    "seeded_file_count": 10,
+    "seeded_files": [
+      "Dockerfile.runtime",
+      "pyproject.toml",
+      "README.md",
+      "app/main.py",
+      "app/routes.py",
+      "tests/test_inventory.py",
+      "tests/__pycache__/test_inventory.cpython-313.pyc",
+      "tests/__pycache__/test_inventory.cpython-313-pytest-9.0.3.pyc",
+      "app/__pycache__/main.cpython-313.pyc",
+      "app/__pycache__/routes.cpython-313.pyc"
+    ],
+    "container_image_ref": "local-dev/warehouse-ops-api:v3",
+    "created_at": "2026-04-29T01:20:35.792724+00:00",
+    "last_event_at": "2026-04-29T01:20:40.595853",
+    "last_checkpoint": {
+      "checkpoint_id": "checkpoint:app/routes.py_20260429012040",
+      "label": "checkpoint:app/routes.py",
+      "created_at": "2026-04-29T01:20:40.599059+00:00",
+      "repo_root": "/Users/joshua/Forge/apps/api/.e2e/runtime/workspaces/ws_b5436f97d97c/checkpoints/checkpoint:app/routes.py_20260429012040/repo"
+    },
+    "checkpoint_count": 1
+  },
+  "runtime_finalization": {},
+  "provided_snapshot": {},
+  "evidence_uris": {
+    "manifest": "object://submissions/sub_c1cc588d1dbf/manifest.json",
+    "events": "object://submissions/sub_c1cc588d1dbf/events.jsonl",
+    "checkpoints": "object://submissions/sub_c1cc588d1dbf/checkpoints",
+    "build_log": "object://submissions/sub_c1cc588d1dbf/build.log",
+    "test_log": "object://submissions/sub_c1cc588d1dbf/tests.log",
+    "artifact": "object://submissions/sub_c1cc588d1dbf/repo"
+  }
+}

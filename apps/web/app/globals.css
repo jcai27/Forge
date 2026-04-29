@@ -1,0 +1,241 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #090b11;
+  --bg-soft: #0d1018;
+  --surface: #121620;
+  --surface-muted: #171b27;
+  --surface-strong: #1e2431;
+  --ink: #f4f7fb;
+  --muted: #98a2b3;
+  --line: rgba(255, 255, 255, 0.1);
+  --accent: #8795ff;
+  --accent-2: #d946ef;
+  --accent-gold: #c7ae6a;
+  --success: #4ade80;
+  --warning: #f59e0b;
+  --danger: #fb7185;
+  --workspace: #0d1017;
+  --workspace-panel: #141925;
+  --workspace-panel-2: #171b27;
+  --workspace-panel-3: #1b2130;
+  --workspace-line: rgba(154, 167, 255, 0.14);
+  --workspace-line-strong: rgba(154, 167, 255, 0.28);
+  --workspace-glow: rgba(129, 140, 248, 0.22);
+  --workspace-fuchsia: rgba(217, 70, 239, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top, rgba(135, 149, 255, 0.15), transparent 28%),
+    radial-gradient(circle at 12% 22%, rgba(217, 70, 239, 0.08), transparent 20%),
+    linear-gradient(180deg, #0b0e15 0%, #07090f 100%);
+  color: var(--ink);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: "Geist", "Aptos", "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  background: transparent;
+}
+
+body.candidate-workspace-mode {
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(129, 140, 248, 0.14), transparent 22%),
+    radial-gradient(circle at 86% 12%, rgba(217, 70, 239, 0.1), transparent 18%),
+    linear-gradient(180deg, #0a0c12 0%, #07090f 100%);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+code,
+pre,
+.font-mono {
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+::selection {
+  background: rgba(135, 149, 255, 0.28);
+}
+
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.05em;
+  }
+}
+
+@layer components {
+  .app-background {
+    @apply min-h-screen;
+    background:
+      radial-gradient(circle at top, rgba(199, 174, 106, 0.08), transparent 22%),
+      radial-gradient(circle at 85% 18%, rgba(135, 149, 255, 0.08), transparent 18%),
+      linear-gradient(180deg, #090b11 0%, #07090f 100%);
+  }
+
+  .shell-frame {
+    @apply mx-auto w-full max-w-[1360px] px-4 pb-20 pt-5 sm:px-6 lg:px-8;
+  }
+
+  .site-header {
+    @apply mb-12 flex items-center justify-between gap-4 rounded-[22px] border px-5 py-3.5;
+    background: rgba(14, 18, 28, 0.9);
+    border-color: rgba(199, 174, 106, 0.12);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(18px);
+  }
+
+  .brand-lockup {
+    @apply flex min-w-0 items-center gap-4;
+  }
+
+  .brand-mark {
+    @apply flex h-10 w-10 items-center justify-center rounded-xl border text-[11px] font-semibold uppercase tracking-[0.24em] text-white;
+    background: linear-gradient(180deg, rgba(199, 174, 106, 0.12), rgba(135, 149, 255, 0.1));
+    border-color: rgba(199, 174, 106, 0.24);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .site-nav-link {
+    @apply rounded-full px-4 py-2 text-sm font-medium text-slate-400 transition hover:bg-white/6 hover:text-white;
+  }
+
+  .site-cta {
+    @apply inline-flex items-center rounded-full border px-4 py-2 text-sm font-medium text-white transition hover:-translate-y-0.5;
+    background: linear-gradient(180deg, rgba(199, 174, 106, 0.14), rgba(199, 174, 106, 0.08));
+    border-color: rgba(199, 174, 106, 0.24);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+  }
+
+  .page-shell {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+
+  .page-stack {
+    @apply space-y-16 pb-20;
+  }
+
+  .hero-gradient {
+    background:
+      radial-gradient(circle at top right, rgba(199, 174, 106, 0.12), transparent 18%),
+      radial-gradient(circle at left center, rgba(135, 149, 255, 0.08), transparent 16%),
+      linear-gradient(180deg, #131823 0%, #0f131d 100%);
+  }
+
+  .workspace-bg {
+    background:
+      radial-gradient(circle at top left, rgba(79, 70, 229, 0.14), transparent 18%),
+      linear-gradient(180deg, #121722 0%, #0d1017 100%);
+  }
+
+  .workspace-gridline {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 26px 26px;
+  }
+
+  .workspace-card {
+    border: 1px solid var(--workspace-line);
+    background: linear-gradient(180deg, rgba(24, 29, 42, 0.96), rgba(15, 18, 28, 0.98));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 20px 48px rgba(0, 0, 0, 0.26);
+  }
+
+  .workspace-card-muted {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(180deg, rgba(19, 23, 34, 0.96), rgba(12, 15, 24, 0.98));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .workspace-chip {
+    @apply inline-flex items-center rounded-full px-3 py-1 text-[11px] font-medium;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: #d6d9e4;
+  }
+
+  .workspace-label {
+    @apply text-[10px] font-semibold uppercase tracking-[0.22em];
+    color: #7f8798;
+  }
+
+  .workspace-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(154, 167, 255, 0.22) transparent;
+  }
+
+  .workspace-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .workspace-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .workspace-scrollbar::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: rgba(154, 167, 255, 0.22);
+    background-clip: padding-box;
+  }
+
+  .workspace-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(154, 167, 255, 0.34);
+    background-clip: padding-box;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .regal-title {
+    font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+    letter-spacing: -0.06em;
+  }
+
+  .page-eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500;
+  }
+
+  .page-divider {
+    @apply h-px w-full;
+    background: linear-gradient(90deg, transparent, rgba(199, 174, 106, 0.22), transparent);
+  }
+}
+
+body.candidate-workspace-mode .app-background {
+  min-height: 100dvh;
+}
+
+body.candidate-workspace-mode .shell-frame {
+  max-width: none;
+  padding: 0;
+}
+
+body.candidate-workspace-mode .site-header {
+  display: none;
+}

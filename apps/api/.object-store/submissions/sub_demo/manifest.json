@@ -1,0 +1,42 @@
+{
+  "workspace_id": "ws_demo",
+  "artifact_created_at": "2026-04-28T20:07:19.739507+00:00",
+  "repo_root": "/private/var/folders/wt/zkkp72zj5rvbt1f7m2shsmgm0000gn/T/pytest-of-joshua/pytest-6/test_runtime_provisions_worksp0/runtime/submissions/sub_demo/repo",
+  "file_count": 1,
+  "workspace_summary": {
+    "session_id": "session_demo",
+    "workspace_id": "ws_demo",
+    "track_id": "track_backend_api_v1",
+    "backend": "filesystem",
+    "status": "provisioned",
+    "repo_root": "/private/var/folders/wt/zkkp72zj5rvbt1f7m2shsmgm0000gn/T/pytest-of-joshua/pytest-6/test_runtime_provisions_worksp0/runtime/workspaces/ws_demo/repo",
+    "seeded_file_count": 1,
+    "seeded_files": [
+      "app/main.py"
+    ],
+    "container_image_ref": "local-dev/warehouse-ops-api:v1",
+    "created_at": "2026-04-28T20:07:19.734293+00:00",
+    "last_event_at": "2026-04-28T20:07:19.734474+00:00",
+    "last_checkpoint": {
+      "checkpoint_id": "checkpoint_1_20260428200719",
+      "label": "checkpoint 1",
+      "created_at": "2026-04-28T20:07:19.735543+00:00",
+      "repo_root": "/private/var/folders/wt/zkkp72zj5rvbt1f7m2shsmgm0000gn/T/pytest-of-joshua/pytest-6/test_runtime_provisions_worksp0/runtime/workspaces/ws_demo/checkpoints/checkpoint_1_20260428200719/repo"
+    },
+    "checkpoint_count": 1
+  },
+  "runtime_finalization": {},
+  "provided_snapshot": {
+    "files": [
+      "app/main.py"
+    ]
+  },
+  "evidence_uris": {
+    "manifest": "object://submissions/sub_demo/manifest.json",
+    "events": "object://submissions/sub_demo/events.jsonl",
+    "checkpoints": "object://submissions/sub_demo/checkpoints",
+    "build_log": "object://submissions/sub_demo/build.log",
+    "test_log": "object://submissions/sub_demo/tests.log",
+    "artifact": "object://submissions/sub_demo/repo"
+  }
+}

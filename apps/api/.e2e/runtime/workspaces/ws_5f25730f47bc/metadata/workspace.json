@@ -1,0 +1,22 @@
+{
+  "session_id": "session_4d4ce03875e0",
+  "workspace_id": "ws_5f25730f47bc",
+  "track_id": "track_backend_api_v1",
+  "backend": "filesystem",
+  "status": "provisioned",
+  "repo_root": "/Users/joshua/Forge/apps/api/.e2e/runtime/workspaces/ws_5f25730f47bc/repo",
+  "seeded_file_count": 9,
+  "seeded_files": [
+    "Dockerfile.runtime",
+    "pyproject.toml",
+    "README.md",
+    "app/main.py",
+    "app/routes.py",
+    "tests/test_inventory.py",
+    "tests/__pycache__/test_inventory.cpython-313.pyc",
+    "app/__pycache__/main.cpython-313.pyc",
+    "app/__pycache__/routes.cpython-313.pyc"
+  ],
+  "container_image_ref": "local-dev/warehouse-ops-api:v3",
+  "created_at": "2026-04-26T06:27:20.096174+00:00"
+}
