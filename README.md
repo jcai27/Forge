@@ -103,3 +103,5 @@ The backend defaults to SQLite for zero-setup local development, but the compose
 - Employer-facing telemetry is summarized into review evidence rather than exposing raw keystroke surveillance.
 - Benchmarks and percentiles are always scoped to a single `track_version_id`.
 - The frontend is intentionally minimal and operational, aiming to feel like standardized testing software rather than a generic hiring marketplace.
+
+<!-- test: verifying worktree PR workflow -->
