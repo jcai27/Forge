@@ -1,0 +1,11 @@
+{
+  "name": "agent-factory",
+  "private": true,
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "test": "bash scripts/test.sh",
+    "web": "pnpm --filter @factory/web dev",
+    "check": "pnpm --filter @factory/web check"
+  }
+}

@@ -1,0 +1,45 @@
+# Integration setup
+
+Administrators configure connections in the integration workspace. Credentials go in
+`secret`, which is encrypted at rest and never returned by REST APIs. Configuration
+is restricted to non-secret metadata. Connections with missing credentials remain in
+`setup_required`; testing discovers approved tools and marks successful connections
+connected. Revocation erases stored credentials and blocks existing versions.
+
+- Fixture: built-in fictional ERP. Read and approval-gated write permissions are separate.
+- REST: `base_url`, `allowed_hosts`, `health_path`, and `operations` containing `name`,
+  `description`, static relative `path`, `method`, `input_schema`, `output_schema`.
+  Store bearer token as secret. Private/loopback/metadata hosts are rejected; redirects
+  are disabled; 429 responses have bounded retries. Explicit host/network egress policy
+  should be enforced by the deployment network as well.
+- PostgreSQL: store a DSN as secret, set `schema` and a `tables` allowlist. Use a dedicated
+  read-only database role. The adapter enforces read-only transactions, statement timeout,
+  identifier quoting and bounded results; it exposes no arbitrary SQL execution.
+- Files: create a file connection and upload CSV/XLSX. Limits: 5 MB, 10,000 records.
+  Resources start private. Explicitly authorize model visibility per imported source.
+- Webhooks: configure an input JSON schema and a signing secret. POST to
+  `/webhooks/{connection_id}` with `X-Webhook-Timestamp` (Unix seconds) and
+  `X-Webhook-Signature` (hex HMAC-SHA256 of `timestamp + '.' + raw_body`). A five-minute
+  replay window and persisted deduplication prevent repeat ingestion. Imported events
+  require explicit model visibility authorization.
+- Email: use `provider: "mock"` for testable, labeled fictional messages. For a real
+  provider configure `imap_host`, `smtp_host` and secret JSON with `username`/`password`.
+  IMAP uses TLS, read-only selection and BODY.PEEK; SMTP uses TLS. Sending is a write
+  requiring approval. OAuth app registration is not available in this environment;
+  this is a working credential-based IMAP/SMTP adapter, not a claimed OAuth connection.
+- MCP: configure streamable HTTP `url`, `allowed_hosts`, `allowed_tools`, `read_tools`.
+  Store bearer token as secret. Discovery uses the installed SDK MCP client and builds
+  typed tool definitions from actual server schemas. Unclassified tools are writes by
+  default and require approval. Contract tests use a test server adapter; no external
+  server credentials have been supplied.
+
+Versions pin tool contracts and connection configuration fingerprints. Changes require
+new immutable candidate configuration and evaluation rather than silently changing a
+production version. Reads and writes check tenant, tool, connection and resource scope.
+Evaluations currently execute fixture tools only; external connectors need a replay
+adapter before evaluating real data. Evaluations cannot invoke external write tools.
+
+External dispatch records intent before network I/O. Failed or interrupted writes are
+left `reconciliation_required`/`dispatching`; the platform never blindly retries an
+ambiguous email or HTTP write. A human must reconcile against provider records before
+choosing a new request. Fixture ERP mutations and approval state commit atomically.

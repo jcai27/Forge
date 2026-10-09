@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test';
+export default defineConfig({testDir:'./tests/e2e',fullyParallel:false,workers:1,timeout:90000,use:{baseURL:'http://127.0.0.1:3100',trace:'retain-on-failure'},webServer:[{command:'bash ../../scripts/test-api.sh',url:'http://127.0.0.1:8100/health',reuseExistingServer:false,timeout:30000},{command:'NEXT_PUBLIC_API_URL=http://127.0.0.1:8100 corepack pnpm dev --port 3100',url:'http://127.0.0.1:3100',reuseExistingServer:false,timeout:90000}]});

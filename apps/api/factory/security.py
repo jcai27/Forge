@@ -1,0 +1,106 @@
+import hashlib
+import re
+from dataclasses import dataclass
+from datetime import timedelta
+
+import jwt
+from argon2 import PasswordHasher
+from cryptography.fernet import Fernet
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
+
+from factory.config import settings
+from factory.db import get_db, now
+from factory.models import AuditEvent, Membership, User
+
+passwords = PasswordHasher()
+bearer = HTTPBearer()
+
+
+@dataclass
+class Principal:
+    user_id: str
+    org_id: str
+    role: str
+
+
+def token_for(user_id, org_id):
+    return jwt.encode(
+        {"sub": user_id, "org": org_id, "exp": now() + timedelta(hours=8)}, settings().jwt_secret, algorithm="HS256"
+    )
+
+
+def principal(credentials: HTTPAuthorizationCredentials = Depends(bearer), db=Depends(get_db)):
+    try:
+        claims = jwt.decode(credentials.credentials, settings().jwt_secret, algorithms=["HS256"])
+        member = db.scalar(
+            select(Membership).where(Membership.user_id == claims["sub"], Membership.org_id == claims["org"])
+        )
+        if not member or not db.get(User, member.user_id):
+            raise ValueError("Membership revoked")
+        return Principal(member.user_id, member.org_id, member.role)
+    except (jwt.PyJWTError, KeyError, ValueError):
+        raise HTTPException(401, "Invalid or expired authentication") from None
+
+
+def require_write(actor):
+    if actor.role not in ("admin", "editor"):
+        raise HTTPException(403, "Editor role required")
+
+
+def require_admin(actor):
+    if actor.role != "admin":
+        raise HTTPException(403, "Administrator role required")
+
+
+def owned(db, cls, resource_id, actor):
+    item = db.get(cls, resource_id)
+    if item is None or item.org_id != actor.org_id:
+        raise HTTPException(404, "Resource not found")
+    return item
+
+
+def cipher():
+    key = settings().encryption_key
+    if not key:
+        import base64
+
+        key = base64.urlsafe_b64encode(hashlib.sha256(settings().jwt_secret.encode()).digest()).decode()
+    return Fernet(key.encode())
+
+
+def encrypt(value):
+    return cipher().encrypt(value.encode()).decode() if value else ""
+
+
+def decrypt(value):
+    return cipher().decrypt(value.encode()).decode() if value else ""
+
+
+SECRET_KEYS = re.compile(
+    r"(password|secret|authorization|api.?key|access.?token|refresh.?token|credential)", re.IGNORECASE
+)
+
+
+def redact(value):
+    if isinstance(value, dict):
+        return {k: "[REDACTED]" if SECRET_KEYS.search(k) else redact(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact(v) for v in value]
+    if isinstance(value, str):
+        value = re.sub(r"(?i)Bearer\s+\S+", "Bearer [REDACTED]", value)
+        return re.sub(r"\bsk-[A-Za-z0-9_-]+", "[REDACTED]", value)
+    return value
+
+
+def audit(db, actor, action, resource_id, detail=None):
+    db.add(
+        AuditEvent(
+            org_id=actor.org_id,
+            actor_id=actor.user_id,
+            action=action,
+            resource_id=resource_id,
+            detail=redact(detail or {}),
+        )
+    )

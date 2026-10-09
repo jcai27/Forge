@@ -1,0 +1,5 @@
+import {afterEach,expect,it,vi} from 'vitest';
+import {api} from './api';
+afterEach(()=>{vi.unstubAllGlobals();localStorage.clear();});
+it('uses bearer authentication and preserves structured invocation payloads',async()=>{localStorage.setItem('factory-token','local-session');const fetch=vi.fn().mockResolvedValue({ok:true,json:async()=>({id:'run-1'})});vi.stubGlobal('fetch',fetch);expect(await api('/deployments/1/invoke',{input:{text:'Order'},idempotency_key:'key'})).toEqual({id:'run-1'});const options=fetch.mock.calls[0][1];expect(options.headers.Authorization).toBe('Bearer local-session');expect(JSON.parse(options.body).idempotency_key).toBe('key');});
+it('surfaces the backend error envelope rather than treating rejected writes as success',async()=>{vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:false,status:403,json:async()=>({error:{message:'Operation is not authorized'}})}));await expect(api('/approvals/1/resolve',{approved:true})).rejects.toThrow('Operation is not authorized');});

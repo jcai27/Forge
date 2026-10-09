@@ -1,0 +1,51 @@
+name: agent-factory
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: factory
+      POSTGRES_USER: factory
+      POSTGRES_PASSWORD: local-factory-password
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U factory"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:56379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  migrate:
+    build: {context: ., dockerfile: apps/api/Dockerfile}
+    command: ["alembic", "upgrade", "head"]
+    environment: &api_environment
+      DATABASE_URL: postgresql+psycopg://factory:local-factory-password@postgres:5432/factory
+      REDIS_URL: redis://redis:6379/0
+      EXECUTION_MODE: ${EXECUTION_MODE:-demo}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      JWT_SECRET: ${JWT_SECRET:-local-development-only-change-before-deployment}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+    depends_on: {postgres: {condition: service_healthy}}
+  api:
+    build: {context: ., dockerfile: apps/api/Dockerfile}
+    environment: *api_environment
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on: {migrate: {condition: service_completed_successfully}, redis: {condition: service_healthy}}
+  worker:
+    build: {context: ., dockerfile: apps/api/Dockerfile}
+    command: ["python", "/app/services/worker/main.py"]
+    environment: *api_environment
+    depends_on: {migrate: {condition: service_completed_successfully}}
+  web:
+    build: {context: ., dockerfile: apps/web/Dockerfile}
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on: [api]
+volumes:
+  postgres_data:
