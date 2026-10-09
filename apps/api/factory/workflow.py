@@ -140,7 +140,9 @@ async def advance(db, job):
         ]
         if remaining:
             case, trial = remaining[0]
-            result = await evaluate_case(db, evaluation, version, case, trial)
+            result = await evaluate_case(
+                db, evaluation, version, case, trial, max_cost=max(0, budget.max_cost - job.spent)
+            )
             run = db.get(__import__("factory.models", fromlist=["ExecutionRun"]).ExecutionRun, result.execution_id)
             job.spent += run.metrics.get("cost", 0)
             emit(

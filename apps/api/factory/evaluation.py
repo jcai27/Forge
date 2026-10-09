@@ -96,7 +96,7 @@ def grade(run, case):
     return checks, failures
 
 
-async def evaluate_case(db, evaluation, version, case, trial=0):
+async def evaluate_case(db, evaluation, version, case, trial=0, max_cost=None):
     existing = db.scalar(
         select(EvaluationResult).where(
             EvaluationResult.evaluation_run_id == evaluation.id,
@@ -106,7 +106,7 @@ async def evaluate_case(db, evaluation, version, case, trial=0):
     )
     if existing:
         return existing
-    run = await execute(db, version, case.input, evaluation=True)
+    run = await execute(db, version, case.input, evaluation=True, max_cost=max_cost)
     checks, failures = grade(run, case)
     result = EvaluationResult(
         org_id=version.org_id,
