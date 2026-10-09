@@ -2,7 +2,7 @@
 
 Authoritative scope: docs/AGENT_FACTORY_SPEC.md. The complete goal remains active.
 See docs/ACCEPTANCE.md for requirement-level evidence and gaps; chronological evidence
-is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 builder accounting/quality.
+is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 reviewed background test design.
 
 Verified working slices:
 
@@ -20,15 +20,16 @@ Verified working slices:
 9. Orders/quotes/administrative hiring share runtime, factory, tools and assertions.
 10. Real worker kill/recovery, tenant/RBAC/secret tests and PG concurrency tests.
 
-Latest checks: Ruff; 45 SQLite tests passed (4 PG-only skips); 49 PG tests passed;
+Latest checks: Ruff; 47 SQLite tests passed (4 PG-only skips); 51 PG tests passed;
 strict TypeScript; 2 Vitest tests; complete browser flow; Alembic drift checks on both
 DBs; populated migration upgrade/downgrade; optimized images and Compose health.
 These prove working slices, not complete phases or the whole product specification.
 
 Next work, in priority order:
 
-1. General background Test Designer with reviewed proposals, custom-workflow evidence
-   and redirecting builds. Avoid self-confirming generated answers or hidden-answer leaks.
+1. Broader custom-workflow evidence and build redirection. Background Test Designer
+   proposals now require administrator correction/acceptance; verify more connector
+   workflows and keep hidden answers outside optimizer context.
 2. Durable provider-call cost reservation/recovery for process termination mid-request.
    Handled architecture/optimizer failures retain measured usage; abrupt crashes remain
    an accounting gap. Verify SDK role contracts more broadly without inventing metrics.

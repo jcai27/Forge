@@ -874,6 +874,58 @@
         }
       }
     },
+    "/builds/{job_id}/test-proposals/accept": {
+      "post": {
+        "summary": "Accept Test Proposals",
+        "operationId": "accept_test_proposals_builds__job_id__test_proposals_accept_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestDesign"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/integrations/catalog": {
       "get": {
         "summary": "Integration Catalog",
@@ -3473,6 +3525,32 @@
           "response"
         ],
         "title": "ReplayResponse"
+      },
+      "TestDesign": {
+        "properties": {
+          "rationale": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 10,
+            "title": "Rationale"
+          },
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/CreateCase"
+            },
+            "type": "array",
+            "maxItems": 40,
+            "minItems": 6,
+            "title": "Cases"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "rationale",
+          "cases"
+        ],
+        "title": "TestDesign"
       },
       "TriggerUpdate": {
         "properties": {

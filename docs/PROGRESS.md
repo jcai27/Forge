@@ -145,3 +145,31 @@ provider request; build redirection; known-secret-value/private-output minimizat
 streaming/DNS transport hardening and non-root deployment; memberships, pagination,
 mobile/accessibility and full acceptance audit. Actual provider/grade correctness remains
 unverified without credentials. The full goal remains active; this is a verified milestone.
+
+2026-10-09 reviewed Test Designer milestone verified: a live build with no cases invokes
+a general SDK role using structured requirements, rules and approved tool schemas.
+Typed proposals require six distinct scenarios, all three splits, assertions and a
+critical regression case. Tool recordings are checked against actual authorized schemas;
+live/imported access grants are rejected. Role token/cost usage is recorded.
+
+Proposals remain in the build checkpoint, outside the evaluation library. The build
+page provides a correction/review form. An administrator accepts a corrected plan,
+atomically imports cases, records review/audit evidence and resumes the same build.
+Repeated acceptance cannot duplicate cases. Existing authored suites bypass proposal
+generation. The optimizer still receives only development failures, not held-out answers.
+Deterministic custom mode continues to require authored cases rather than claiming a
+model-generated plan. Actual general-provider plan quality remains unverified.
+
+SDK contract tests prove the proposal/review boundary, editor rejection, correction of
+an incorrect price expectation, rejected live-access proposal and recorded usage. The
+accepted authored expectations are then exercised through the actual SDK fixture tool,
+independent grading, development/regression comparison and held-out readiness. No score
+overrides are used. Final checks: Ruff; 47 SQLite tests passed (4 PG-only skips); all
+51 PostgreSQL tests passed; TypeScript; 2 Vitest tests; existing full browser journey;
+optimized Docker images; rebuilt Compose health/dashboard/proposal-route checks.
+The proposal form is type/build checked; its own browser interaction still needs an
+expanded scenario. No real provider credentials or production writes were used.
+
+Next: durable provider-call reservation/recovery, build redirection and broader custom
+connector workflows; known-secret/private-data and transport hardening; memberships,
+pagination/mobile/accessibility; complete acceptance audit. Goal remains active.

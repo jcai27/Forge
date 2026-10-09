@@ -174,6 +174,11 @@ class CreateCase(StrictModel):
         return assertions
 
 
+class TestDesign(StrictModel):
+    rationale: str = Field(min_length=10, max_length=4000)
+    cases: list[CreateCase] = Field(min_length=6, max_length=40)
+
+
 class CreateTrigger(StrictModel):
     name: str = Field(min_length=1, max_length=200)
     kind: Literal["schedule", "webhook"]

@@ -8,8 +8,11 @@ AgentSpec. Business requirements include objective, inputs/outputs, systems, ste
 rules, exceptions, success metrics, side-effect policy and explicit assumptions.
 
 The deterministic templates use authored domain defaults, not a claimed live model.
-Custom workflows still require authored evaluation cases; a general background Test
-Designer and reviewed proposals remain outstanding. The optimizer receives only
+When a live workflow has no authored cases, a general SDK Test Designer proposes
+independent scenarios with development/regression/held-out splits. Proposals remain in
+the build checkpoint until an administrator corrects and accepts them; they do not
+count as executed evidence. The build page exposes this review form. In deterministic
+mode, custom workflows still need authored cases. The optimizer receives only
 development failure evidence, never regression or held-out answers.
 
 Architecture and optimization calls use the real Agents SDK with structured output,
@@ -57,3 +60,11 @@ Local SDK provider-contract tests verify role output parsing, scope enforcement,
 recorded usage and budget behavior. They do not establish that a real provider produces
 correct architectures or improvements. Actual provider execution remains unverified
 until authorized credentials are configured.
+
+Test proposals require six or more distinct cases, assertions, all three splits and a
+critical regression scenario. Tool recordings must match authorized IDs and schemas.
+Generated proposals cannot grant live access or imported-data visibility. Accept with
+`POST /builds/{id}/test-proposals/accept` using the corrected `{rationale, cases}` plan.
+This imports cases atomically, audits the reviewer and resumes the same build. Repeated
+acceptance returns a conflict. Assertions then grade actual executions; accepting a
+proposal never changes a scorecard or authorizes production side effects.

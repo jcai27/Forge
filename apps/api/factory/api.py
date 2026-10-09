@@ -40,6 +40,7 @@ from factory.schemas import (
     Login,
     Reconciliation,
     Register,
+    TestDesign,
     TriggerUpdate,
 )
 from factory.security import (
@@ -520,6 +521,50 @@ async def build_events(job_id: str, request: Request, after: str | None = None, 
 def build_history(job_id: str, offset: int = OFFSET, limit: int = LIMIT, actor=ACTOR, db=DB):
     owned(db, m.BuildJob, job_id, actor)
     return collection(db, m.ExecutionEvent, actor, offset, limit, (m.ExecutionEvent.job_id == job_id,))
+
+
+@app.post("/builds/{job_id}/test-proposals/accept")
+def accept_test_proposals(job_id: str, body: TestDesign, actor=ACTOR, db=DB):
+    from factory.builder import validate_test_design
+
+    require_admin(actor)
+    job = db.scalar(
+        select(m.BuildJob).where(m.BuildJob.id == job_id, m.BuildJob.org_id == actor.org_id).with_for_update()
+    )
+    if not job:
+        raise HTTPException(404, "Build not found")
+    if job.state != "WAITING_FOR_APPROVAL" or not job.checkpoint.get("test_proposals"):
+        raise HTTPException(409, "Build has no pending test proposal review")
+    version = owned(db, m.AgentVersion, job.checkpoint["version_id"], actor)
+    validate_test_design(db, version, body)
+    reject_secret_config(body.model_dump())
+    suite = db.scalar(
+        select(m.EvaluationSuite).where(
+            m.EvaluationSuite.agent_id == job.agent_id, m.EvaluationSuite.org_id == actor.org_id
+        )
+    )
+    if not suite:
+        raise HTTPException(409, "Agent has no evaluation suite")
+    ids = []
+    for authored in body.cases:
+        case = m.EvaluationCase(
+            org_id=actor.org_id, suite_id=suite.id, authorized_by=actor.user_id, **authored.model_dump()
+        )
+        db.add(case)
+        db.flush()
+        ids.append(case.id)
+    job.checkpoint = {
+        **job.checkpoint,
+        "test_proposals": None,
+        "accepted_case_ids": ids,
+        "test_design_reviewed_by": actor.user_id,
+        "test_design_reviewed_at": now().isoformat(),
+        "waiting_reason": "",
+    }
+    control(db, job, "resume")
+    audit(db, actor, "test_proposals_accepted", job.id, {"case_ids": ids})
+    db.commit()
+    return serialize(job)
 
 
 @app.get("/integrations/catalog")

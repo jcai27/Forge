@@ -5,7 +5,7 @@ from datetime import UTC, timedelta
 
 from sqlalchemy import select, update
 
-from factory.builder import design, optimize, persist_version
+from factory.builder import design, design_tests, optimize, persist_version
 from factory.config import settings
 from factory.connectors import check_connection
 from factory.db import SessionLocal, now, uid
@@ -149,13 +149,30 @@ async def advance(db, job):
         transition(db, job, "BUILDING")
     elif job.state == "BUILDING":
         if not suite or not db.scalar(select(EvaluationCase).where(EvaluationCase.suite_id == suite.id).limit(1)):
+            if settings().execution_mode == "live" and not checkpoint.get("test_proposals"):
+                usage = {}
+                try:
+                    proposal = await design_tests(
+                        db,
+                        version,
+                        max_cost=max(0, budget.max_cost - job.spent),
+                        max_seconds=max(0, budget.max_seconds - elapsed),
+                        usage=usage,
+                    )
+                    checkpoint["test_proposals"] = proposal.model_dump()
+                except Exception as error:
+                    record_role_usage(db, job, "test_designer", usage)
+                    job.error = type(error).__name__
+                    transition(db, job, "BUDGET_EXHAUSTED" if isinstance(error, BudgetExceeded) else "FAILED")
+                    return
+                record_role_usage(db, job, "test_designer", usage)
             transition(
                 db,
                 job,
                 "WAITING_FOR_APPROVAL",
                 {
                     **checkpoint,
-                    "waiting_reason": "Custom workflow needs authored evaluation cases before evidence-based optimization",
+                    "waiting_reason": "Review and correct proposed cases, or import authored cases, before evidence-based optimization",
                 },
             )
             return

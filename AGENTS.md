@@ -20,6 +20,8 @@ Builder policies/accounting are documented in docs/FACTORY.md. Live architecture
 in the worker; model candidates cannot change user quality policies or expand resource
 ceilings. Role usage records use job_id and a nullable run_id; runtime/grading records
 use run_id. Read PLANS.md's current priorities rather than older progress snapshots.
+Generated test proposals are not evidence: keep them outside evaluation_cases until
+administrator correction/acceptance. No proposed plan can grant live/imported access.
 
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require
