@@ -2658,6 +2658,24 @@
             "minimum": 0.0,
             "title": "Max Cost",
             "default": 1
+          },
+          "requirements": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BusinessRequirements"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quality_policy": {
+            "$ref": "#/components/schemas/QualityPolicy"
+          },
+          "design_metrics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Design Metrics"
           }
         },
         "additionalProperties": false,
@@ -2738,6 +2756,81 @@
         "additionalProperties": false,
         "type": "object",
         "title": "Budget"
+      },
+      "BusinessRequirements": {
+        "properties": {
+          "objective": {
+            "type": "string",
+            "title": "Objective"
+          },
+          "inputs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Inputs"
+          },
+          "expected_outputs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Expected Outputs"
+          },
+          "required_systems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Systems"
+          },
+          "workflow_steps": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Workflow Steps"
+          },
+          "business_rules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Business Rules"
+          },
+          "exceptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Exceptions"
+          },
+          "success_metrics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Success Metrics"
+          },
+          "side_effect_permissions": {
+            "type": "string",
+            "title": "Side Effect Permissions",
+            "default": "explicit_human_approval"
+          },
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Assumptions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "objective"
+        ],
+        "title": "BusinessRequirements"
       },
       "CaseEnvironment": {
         "properties": {
@@ -3240,6 +3333,65 @@
           "criteria"
         ],
         "title": "QualitativeRubric"
+      },
+      "QualityPolicy": {
+        "properties": {
+          "minimum_score": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Minimum Score",
+            "default": 0.95
+          },
+          "minimum_cases": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Minimum Cases",
+            "default": 1
+          },
+          "minimum_validation_cases": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Minimum Validation Cases",
+            "default": 1
+          },
+          "maximum_mean_latency_ms": {
+            "type": "number",
+            "maximum": 3600000.0,
+            "minimum": 0.0,
+            "title": "Maximum Mean Latency Ms",
+            "default": 60000
+          },
+          "maximum_evaluation_cost": {
+            "type": "number",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Maximum Evaluation Cost",
+            "default": 1000
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "pass_rate",
+              "cost",
+              "latency"
+            ],
+            "title": "Objective",
+            "default": "pass_rate"
+          },
+          "minimum_improvement": {
+            "type": "number",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Minimum Improvement",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "QualityPolicy"
       },
       "Reconciliation": {
         "properties": {

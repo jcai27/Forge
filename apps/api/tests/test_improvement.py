@@ -64,6 +64,40 @@ async def test_higher_score_candidate_with_development_fixes_and_critical_regres
 
 
 @pytest.mark.asyncio
+async def test_equal_aggregate_regression_score_cannot_hide_a_new_case_failure(db, seeded):
+    from factory.models import EvaluationCase, EvaluationSuite
+
+    org, _, agent, initial, *_ = seeded
+    suite = EvaluationSuite(org_id=org.id, agent_id=agent.id, name="Per-case regression protection")
+    db.add(suite)
+    db.flush()
+    for name, split, text, sku in [
+        ("Development typo", "development", "Harbor Bistro: 2 kg Ricee", "SKU-004"),
+        ("Regression alias", "regression", "Harbor Bistro: 2 kg chook", "SKU-002"),
+        ("Regression typo", "regression", "Harbor Bistro: 2 kg Ricee", "SKU-004"),
+    ]:
+        db.add(
+            EvaluationCase(
+                org_id=org.id,
+                suite_id=suite.id,
+                name=name,
+                split=split,
+                input={"text": text},
+                assertions=[{"path": "lines.0.sku", "value": sku}],
+            )
+        )
+    spec = AgentSpec.model_validate(initial.spec)
+    spec.rules.update(resolve_aliases=True, fuzzy_match=False)
+    baseline = await evaluate_suite(db, persist_version(db, agent, spec), suite)
+    spec.rules.update(resolve_aliases=False, fuzzy_match=True)
+    candidate = await evaluate_suite(db, persist_version(db, agent, spec), suite)
+    assert candidate.scorecard["score"] > baseline.scorecard["score"]
+    assert candidate.scorecard["splits"]["regression"]["score"] == baseline.scorecard["splits"]["regression"]["score"]
+    assert candidate.scorecard["critical_failures"] == 0
+    assert not can_promote(candidate.scorecard, baseline.scorecard)
+
+
+@pytest.mark.asyncio
 async def test_restart_recovers_and_does_not_duplicate_results(db, seeded):
     _, _, agent, _, _, _ = seeded
     job = new_job(db, agent, Budget())

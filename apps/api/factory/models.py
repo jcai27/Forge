@@ -219,7 +219,9 @@ class AuditEvent(Owned, Base):
 
 class UsageRecord(Owned, Base):
     __tablename__ = "usage_records"
-    run_id: Mapped[str] = mapped_column(ForeignKey("execution_runs.id"))
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("execution_runs.id"), nullable=True)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("build_jobs.id"), nullable=True)
+    role: Mapped[str] = mapped_column(String(100), default="execution")
     tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost: Mapped[float] = mapped_column(Float, default=0)
 

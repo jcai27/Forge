@@ -103,9 +103,16 @@ def test_sqlite_upgrade_and_downgrade_preserve_existing_evaluation_history(tmp_p
                 },
             ),
         ]
+        existing_usage_id = uid()
+        rows.append(
+            ("usage_records", {**common, "id": existing_usage_id, "run_id": execution, "tokens": 7, "cost": 0.25})
+        )
         for name, row in rows:
             connection.execute(tables.tables[name].insert().values(**row))
         command.upgrade(config, "head")
+        assert connection.execute(
+            text("SELECT cost, role FROM usage_records WHERE id = :id"), {"id": existing_usage_id}
+        ).one() == (0.25, "execution")
         assert (
             connection.execute(
                 text("SELECT environment FROM evaluation_cases WHERE id = :id"), {"id": case}
@@ -121,6 +128,12 @@ def test_sqlite_upgrade_and_downgrade_preserve_existing_evaluation_history(tmp_p
         assert connection.execute(text("PRAGMA foreign_key_check")).fetchall() == []
         command.check(config)
         command.downgrade(config, "0002")
+        assert (
+            connection.execute(
+                text("SELECT cost FROM usage_records WHERE id = :id"), {"id": existing_usage_id}
+            ).scalar_one()
+            == 0.25
+        )
         assert (
             connection.execute(text("SELECT name FROM evaluation_cases WHERE id = :id"), {"id": case}).scalar_one()
             == "Existing case"

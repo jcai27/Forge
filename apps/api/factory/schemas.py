@@ -7,6 +7,29 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class BusinessRequirements(StrictModel):
+    objective: str
+    inputs: list[str] = Field(default_factory=list)
+    expected_outputs: list[str] = Field(default_factory=list)
+    required_systems: list[str] = Field(default_factory=list)
+    workflow_steps: list[str] = Field(default_factory=list)
+    business_rules: list[str] = Field(default_factory=list)
+    exceptions: list[str] = Field(default_factory=list)
+    success_metrics: list[str] = Field(default_factory=list)
+    side_effect_permissions: str = "explicit_human_approval"
+    assumptions: list[str] = Field(default_factory=list)
+
+
+class QualityPolicy(StrictModel):
+    minimum_score: float = Field(default=0.95, ge=0, le=1)
+    minimum_cases: int = Field(default=1, ge=1, le=10000)
+    minimum_validation_cases: int = Field(default=1, ge=1, le=10000)
+    maximum_mean_latency_ms: float = Field(default=60000, ge=0, le=3600000)
+    maximum_evaluation_cost: float = Field(default=1000, ge=0, le=1000)
+    objective: Literal["pass_rate", "cost", "latency"] = "pass_rate"
+    minimum_improvement: float = Field(default=0, ge=0, le=1000)
+
+
 class AgentSpec(StrictModel):
     schema_version: int = 1
     name: str = Field(min_length=1, max_length=200)
@@ -36,6 +59,9 @@ class AgentSpec(StrictModel):
     max_turns: int = Field(default=12, ge=1, le=50)
     timeout_seconds: int = Field(default=60, ge=1, le=300)
     max_cost: float = Field(default=1, ge=0, le=100)
+    requirements: BusinessRequirements | None = None
+    quality_policy: QualityPolicy = Field(default_factory=QualityPolicy)
+    design_metrics: dict = Field(default_factory=dict)
 
 
 class Budget(StrictModel):

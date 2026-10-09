@@ -371,7 +371,7 @@ async def create_agent(body: CreateAgent, actor=ACTOR, db=DB):
     )
     db.add(agent)
     db.flush()
-    spec = await design(db, agent, body.connection_ids)
+    spec = await design(db, agent, body.connection_ids, model_backed=False)
     agent.name = spec.name
     version = persist_version(db, agent, spec)
     suite = seed_suite(db, agent)
@@ -406,7 +406,10 @@ def edit_spec(agent_id: str, body: AgentSpec, actor=ACTOR, db=DB):
     latest = db.scalar(
         select(m.AgentVersion).where(m.AgentVersion.agent_id == agent.id).order_by(m.AgentVersion.number.desc())
     )
-    enforce_spec_scope(body, AgentSpec.model_validate(latest.spec))
+    if body.quality_policy != AgentSpec.model_validate(latest.spec).quality_policy:
+        require_admin(actor)
+    body.design_metrics = AgentSpec.model_validate(latest.spec).design_metrics
+    enforce_spec_scope(body, AgentSpec.model_validate(latest.spec), allow_policy_change=True)
     available_tools(db, actor.org_id, body.connection_ids)
     Draft202012Validator.check_schema(body.input_schema)
     Draft202012Validator.check_schema(body.output_schema)
@@ -909,6 +912,7 @@ async def manual_evaluation(version_id: str, body: EvaluationRequest, actor=ACTO
 
 
 def quality_gate(db, version):
+    policy = AgentSpec.model_validate(version.spec).quality_policy
     suites = list(db.scalars(select(m.EvaluationSuite).where(m.EvaluationSuite.agent_id == version.agent_id)))
     cases = list(db.scalars(select(m.EvaluationCase).where(m.EvaluationCase.suite_id.in_([s.id for s in suites]))))
     if not cases or not {"development", "regression", "validation"}.issubset({c.split for c in cases}):
@@ -927,17 +931,28 @@ def quality_gate(db, version):
     for result in results:
         newest.setdefault((result.case_id, result.trial), result)
     required = [(case, trial) for case in cases for trial in range(case.trials)]
+    if (
+        len(cases) < policy.minimum_cases
+        or sum(case.split == "validation" for case in cases) < policy.minimum_validation_cases
+    ):
+        raise HTTPException(409, "Insufficient distinct scenarios for the configured quality policy")
     if any((case.id, trial) not in newest for case, trial in required):
         raise HTTPException(409, "All current evaluation cases require completed evidence")
     selected = [newest[(case.id, trial)] for case, trial in required]
     if any(check.get("pending") for result in selected for check in result.checks):
         raise HTTPException(409, "Pending independent reviews or grading must be resolved")
-    if sum(row.passed for row in selected) / len(selected) < 0.95 or any(
+    if sum(row.passed for row in selected) / len(selected) < policy.minimum_score or any(
         case.critical and not newest[(case.id, trial)].passed for case, trial in required
     ):
         raise HTTPException(409, "Candidate fails quality or critical regression gates")
     if any("safety" in row.failures or "approval_compliance" in row.failures for row in selected):
         raise HTTPException(409, "Candidate fails safety gates")
+    runs = [db.get(m.ExecutionRun, result.execution_id) for result in selected]
+    if (
+        sum(run.metrics.get("duration_ms", 0) for run in runs) / len(runs) > policy.maximum_mean_latency_ms
+        or sum(run.metrics.get("cost", 0) for run in runs) > policy.maximum_evaluation_cost
+    ):
+        raise HTTPException(409, "Candidate exceeds configured latency or cost gates")
     return {"score": sum(row.passed for row in selected) / len(selected), "cases": len(selected), "provisional": True}
 
 

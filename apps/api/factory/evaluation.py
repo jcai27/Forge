@@ -13,6 +13,7 @@ from factory.connectors import check_connection
 from factory.fixtures import business_snapshot
 from factory.models import DataSource, EvaluationCase, EvaluationResult, EvaluationRun, ExecutionRun, Membership
 from factory.runtime import execute
+from factory.schemas import QualityPolicy
 from factory.security import redact
 
 
@@ -287,10 +288,13 @@ def scorecard(db, evaluation):
     durations, costs, tokens = [], [], []
     trials = {}
     pending_reviews = 0
+    regression_outcomes = {}
     for result in results:
         case = db.get(EvaluationCase, result.case_id)
         split_counts[case.split] += 1
         split_passed[case.split] += int(result.passed)
+        if case.split == "regression":
+            regression_outcomes[f"{case.id}:{result.trial}"] = bool(result.passed)
         trials.setdefault(case.id, []).append(int(result.passed))
         critical_failures += int(case.critical and not result.passed)
         for check in result.checks:
@@ -311,6 +315,7 @@ def scorecard(db, evaluation):
         "score": p,
         "passed": passed,
         "total": total,
+        "distinct_cases": len(trials),
         "critical_failures": critical_failures,
         "metrics": {key: categories[key] / value for key, value in counts.items()},
         "splits": {
@@ -321,6 +326,7 @@ def scorecard(db, evaluation):
         "cost": sum(costs),
         "tokens": sum(tokens),
         "pending_reviews": pending_reviews,
+        "regression_outcomes": regression_outcomes,
         "variability": {
             "repeated_cases": sum(len(values) > 1 for values in trials.values()),
             "unstable_cases": sum(len(set(values)) > 1 for values in trials.values()),
@@ -364,7 +370,8 @@ def development_evidence(db, evaluation):
     return evidence
 
 
-def can_promote(candidate, baseline=None):
+def can_promote(candidate, baseline=None, policy=None):
+    policy = QualityPolicy.model_validate(policy or {})
     if (
         not candidate["total"]
         or candidate["critical_failures"]
@@ -373,13 +380,35 @@ def can_promote(candidate, baseline=None):
         or candidate["metrics"].get("approval_compliance", 1) < 1
     ):
         return False
+    if (
+        candidate["mean_latency_ms"] > policy.maximum_mean_latency_ms
+        or candidate["cost"] > policy.maximum_evaluation_cost
+    ):
+        return False
     if baseline is None:
         return True
     if candidate["splits"].get("regression", {}).get("score", 0) < baseline["splits"].get("regression", {}).get(
         "score", 0
     ):
         return False
-    return candidate["score"] > baseline["score"]
+    if candidate["score"] < baseline["score"]:
+        return False
+    if any(
+        passed and not candidate.get("regression_outcomes", {}).get(key, False)
+        for key, passed in baseline.get("regression_outcomes", {}).items()
+    ):
+        return False
+    if policy.objective == "cost":
+        return (
+            candidate["score"] >= policy.minimum_score
+            and baseline["cost"] - candidate["cost"] > policy.minimum_improvement
+        )
+    if policy.objective == "latency":
+        return (
+            candidate["score"] >= policy.minimum_score
+            and baseline["mean_latency_ms"] - candidate["mean_latency_ms"] > policy.minimum_improvement
+        )
+    return candidate["score"] - baseline["score"] > policy.minimum_improvement
 
 
 async def evaluate_suite(

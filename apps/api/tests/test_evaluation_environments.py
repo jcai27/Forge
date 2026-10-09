@@ -502,7 +502,7 @@ async def test_qualitative_budget_blocks_provider_before_another_call(db, seeded
     db.flush()
     checks = await grade_rubric(db, version, run, case)
     assert checks[0]["pending"] and not checks[0]["passed"]
-    assert checks[0]["evidence"].endswith("ValueError")
+    assert checks[0]["evidence"].endswith("BudgetExceeded")
     assert calls == []
     assert run.metrics["grading_cost"] == 0
 

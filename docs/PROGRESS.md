@@ -114,3 +114,34 @@ management; pagination, mobile/accessibility and redirect UX; SSRF/DNS/streaming
 non-root deployment and full tenant/schema/security audit. Actual OpenAI/provider
 execution, real email/OAuth/MCP credentials remain unavailable. The goal stays active;
 passing local fixtures and transport contracts do not establish live model correctness.
+
+2026-10-09 builder accounting/quality milestone verified: baseline versions persist
+structured requirements (objective, inputs/outputs, systems, steps, rules, exceptions,
+success metrics, permissions and assumptions). Live architecture runs in DESIGNING
+through the actual SDK and creates an immutable version. SDK design/optimization use
+bounded output, schema-aware pre-call reservations, remaining build cost/time and a
+shared usage ledger. Measured role usage persists on handled scope/output failure.
+Zero budget prevents model dispatch. The studio displays requirements and user policy.
+
+Quality policies now configure score/evidence counts, latency/cost limits, promotion
+objective and minimum improvement. Administrator edits create new versions. Models
+cannot change policy or increase resource ceilings. Readiness and deployment review
+apply the configured gates; critical/safety/split/review gates remain mandatory.
+Every previously passing regression trial must remain passing, so equal aggregate
+regression scores cannot hide a newly broken scenario. Cost/latency objectives retain
+measured task quality. An unchanged model candidate is explicitly identified as such.
+
+Final executed checks: bash scripts/test.sh passes (Ruff, 45 SQLite tests and 4 PG-only
+skips, TypeScript, 2 Vitest tests, complete browser flow); all 49 PG tests pass. SDK
+provider contracts cover background design success/failure, optimizer usage/development
+input scope, pre-dispatch zero-budget rejection, quality counts/latency and admin edits.
+Migration 0004 applies without drift on SQLite/PG; populated upgrade/downgrade retains
+evaluation history and existing runtime usage. API/web images build, rebuilt Compose
+runs and health/dashboard/schema checks pass. No actual provider credentials were used.
+
+Remaining highest priorities: general background Test Designer and reviewed proposed
+cases/custom workflow builds; durable accounting when a process dies during an unresolved
+provider request; build redirection; known-secret-value/private-output minimization;
+streaming/DNS transport hardening and non-root deployment; memberships, pagination,
+mobile/accessibility and full acceptance audit. Actual provider/grade correctness remains
+unverified without credentials. The full goal remains active; this is a verified milestone.

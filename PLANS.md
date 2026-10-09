@@ -1,60 +1,44 @@
 # Execution roadmap
 
-Authoritative specification: docs/AGENT_FACTORY_SPEC.md.
+Authoritative scope: docs/AGENT_FACTORY_SPEC.md. The complete goal remains active.
+See docs/ACCEPTANCE.md for requirement-level evidence and gaps; chronological evidence
+is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 builder accounting/quality.
 
-1. Foundation: monorepo, settings, relational schema, migrations, API, worker, compose.
-2. Runtime: immutable specs, registered tools, real SDK and explicit deterministic mode.
-3. Integrations: approved typed tools, fixture ERP, REST/Postgres/files/webhook/email/MCP.
-4. Builder: structured requirements and architecture from natural language.
-5. Evaluation: independent assertions, reset state, split suites, traces and scorecards.
-6. Improvement: durable checkpoints, diagnostic hypotheses, candidates, regression gates.
-7. Frontend: all specified pages, live persisted event progress and functional controls.
-8. Deployment: approval, pinning, invocation, resumption, rollback, monitoring.
-9. Templates: orders, quotes, hiring on shared tooling and runtime.
-10. Hardening: acceptance tests 1–10, recovery, tenant isolation, documentation.
+Verified working slices:
 
-Current: foundation and complete demo vertical slice verified. Continue the remaining
-requirements in docs/ACCEPTANCE.md; the full product goal is still active.
-Dependencies: package installation; PostgreSQL/Redis via Docker; optional OpenAI key.
-Known limitations: repository initially contained only the specification at root.
+1. Monorepo, FastAPI/Next.js/worker, relational schema, Alembic and full Compose startup.
+2. Immutable structured specs, real SDK tool dispatch, explicit deterministic demo mode.
+3. Fixture/REST/Postgres/file/webhook/email/MCP connectors and permission boundaries.
+4. Natural-language baseline, structured requirements, background live architecture.
+5. Isolated output/state/schema/sequence evaluation, replay/read-only grants, mapped
+   imports, trial variability, rubric availability/budget behavior and human review.
+6. Persistent evaluate/diagnose/revise/retest/compare loop with critical and individual
+   regression protection, separate held-out validation, pause/resume/cancel and budgets.
+7. All required UI routes, persisted SSE progress, studio, lab, comparisons and approvals.
+8. Pinned deployment, durable invocation queue, signed webhooks/schedules, lifetime
+   limits, rollback, approved writes and explicit uncertain-write reconciliation.
+9. Orders/quotes/administrative hiring share runtime, factory, tools and assertions.
+10. Real worker kill/recovery, tenant/RBAC/secret tests and PG concurrency tests.
 
-Verified backend progress: runtime/tool execution, fictional integration, versioned
-builder, independent evaluations, checkpointed improvement, approval and deployment
-APIs. Ten backend tests pass. Phase 1 remains open until frontend/local startup is
-verified; phases 2–6 have a working demo vertical slice, with live/connector hardening
-still required. Next: full frontend and browser E2E, PostgreSQL migration checks,
-connector contracts, rate/budget/retry security, deployment schedules/webhooks.
+Latest checks: Ruff; 45 SQLite tests passed (4 PG-only skips); 49 PG tests passed;
+strict TypeScript; 2 Vitest tests; complete browser flow; Alembic drift checks on both
+DBs; populated migration upgrade/downgrade; optimized images and Compose health.
+These prove working slices, not complete phases or the whole product specification.
 
-2026-10-09 verified milestone: durable deployment invocation queue, signed invocation
-webhooks, interval schedules, lifetime cost/invocation budgets, explicit external-write
-reconciliation, real process kill/recovery, PostgreSQL connector execution and concurrent
-approval/idempotency checks. Latest checks: 29 SQLite tests (4 PG-only skips), 33
-PostgreSQL tests, Ruff, strict TypeScript, 2 Vitest tests, browser flow, both Docker
-images and complete Compose startup. Fractional cents and duplicate incoming requests
-are checked at the actual approval boundary. No live credentials are configured.
-Next: replay/read-only evaluation environments, expected test state and tool sequence
-checks, qualitative and human review evidence, repeated-trial variability, builder roles
-and accounting, then remaining governance/frontend/security audit. Full goal remains active.
+Next work, in priority order:
 
-2026-10-09 evaluation milestone verified: exact ordered replay of external tools,
-administrator-authorized read-only evaluation, minimized imported-state mappings,
-independent state/schema/tool-sequence assertions, trial variability, optional bounded
-SDK rubric grading, audited human reviews and pending-review pause/resume. Critical
-regression rejects a candidate even when development and aggregate pass rates improve.
-Executed checks: 39 SQLite tests (4 PG-only skips), 43 PostgreSQL tests, populated
-SQLite migration upgrade/downgrade, no Alembic drift on either DB, Ruff, TypeScript,
-2 Vitest tests, expanded browser flow, optimized images and Compose health checks.
-Actual provider rubric responses remain unverified without OPENAI_API_KEY; local tests
-prove grading availability/budget behavior and real SDK multi-tool provider contracts.
-Next milestone: persistent structured requirements, background factory roles and
-general test design, bounded/accounted builder/optimizer calls, configurable quality
-policy/objectives; then membership/pagination/mobile and production transport audit.
+1. General background Test Designer with reviewed proposals, custom-workflow evidence
+   and redirecting builds. Avoid self-confirming generated answers or hidden-answer leaks.
+2. Durable provider-call cost reservation/recovery for process termination mid-request.
+   Handled architecture/optimizer failures retain measured usage; abrupt crashes remain
+   an accounting gap. Verify SDK role contracts more broadly without inventing metrics.
+3. Known-secret-value minimization, streaming response bounds, DNS/SSRF transport audit,
+   safe deployment users/settings and tenant/relational enforcement audit.
+4. Membership/invitation management, collection pagination, mobile/accessibility checks,
+   template browser journeys and controlled manual editing/redirect usability.
+5. Seed/API runbook, local MCP transport test and full requirement-by-requirement audit.
 
-Verified frontend milestone: all specified routes, live persisted build events, studio,
-evaluation lab, comparisons, integration forms, approvals, deployments and execution
-logs. Complete browser acceptance path passes. Current automated checks: Ruff clean,
-20 backend tests, 2 Vitest tests, strict TypeScript, Playwright flow, optimized Next build.
-PostgreSQL isolated-schema tests and migration drift checks pass. Docker API/web images
-build. Remaining work is explicitly listed at the end of docs/PROGRESS.md; prioritize
-scheduling/webhook deployment runtime, replay evaluation, comprehensive governance,
-general live model integration tests, and durable process/concurrency recovery next.
+External dependencies: no OPENAI_API_KEY or real provider credentials/app registrations
+are configured. Actual OpenAI model/rubric responses and external integrations remain
+unverified. Continue local functionality and contract verification independently.
+No unauthorized production writes have occurred or are authorized by this roadmap.

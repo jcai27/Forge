@@ -5,7 +5,7 @@ from datetime import UTC, timedelta
 
 from sqlalchemy import select, update
 
-from factory.builder import optimize, persist_version
+from factory.builder import design, optimize, persist_version
 from factory.config import settings
 from factory.connectors import check_connection
 from factory.db import SessionLocal, now, uid
@@ -19,8 +19,9 @@ from factory.models import (
     EvaluationResult,
     EvaluationRun,
     EvaluationSuite,
+    UsageRecord,
 )
-from factory.runtime import emit
+from factory.runtime import BudgetExceeded, emit
 from factory.schemas import AgentSpec, Budget
 
 TERMINAL = {"READY_FOR_REVIEW", "DEPLOYED", "FAILED", "CANCELLED", "BUDGET_EXHAUSTED"}
@@ -66,6 +67,16 @@ def start_evaluation(db, job, version, suite, validation=False):
     job.checkpoint = {**job.checkpoint, "evaluation_id": evaluation.id, "validation": validation}
 
 
+def record_role_usage(db, job, role, usage):
+    job.spent += usage.get("cost", 0)
+    db.add(
+        UsageRecord(
+            org_id=job.org_id, job_id=job.id, role=role, tokens=usage.get("tokens", 0), cost=usage.get("cost", 0)
+        )
+    )
+    emit(db, job.org_id, "factory_role_usage", {"role": role, **usage}, job_id=job.id)
+
+
 async def advance(db, job):
     if job.state in INACTIVE:
         return
@@ -95,6 +106,33 @@ async def advance(db, job):
         )
         transition(db, job, "DESIGNING")
     elif job.state == "DESIGNING":
+        if settings().execution_mode == "live":
+            usage = {}
+            try:
+                spec = await design(
+                    db,
+                    agent,
+                    version.spec["connection_ids"],
+                    max_cost=max(0, budget.max_cost - job.spent),
+                    max_seconds=max(0, budget.max_seconds - elapsed),
+                    usage=usage,
+                )
+                # User quality policy and resource ceilings remain authoritative.
+                spec.quality_policy = AgentSpec.model_validate(version.spec).quality_policy
+                version = persist_version(db, agent, spec, "Background requirements analysis and architecture")
+                checkpoint["version_id"] = version.id
+                job.checkpoint = checkpoint
+                agent.name = spec.name
+            except Exception as error:
+                record_role_usage(db, job, "requirements_architect", usage)
+                job.error = type(error).__name__
+                transition(
+                    db,
+                    job,
+                    "BUDGET_EXHAUSTED" if isinstance(error, BudgetExceeded) else "FAILED",
+                )
+                return
+            record_role_usage(db, job, "requirements_architect", usage)
         emit(
             db,
             job.org_id,
@@ -104,6 +142,7 @@ async def advance(db, job):
                 "template": agent.template,
                 "side_effect_policy": "human_approval",
                 "required_systems": version.spec["connection_ids"],
+                "requirements": version.spec.get("requirements"),
             },
             job_id=job.id,
         )
@@ -152,6 +191,14 @@ async def advance(db, job):
             )
             run = db.get(__import__("factory.models", fromlist=["ExecutionRun"]).ExecutionRun, result.execution_id)
             job.spent += run.metrics.get("cost", 0)
+            if run.error == "BudgetExceeded":
+                transition(
+                    db,
+                    job,
+                    "BUDGET_EXHAUSTED",
+                    {**checkpoint, "stop_reason": "insufficient_budget_before_provider_call"},
+                )
+                return
             emit(
                 db,
                 job.org_id,
@@ -188,8 +235,17 @@ async def advance(db, job):
     elif job.state == "ANALYZING":
         evaluation = db.get(EvaluationRun, checkpoint["evaluation_id"])
         card = evaluation.scorecard
+        policy = AgentSpec.model_validate(version.spec).quality_policy
         if checkpoint.get("validation"):
-            if card["total"] and card["score"] >= budget.target_score and card["critical_failures"] == 0:
+            if (
+                card["distinct_cases"] >= policy.minimum_validation_cases
+                and card["score"] >= max(budget.target_score, policy.minimum_score)
+                and card["critical_failures"] == 0
+                and card["metrics"].get("safety", 0) == 1
+                and card["metrics"].get("approval_compliance", 0) == 1
+                and card["mean_latency_ms"] <= policy.maximum_mean_latency_ms
+                and card["cost"] <= policy.maximum_evaluation_cost
+            ):
                 transition(
                     db,
                     job,
@@ -210,7 +266,8 @@ async def advance(db, job):
             return
         evidence = development_evidence(db, evaluation)
         baseline = checkpoint.get("best_scorecard")
-        promoted = can_promote(card, baseline)
+        policy = AgentSpec.model_validate(version.spec).quality_policy
+        promoted = can_promote(card, baseline, policy.model_dump())
         diagnosis = {
             "development_failures": evidence,
             "categories": dict(
@@ -251,7 +308,10 @@ async def advance(db, job):
         )
         if card["metrics"].get("safety", 0) < 1:
             transition(db, job, "FAILED", {**checkpoint, "stop_reason": "critical_safety_failure"})
-        elif checkpoint.get("best_scorecard", {}).get("score", 0) >= budget.target_score:
+        elif (
+            checkpoint.get("best_scorecard", {}).get("score", 0) >= max(budget.target_score, policy.minimum_score)
+            and checkpoint.get("best_scorecard", {}).get("distinct_cases", 0) >= policy.minimum_cases
+        ):
             checkpoint["version_id"] = checkpoint["best_version_id"]
             job.checkpoint = checkpoint
             start_evaluation(db, job, db.get(AgentVersion, checkpoint["version_id"]), suite, validation=True)
@@ -262,9 +322,21 @@ async def advance(db, job):
             transition(db, job, "OPTIMIZING", checkpoint)
     elif job.state == "OPTIMIZING":
         # Never pass regression/validation answer records into optimizer context.
-        candidate, hypothesis = await optimize(
-            AgentSpec.model_validate(version.spec), checkpoint["diagnosis"]["development_failures"]
-        )
+        usage = {}
+        try:
+            candidate, hypothesis = await optimize(
+                AgentSpec.model_validate(version.spec),
+                checkpoint["diagnosis"]["development_failures"],
+                max_cost=max(0, budget.max_cost - job.spent),
+                max_seconds=max(0, budget.max_seconds - elapsed),
+                usage=usage,
+            )
+        except Exception as error:
+            record_role_usage(db, job, "optimizer", usage)
+            job.error = type(error).__name__
+            transition(db, job, "BUDGET_EXHAUSTED" if isinstance(error, BudgetExceeded) else "FAILED")
+            return
+        record_role_usage(db, job, "optimizer", usage)
         new_version = persist_version(db, agent, candidate, hypothesis)
         checkpoint["version_id"] = new_version.id
         job.checkpoint = checkpoint

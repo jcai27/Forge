@@ -504,10 +504,15 @@ class ConfiguredOutputSchema(AgentOutputSchemaBase):
             raise ModelBehaviorError("Output failed configured JSON Schema") from error
 
 
+class BudgetExceeded(ValueError):
+    pass
+
+
 class BudgetHooks(RunHooks):
-    def __init__(self, max_cost, mode):
+    def __init__(self, max_cost, mode, max_output_tokens=1500):
         self.max_cost, self.mode = max_cost, mode
         self.tokens, self.cost = 0, 0.0
+        self.max_output_tokens = max_output_tokens
 
     async def on_llm_start(self, context, agent, system_prompt, input_items):
         if self.mode == "demo":
@@ -518,15 +523,18 @@ class BudgetHooks(RunHooks):
                 "system": system_prompt,
                 "input": input_items,
                 "tools": [t.params_json_schema for t in agent.tools if isinstance(t, FunctionTool)],
+                "output_schema": agent.output_type.json_schema()
+                if isinstance(agent.output_type, AgentOutputSchemaBase)
+                else None,
             },
             default=str,
         )
-        reserve = (len(payload.encode()) + 1500) * settings().estimated_token_cost
+        reserve = (len(payload.encode()) + self.max_output_tokens) * settings().estimated_token_cost
         if self.cost + reserve > self.max_cost:
-            raise ValueError("Insufficient execution budget for next model call")
+            raise BudgetExceeded("Insufficient execution budget for next model call")
 
     async def on_llm_end(self, context, agent, response):
         self.tokens += response.usage.total_tokens
         self.cost = self.tokens * settings().estimated_token_cost if self.mode == "live" else 0.0
         if self.cost > self.max_cost:
-            raise ValueError("Execution budget exceeded")
+            raise BudgetExceeded("Execution budget exceeded")

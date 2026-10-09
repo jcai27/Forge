@@ -70,6 +70,10 @@ with finite-sample intervals, rather than claims of real-world accuracy.
 The Evaluation Lab also supports replay recordings, expected isolated state, tool
 sequences, repeated trials, authored rubrics and independent human review. See
 [docs/EVALUATIONS.md](docs/EVALUATIONS.md) for case formats and authorization rules.
+Structured requirements and quality policies are visible in Studio. Live architecture
+runs in the background worker, and factory role usage contributes to the same cost
+ledger as execution. See [docs/FACTORY.md](docs/FACTORY.md) for promotion objectives,
+editable thresholds and current limitations.
 
 ## Verification
 

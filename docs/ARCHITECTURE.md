@@ -44,5 +44,12 @@ Grading uses independent deterministic output/state/schema/sequence assertions a
 optional rubric or human evidence. Pending reviews halt promotion and build progress;
 resumption retains completed trials. Model grading records usage under remaining budgets.
 
+Creation persists a structured baseline; live requirements/architecture execute in the
+worker. Factory-role usage shares the usage ledger with runtime and grading records,
+with a separate job link. User quality policies and resource ceilings stay outside model
+control. Promotion checks previously passing regression trials individually, then the
+configured objective; readiness and review enforce held-out, case-count, cost and latency
+thresholds. See FACTORY.md for defaults, accounting limits and remaining Test Designer work.
+
 Official SDK reference consulted: https://developers.openai.com/api/docs/guides/agents/quickstart?lang=python
 Installed openai-agents version 0.23.1 APIs were inspected locally.

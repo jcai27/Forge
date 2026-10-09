@@ -16,6 +16,10 @@ Evaluation environments and case formats are documented in docs/EVALUATIONS.md.
 Pending human/rubric reviews halt promotion; reviews preserve deterministic failures.
 Replay must never instantiate a live adapter. Imported mappings require explicit
 administrator/model-visibility authorization and select only declared fields.
+Builder policies/accounting are documented in docs/FACTORY.md. Live architecture runs
+in the worker; model candidates cannot change user quality policies or expand resource
+ceilings. Role usage records use job_id and a nullable run_id; runtime/grading records
+use run_id. Read PLANS.md's current priorities rather than older progress snapshots.
 
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require
