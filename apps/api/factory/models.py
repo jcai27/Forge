@@ -186,6 +186,8 @@ class Deployment(Owned, Base):
     version_id: Mapped[str] = mapped_column(ForeignKey("agent_versions.id"))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     policy: Mapped[dict] = mapped_column(JSON, default=dict)
+    spent: Mapped[float] = mapped_column(Float, default=0)
+    reserved: Mapped[float] = mapped_column(Float, default=0)
 
 
 class Invocation(Owned, Base):
@@ -225,3 +227,29 @@ class BusinessRecord(Owned, Base):
     collection: Mapped[str] = mapped_column(String(50))
     key: Mapped[str] = mapped_column(String(200))
     data: Mapped[dict] = mapped_column(JSON)
+
+
+class RuntimeJob(Owned, Base):
+    __tablename__ = "runtime_jobs"
+    invocation_id: Mapped[str] = mapped_column(ForeignKey("deployment_invocations.id"), unique=True)
+    actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    state: Mapped[str] = mapped_column(String(40), default="PENDING", index=True)
+    reservation: Mapped[float] = mapped_column(Float, default=0)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    lease_owner: Mapped[str | None] = mapped_column(String(36))
+    lease_until: Mapped[object | None] = mapped_column(DateTime(timezone=True), index=True)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class DeploymentTrigger(Owned, Base):
+    __tablename__ = "deployment_triggers"
+    deployment_id: Mapped[str] = mapped_column(ForeignKey("deployment_versions.id"), index=True)
+    actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    name: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(20))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    input: Mapped[dict] = mapped_column(JSON, default=dict)
+    interval_seconds: Mapped[int | None] = mapped_column(Integer)
+    next_run_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), index=True)
+    encrypted_secret: Mapped[str] = mapped_column(Text, default="")
+    last_error: Mapped[str | None] = mapped_column(String(100))

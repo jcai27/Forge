@@ -1,7 +1,7 @@
 """Deterministic business policies shared by model and demo tool execution."""
 
 import re
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from difflib import SequenceMatcher
 
 
@@ -98,8 +98,10 @@ def prepare_operation(spec, input_data, state):
             else None
         )
         if previous:
-            previous["quantity"] += float(qty)
-            previous["line_total_cents"] = int(Decimal(str(previous["quantity"])) * cents)
+            previous["quantity"] = float(Decimal(str(previous["quantity"])) + qty)
+            previous["line_total_cents"] = int(
+                (Decimal(str(previous["quantity"])) * cents).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            )
         else:
             lines.append(
                 {
@@ -108,7 +110,7 @@ def prepare_operation(spec, input_data, state):
                     "unit": product["unit"],
                     "quantity": float(qty),
                     "unit_price_cents": cents,
-                    "line_total_cents": int(qty * cents),
+                    "line_total_cents": int((qty * cents).quantize(Decimal("1"), rounding=ROUND_HALF_UP)),
                 }
             )
     if spec.template == "orders" and spec.rules.get("check_inventory", True):
@@ -157,6 +159,10 @@ def apply_operation(output, state, operation_id):
     if output["kind"] == "orders":
         if any(o.get("operation_id") == operation_id for o in state["orders"]):
             return
+        if output.get("request_id") and any(
+            order.get("request_id") == output["request_id"] for order in state["orders"]
+        ):
+            raise ValueError("Duplicate incoming request was already applied")
         for line in output["lines"]:
             product = next(p for p in state["products"] if p["sku"] == line["sku"])
             if product["stock"] < line["quantity"]:

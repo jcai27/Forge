@@ -26,7 +26,14 @@ test('create a project, build and improve an agent, deploy and approve a real fi
  await expect(page.getByRole('button',{name:'Deploy approved version'})).toBeEnabled();
  await page.getByRole('button',{name:'Deploy approved version'}).click();
  await expect(page.getByRole('button',{name:'Invoke agent'})).toBeEnabled();
- await page.getByLabel('Business request').fill('Harbor Bistro: 2 kg red toms');
+ await page.getByLabel('Trigger name').fill('Hourly order draft');
+ await page.getByLabel('Repeat every (seconds)').fill('3600');
+ await page.getByRole('button',{name:'Create schedule',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Hourly order draft'})).toBeVisible();
+ await page.getByRole('button',{name:'Disable',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Enable',exact:true})).toBeVisible();
+
+ await page.getByLabel('Business request',{exact:true}).fill('Harbor Bistro: 2 kg red toms');
  await page.getByRole('button',{name:'Invoke agent'}).click();
  await expect(page).toHaveURL(/\/runs\//);
  const runURL=page.url();

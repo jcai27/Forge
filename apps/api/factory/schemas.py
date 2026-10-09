@@ -91,3 +91,20 @@ class CreateCase(StrictModel):
     assertions: list[dict]
     critical: bool = False
     trials: int = Field(default=1, ge=1, le=20)
+
+
+class CreateTrigger(StrictModel):
+    name: str = Field(min_length=1, max_length=200)
+    kind: Literal["schedule", "webhook"]
+    input: dict = Field(default_factory=dict)
+    interval_seconds: int | None = Field(default=None, ge=10, le=86400 * 30)
+    secret: str = Field(default="", max_length=10000)
+
+
+class TriggerUpdate(StrictModel):
+    enabled: bool
+
+
+class Reconciliation(StrictModel):
+    outcome: Literal["applied", "not_applied"]
+    receipt: str = Field(min_length=10, max_length=2000)

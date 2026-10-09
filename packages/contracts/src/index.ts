@@ -15,7 +15,7 @@ export interface EvalCase {id: string; name: string; split: string; source: stri
 export interface Connection {id: string; name: string; kind: string; status: string; config: Record<string, Json>; permissions: Record<string, boolean>; has_secret: boolean; tools?: Tool[]; data_sources?: DataSource[]}
 export interface Tool {id: string; name: string; write: boolean; definition: Record<string, Json>}
 export interface DataSource {id: string; name: string; schema: Json; model_visible: boolean; records: Json[]}
-export interface Deployment {id: string; agent_id: string; version_id: string; active: boolean; created_at: string; policy: Record<string, Json>}
+export interface Deployment {spent: number; reserved: number; id: string; agent_id: string; version_id: string; active: boolean; created_at: string; policy: Record<string, Json>}
 export interface Run {id: string; version_id: string; mode: string; status: string; input: Json; output: Json; metrics: Record<string, Json>; error: string | null; created_at: string; events?: EventRecord[]}
 export interface EventRecord {id: string; kind: string; payload: Record<string, Json>; created_at: string}
 export interface Approval {id: string; run_id: string; action: Json; status: string; created_at: string}

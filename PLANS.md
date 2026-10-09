@@ -25,6 +25,17 @@ verified; phases 2–6 have a working demo vertical slice, with live/connector h
 still required. Next: full frontend and browser E2E, PostgreSQL migration checks,
 connector contracts, rate/budget/retry security, deployment schedules/webhooks.
 
+2026-10-09 verified milestone: durable deployment invocation queue, signed invocation
+webhooks, interval schedules, lifetime cost/invocation budgets, explicit external-write
+reconciliation, real process kill/recovery, PostgreSQL connector execution and concurrent
+approval/idempotency checks. Latest checks: 29 SQLite tests (4 PG-only skips), 33
+PostgreSQL tests, Ruff, strict TypeScript, 2 Vitest tests, browser flow, both Docker
+images and complete Compose startup. Fractional cents and duplicate incoming requests
+are checked at the actual approval boundary. No live credentials are configured.
+Next: replay/read-only evaluation environments, expected test state and tool sequence
+checks, qualitative and human review evidence, repeated-trial variability, builder roles
+and accounting, then remaining governance/frontend/security audit. Full goal remains active.
+
 Verified frontend milestone: all specified routes, live persisted build events, studio,
 evaluation lab, comparisons, integration forms, approvals, deployments and execution
 logs. Complete browser acceptance path passes. Current automated checks: Ruff clean,

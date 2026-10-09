@@ -4,7 +4,7 @@ from copy import deepcopy
 
 from sqlalchemy import select
 
-from factory.models import BusinessRecord, EvaluationCase, EvaluationSuite
+from factory.models import BusinessRecord, EvaluationCase, EvaluationSuite, Organization
 
 
 def fictional_data():
@@ -20,9 +20,103 @@ def fictional_data():
         ("Coffee", "bag", 1600, 10),
         ("Eggs", "case", 2100, 4),
     ]
+    additional_names = [
+        "Carrots",
+        "Celery",
+        "Spinach",
+        "Broccoli",
+        "Cauliflower",
+        "Bell peppers",
+        "Zucchini",
+        "Eggplant",
+        "Mushrooms",
+        "Potatoes",
+        "Sweet potatoes",
+        "Cucumbers",
+        "Lettuce",
+        "Cabbage",
+        "Garlic",
+        "Ginger",
+        "Lemons",
+        "Limes",
+        "Apples",
+        "Oranges",
+        "Bananas",
+        "Strawberries",
+        "Blueberries",
+        "Avocados",
+        "Pear",
+        "Salmon fillets",
+        "Cod fillets",
+        "Prawns",
+        "Beef mince",
+        "Beef brisket",
+        "Pork shoulder",
+        "Pork loin",
+        "Lamb shoulder",
+        "Turkey breast",
+        "Duck breast",
+        "Tofu",
+        "Tempeh",
+        "Black beans",
+        "Chickpeas",
+        "Red lentils",
+        "Green lentils",
+        "Quinoa",
+        "Couscous",
+        "Rolled oats",
+        "Spaghetti",
+        "Penne",
+        "Lasagna sheets",
+        "Jasmine rice",
+        "Brown rice",
+        "Arborio rice",
+        "Mozzarella",
+        "Cheddar",
+        "Parmesan",
+        "Greek yogurt",
+        "Sour cream",
+        "Heavy cream",
+        "Coconut milk",
+        "Almond milk",
+        "Oat milk",
+        "Orange juice",
+        "Apple juice",
+        "Sparkling water",
+        "Green tea",
+        "Black tea",
+        "Cocoa powder",
+        "Dark chocolate",
+        "White sugar",
+        "Brown sugar",
+        "Icing sugar",
+        "Honey",
+        "Maple syrup",
+        "Soy sauce",
+        "Rice vinegar",
+        "Balsamic vinegar",
+        "Dijon mustard",
+        "Tomato paste",
+        "Canned tomatoes",
+        "Vegetable stock",
+        "Chicken stock",
+        "Sea salt",
+        "Black pepper",
+        "Cumin",
+        "Paprika",
+        "Turmeric",
+        "Cinnamon",
+        "Dried oregano",
+        "Dried thyme",
+        "Dried basil",
+        "Bay leaves",
+        "Vanilla extract",
+    ]
     products = []
     for i in range(100):
-        name, unit, cost, stock = staples[i] if i < 10 else (f"Pantry product {i + 1}", "case", 100 + i * 17, 10 + i)
+        name, unit, cost, stock = (
+            staples[i] if i < 10 else (additional_names[i - 10], "kg" if i < 60 else "case", 100 + i * 17, 10 + i)
+        )
         products.append(
             {
                 "sku": f"SKU-{i + 1:03}",
@@ -102,9 +196,13 @@ def seed_business(db, org_id):
 
 def business_snapshot(db, org_id, lock=False):
     data = {key: [] for key in fictional_data()}
+    if lock:
+        # Lock the tenant before reading. Row locks alone cannot protect newly inserted
+        # order IDs from another approval whose SELECT started before the insert committed.
+        db.scalar(select(Organization).where(Organization.id == org_id).with_for_update())
     query = select(BusinessRecord).where(BusinessRecord.org_id == org_id).order_by(BusinessRecord.id)
     if lock:
-        query = query.with_for_update()
+        query = query.with_for_update().execution_options(populate_existing=True)
     for record in db.scalars(query):
         data.setdefault(record.collection, []).append(deepcopy(record.data))
     return data

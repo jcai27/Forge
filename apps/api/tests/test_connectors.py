@@ -133,3 +133,40 @@ def test_signed_webhook_is_authenticated_idempotent_and_private(client, db, seed
     source = db.scalar(select(DataSource).where(DataSource.connection_id == connection_id))
     assert source.model_visible is False
     assert len(source.records) == 1
+
+
+@pytest.mark.asyncio
+async def test_postgres_connector_discovers_allowed_table_and_enforces_read_only(db):
+    from sqlalchemy import Column, Integer, MetaData, String, Table
+
+    from factory.connectors import PostgreSQLConnector
+
+    if db.get_bind().dialect.name != "postgresql":
+        pytest.skip("Executed by the PostgreSQL verification suite")
+    schema = db.get_bind().get_execution_options()["schema_translate_map"][None]
+    table = Table(
+        "connector_catalog", MetaData(schema=schema), Column("sku", String, primary_key=True), Column("stock", Integer)
+    )
+    table.create(db.get_bind())
+    db.execute(table.insert().values(sku="SKU-001", stock=150))
+    db.commit()
+    dsn = db.get_bind().url.set(drivername="postgresql").render_as_string(hide_password=False)
+    connector = PostgreSQLConnector({"schema": schema, "tables": ["connector_catalog"]}, dsn)
+    resources = await connector.discover()
+    assert [r["name"] for r in resources] == ["connector_catalog"]
+    assert (await connector.invoke("read_table", {"table": "connector_catalog", "limit": 1}))["records"] == [
+        {"sku": "SKU-001", "stock": 150}
+    ]
+    with pytest.raises(ValueError, match="denied"):
+        await connector.invoke("read_table", {"table": "users"})
+    import psycopg
+    from psycopg import sql
+
+    with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
+        with connector.connect() as connection:
+            connection.execute(
+                sql.SQL("INSERT INTO {}.{} VALUES (%s,%s)").format(
+                    sql.Identifier(schema), sql.Identifier("connector_catalog")
+                ),
+                ("SKU-002", 50),
+            )

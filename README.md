@@ -106,3 +106,10 @@ Generate a Fernet key using `.venv/bin/python -c 'from cryptography.fernet impor
 from apps/api. Set `ENVIRONMENT=production` to enforce these settings and disable demo login.
 Keep secrets in your deployment secret manager. Real business writes require separate
 explicit authorization; no development or evaluation command performs them.
+
+Deployment automation is configured in the Deployments page. Interval schedules and
+signed webhooks enqueue durable invocations even when the browser is closed. Each
+deployment has per-invocation, lifetime cost and invocation-count limits. Pausing a
+deployment blocks queued invocations and pending business approvals. Uncertain external
+writes require an administrator to verify and record a provider receipt in Approvals;
+the platform never retries an ambiguous side effect automatically.

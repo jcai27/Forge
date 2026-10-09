@@ -1,6 +1,6 @@
 import math
 from collections import Counter
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select
 
@@ -67,7 +67,12 @@ def grade(run, case):
             )
     lines = output.get("lines", [])
     arithmetic = all(
-        line.get("line_total_cents") == int(Decimal(str(line.get("quantity", 0))) * line.get("unit_price_cents", 0))
+        line.get("line_total_cents")
+        == int(
+            (Decimal(str(line.get("quantity", 0))) * line.get("unit_price_cents", 0)).quantize(
+                Decimal("1"), rounding=ROUND_HALF_UP
+            )
+        )
         for line in lines
     ) and output.get("total_cents", 0) == sum(line.get("line_total_cents", 0) for line in lines)
     checks.append(

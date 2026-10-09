@@ -5,6 +5,7 @@ import json
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import Literal
 
 from argon2.exceptions import VerificationError
@@ -13,6 +14,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from jsonschema import Draft202012Validator, validate
+from jsonschema.exceptions import SchemaError
+from jsonschema.exceptions import ValidationError as JsonValidationError
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -21,9 +24,9 @@ from factory import models as m
 from factory.builder import available_tools, design, enforce_spec_scope, infer_template, persist_version
 from factory.config import settings
 from factory.connectors import FileConnector, discover_connection
-from factory.db import Base, engine, get_db, now
+from factory.db import get_db, now
 from factory.fixtures import seed_business, seed_suite
-from factory.runtime import execute, resolve_approval
+from factory.runtime import emit, resolve_approval
 from factory.schemas import (
     AgentSpec,
     Budget,
@@ -31,9 +34,12 @@ from factory.schemas import (
     CreateCase,
     CreateConnection,
     CreateProject,
+    CreateTrigger,
     Invoke,
     Login,
+    Reconciliation,
     Register,
+    TriggerUpdate,
 )
 from factory.security import (
     SECRET_KEYS,
@@ -55,7 +61,15 @@ from factory.workflow import control, new_job
 async def lifespan(app):
     # Production startup runs Alembic externally, never implicit schema mutations.
     if settings().environment == "development":
-        Base.metadata.create_all(engine)
+        from pathlib import Path
+
+        from alembic import command
+        from alembic.config import Config
+
+        directory = Path(__file__).resolve().parents[1]
+        migration_config = Config(str(directory / "alembic.ini"))
+        migration_config.set_main_option("script_location", str(directory / "migrations"))
+        command.upgrade(migration_config, "head")
     yield
 
 
@@ -82,6 +96,27 @@ async def validation_error(request, error):
     return JSONResponse(
         status_code=422,
         content={"error": {"code": "validation_error", "message": "Invalid request", "details": errors}},
+    )
+
+
+@app.exception_handler(JsonValidationError)
+async def json_validation_error(request, error):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "code": "schema_validation_error",
+                "message": "Input does not match the configured JSON Schema",
+                "path": list(error.absolute_path),
+            }
+        },
+    )
+
+
+@app.exception_handler(SchemaError)
+async def json_schema_error(request, error):
+    return JSONResponse(
+        status_code=422, content={"error": {"code": "invalid_schema", "message": "Configured JSON Schema is invalid"}}
     )
 
 
@@ -172,7 +207,7 @@ def serialize(row):
         if hasattr(value, "isoformat"):
             value = value.isoformat()
         result[column.name] = redact(value)
-    if isinstance(row, m.Connection):
+    if isinstance(row, (m.Connection, m.DeploymentTrigger)):
         result["has_secret"] = bool(row.encrypted_secret)
     return result
 
@@ -793,6 +828,8 @@ def approve_version(version_id: str, actor=ACTOR, db=DB):
 class DeployRequest(BaseModel):
     version_id: str
     max_cost: float = Field(default=1, ge=0, le=100)
+    lifetime_max_cost: float = Field(default=10, ge=0, le=10000)
+    max_invocations: int = Field(default=1000, ge=1, le=100000)
 
 
 @app.get("/agents/{agent_id}/deployments")
@@ -817,7 +854,12 @@ def deploy(agent_id: str, body: DeployRequest, actor=ACTOR, db=DB):
         org_id=actor.org_id,
         agent_id=agent.id,
         version_id=version.id,
-        policy={"max_cost": body.max_cost, "require_approval": True},
+        policy={
+            "max_cost": body.max_cost,
+            "lifetime_max_cost": body.lifetime_max_cost,
+            "max_invocations": body.max_invocations,
+            "require_approval": True,
+        },
     )
     db.add(deployment)
     db.flush()
@@ -850,39 +892,14 @@ def rollback(deployment_id: str, actor=ACTOR, db=DB):
 
 @app.post("/deployments/{deployment_id}/invoke")
 async def invoke(deployment_id: str, body: Invoke, actor=ACTOR, db=DB):
-    require_write(actor)
-    deployment = db.scalar(
-        select(m.Deployment)
-        .where(m.Deployment.id == deployment_id, m.Deployment.org_id == actor.org_id)
-        .with_for_update()
-    )
-    if not deployment:
-        raise HTTPException(404, "Resource not found")
-    previous = db.scalar(
-        select(m.Invocation).where(
-            m.Invocation.deployment_id == deployment.id, m.Invocation.idempotency_key == body.idempotency_key
-        )
-    )
-    if previous:
-        return serialize(db.get(m.ExecutionRun, previous.run_id))
-    if not deployment.active:
-        raise HTTPException(409, "Deployment is paused")
-    version = owned(db, m.AgentVersion, deployment.version_id, actor)
-    if AgentSpec.model_validate(version.spec).max_cost > deployment.policy.get("max_cost", 1):
-        raise HTTPException(409, "Version budget exceeds deployment budget")
-    run = m.ExecutionRun(
-        org_id=actor.org_id, version_id=version.id, mode=settings().execution_mode, input=redact(body.input)
-    )
-    db.add(run)
-    db.flush()
-    invocation = m.Invocation(
-        org_id=actor.org_id, deployment_id=deployment.id, idempotency_key=body.idempotency_key, run_id=run.id
-    )
-    db.add(invocation)
-    db.flush()
-    await execute(db, version, body.input, run=run)
-    audit(db, actor, "deployment_invoked", run.id)
+    from factory.deployment_runtime import enqueue, execute_job
+
+    run, job = enqueue(db, deployment_id, actor, body.input, body.idempotency_key)
     db.commit()
+    if job and job.state in ("PENDING", "RUNNING"):
+        completed = await execute_job(db, job.id)
+        if completed:
+            run = completed
     return serialize(run)
 
 
@@ -958,3 +975,137 @@ def metrics(actor=ACTOR, db=DB):
         "execution_mode": settings().execution_mode,
         "evaluations": [serialize(e) for e in evaluations],
     }
+
+
+@app.get("/deployments/{deployment_id}/triggers")
+def deployment_triggers(deployment_id: str, offset: int = OFFSET, limit: int = LIMIT, actor=ACTOR, db=DB):
+    owned(db, m.Deployment, deployment_id, actor)
+    return collection(
+        db, m.DeploymentTrigger, actor, offset, limit, (m.DeploymentTrigger.deployment_id == deployment_id,)
+    )
+
+
+@app.post("/deployments/{deployment_id}/triggers", status_code=201)
+def create_deployment_trigger(deployment_id: str, body: CreateTrigger, actor=ACTOR, db=DB):
+    require_admin(actor)
+    deployment = owned(db, m.Deployment, deployment_id, actor)
+    if not deployment.active:
+        raise HTTPException(409, "Deployments must be active to configure triggers")
+    version = owned(db, m.AgentVersion, deployment.version_id, actor)
+    if body.kind == "schedule":
+        if not body.interval_seconds:
+            raise HTTPException(422, "Schedule interval is required")
+        validate(body.input, version.spec["input_schema"])
+    elif len(body.secret) < 20:
+        raise HTTPException(422, "Webhook signing secret must have at least 20 characters")
+    trigger = m.DeploymentTrigger(
+        org_id=actor.org_id,
+        deployment_id=deployment.id,
+        actor_id=actor.user_id,
+        name=body.name,
+        kind=body.kind,
+        input=redact(body.input),
+        interval_seconds=body.interval_seconds if body.kind == "schedule" else None,
+        next_run_at=now() + timedelta(seconds=body.interval_seconds) if body.kind == "schedule" else None,
+        encrypted_secret=encrypt(body.secret) if body.kind == "webhook" else "",
+    )
+    db.add(trigger)
+    db.flush()
+    audit(db, actor, "deployment_trigger_created", trigger.id, {"kind": body.kind})
+    db.commit()
+    return serialize(trigger)
+
+
+@app.patch("/deployment-triggers/{trigger_id}")
+def update_deployment_trigger(trigger_id: str, body: TriggerUpdate, actor=ACTOR, db=DB):
+    require_admin(actor)
+    trigger = owned(db, m.DeploymentTrigger, trigger_id, actor)
+    deployment = owned(db, m.Deployment, trigger.deployment_id, actor)
+    if body.enabled and not deployment.active:
+        raise HTTPException(409, "Deployment is paused")
+    trigger.enabled = body.enabled
+    if body.enabled:
+        trigger.last_error = None
+        if trigger.kind == "schedule":
+            trigger.next_run_at = now() + timedelta(seconds=trigger.interval_seconds)
+    audit(db, actor, "deployment_trigger_updated", trigger.id, body.model_dump())
+    db.commit()
+    return serialize(trigger)
+
+
+@app.get("/deployments/{deployment_id}/invocations")
+def deployment_invocations(deployment_id: str, offset: int = OFFSET, limit: int = LIMIT, actor=ACTOR, db=DB):
+    owned(db, m.Deployment, deployment_id, actor)
+    return collection(db, m.Invocation, actor, offset, limit, (m.Invocation.deployment_id == deployment_id,))
+
+
+@app.post("/deployment-webhooks/{trigger_id}", status_code=202)
+async def deployment_webhook(trigger_id: str, request: Request, db=DB):
+    from factory.deployment_runtime import actor_for, enqueue
+    from factory.security import decrypt
+
+    trigger = db.get(m.DeploymentTrigger, trigger_id)
+    if not trigger or trigger.kind != "webhook" or not trigger.enabled or not trigger.encrypted_secret:
+        raise HTTPException(404, "Webhook unavailable")
+    body = await request.body()
+    if len(body) > 1_000_000:
+        raise HTTPException(413, "Webhook body too large")
+    timestamp = request.headers.get("X-Webhook-Timestamp", "")
+    try:
+        if abs(time.time() - int(timestamp)) > 300:
+            raise ValueError("Expired signature")
+    except ValueError:
+        raise HTTPException(401, "Invalid webhook timestamp") from None
+    expected = hmac.new(
+        decrypt(trigger.encrypted_secret).encode(), timestamp.encode() + b"." + body, hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(expected, request.headers.get("X-Webhook-Signature", "")):
+        raise HTTPException(401, "Invalid webhook signature")
+    payload = Invoke.model_validate_json(body)
+    actor = actor_for(db, trigger.org_id, trigger.actor_id)
+    key = "webhook:" + trigger.id + ":" + hashlib.sha256(payload.idempotency_key.encode()).hexdigest()
+    run, job = enqueue(db, trigger.deployment_id, actor, payload.input, key)
+    db.commit()
+    return {"accepted": True, "run_id": run.id, "status": run.status}
+
+
+@app.post("/approvals/{approval_id}/reconcile")
+def reconcile_approval(approval_id: str, body: Reconciliation, actor=ACTOR, db=DB):
+    require_admin(actor)
+    approval = db.scalar(
+        select(m.Approval).where(m.Approval.id == approval_id, m.Approval.org_id == actor.org_id).with_for_update()
+    )
+    if not approval:
+        raise HTTPException(404, "Resource not found")
+    if approval.status not in ("dispatching", "reconciliation_required"):
+        raise HTTPException(409, "Only uncertain external dispatches can be reconciled")
+    if approval.action.get("kind") != "connector":
+        raise HTTPException(409, "External connector dispatch required")
+    run = owned(db, m.ExecutionRun, approval.run_id, actor)
+    if approval.status == "dispatching":
+        from datetime import UTC, datetime
+
+        version = owned(db, m.AgentVersion, run.version_id, actor)
+        started = datetime.fromisoformat(approval.action.get("dispatch_started_at", approval.created_at.isoformat()))
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        if (now() - started).total_seconds() < version.spec.get("timeout_seconds", 60) + 30:
+            raise HTTPException(409, "Dispatch may still be in progress; wait for its timeout before reconciliation")
+    approval.status = "reconciled_" + body.outcome
+    approval.resolved_by = actor.user_id
+    run.status = "completed" if body.outcome == "applied" else "cancelled"
+    audit(db, actor, "external_dispatch_reconciled", approval.id, body.model_dump())
+    emit(
+        db,
+        actor.org_id,
+        "external_dispatch_reconciled",
+        {
+            "approval_id": approval.id,
+            "outcome": body.outcome,
+            "receipt": redact(body.receipt),
+            "evidence_type": "human_provider_verification",
+        },
+        run_id=run.id,
+    )
+    db.commit()
+    return serialize(run)

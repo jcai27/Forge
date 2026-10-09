@@ -6,6 +6,7 @@ from datetime import UTC, timedelta
 from sqlalchemy import select, update
 
 from factory.builder import optimize, persist_version
+from factory.config import settings
 from factory.connectors import check_connection
 from factory.db import SessionLocal, now, uid
 from factory.evaluation import can_promote, development_evidence, evaluate_case, scorecard
@@ -296,7 +297,8 @@ async def worker_tick(session_factory=SessionLocal):
         claimed = db.execute(
             update(BuildJob)
             .where(BuildJob.id == candidate.id, (BuildJob.lease_until.is_(None) | (BuildJob.lease_until < now())))
-            .values(lease_owner=owner, lease_until=now() + timedelta(minutes=10))
+            .values(lease_owner=owner, lease_until=now() + timedelta(seconds=settings().worker_lease_seconds))
+            .execution_options(synchronize_session=False)
         ).rowcount
         if not claimed:
             db.rollback()

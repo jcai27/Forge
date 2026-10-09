@@ -52,3 +52,33 @@ are running; API health returns demo mode and /dashboard returns HTTP 200. Start
 migration completed. API/frontend images build with frozen dependency locks. Final
 local verification after tenant-write locking: 20 backend tests pass, Ruff clean,
 TypeScript clean. See docs/ACCEPTANCE.md for requirement-level evidence and gaps.
+
+2026-10-09 deployment/recovery milestone verified: manual, scheduled and HMAC-signed
+webhook invocations share a durable database queue. A worker rechecks authorization,
+deployment state and pinned versions before execution. Cost reservations/lifetime and
+invocation limits are enforced. Administrators can record independently verified
+receipts to reconcile uncertain external dispatch without sending again. The frontend
+provides scheduling/webhook controls, invocation history, limits and reconciliation.
+
+Two tests kill real worker processes during an uncommitted build trial and invocation,
+then restart after lease expiry: checkpoints survive, cases/approvals are not duplicated,
+and business writes remain pending. PostgreSQL concurrency tests prove that competing
+stock approvals and duplicate incoming requests apply once; concurrent idempotent
+enqueue creates one invocation. Tenant locking protects newly inserted order records.
+Real PostgreSQL connector discovery/read succeeds; unapproved tables and writes fail.
+The fictional catalog now contains 100 named products, and fractional prices round to
+cents using an explicit policy verified against independently authored expectations.
+
+Executed checks: Ruff clean; 29 SQLite tests passed, 4 PG-only skipped; 33 PostgreSQL
+tests passed; strict TypeScript; 2 Vitest tests; complete Playwright path including
+schedule creation/disabling; optimized Next image build; updated API/worker/web Compose
+startup; API health and dashboard HTTP 200. Local startup was separately verified on
+8200/3200 with the documented script. Schema migration 0002 is applied to local PG.
+
+Remaining scope supersedes the older outstanding list: replay and authorized read-only
+evaluation, expected test-state/tool-sequence assertions, qualitative/human grading,
+explicit repeated-trial variability, structured general builder roles and full model
+budget accounting, imported-data minimization/mapping, membership management,
+configurable quality policies, frontend pagination/mobile/accessibility and security
+transport/deployment hardening. OPENAI_API_KEY/external credentials remain absent;
+actual live provider calls are unverified. No unauthorized production writes occurred.

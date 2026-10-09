@@ -28,5 +28,13 @@ I/O and require human reconciliation on ambiguous outcomes; fixture writes commi
 atomically with their approval. Tenant business records are locked at approved writes
 to protect inventory from concurrent updates. No external writes run in evaluations.
 
+Manual, scheduled and signed webhook invocations enqueue a RuntimeJob with a pinned
+version and cost reservation. Queue claims have expiring database leases; execution
+and completion commit atomically. Schedules coalesce missed intervals after downtime.
+Workers recheck creator membership and deployment state before every invocation.
+Approval writes serialize on the tenant before reading state, including newly inserted
+orders. Uncertain external dispatch can be reconciled by an administrator with a
+provider receipt; reconciliation records an outcome and never performs another send.
+
 Official SDK reference consulted: https://developers.openai.com/api/docs/guides/agents/quickstart?lang=python
 Installed openai-agents version 0.23.1 APIs were inspected locally.

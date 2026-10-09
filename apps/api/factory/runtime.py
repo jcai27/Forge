@@ -24,20 +24,23 @@ from factory.builder import connection_fingerprint
 from factory.business import apply_operation, prepare_operation
 from factory.config import settings
 from factory.connectors import adapter, check_connection
-from factory.db import uid
+from factory.db import now, uid
 from factory.fixtures import business_snapshot
 from factory.models import (
     AgentVersion,
     Approval,
     BusinessRecord,
     Connection,
+    Deployment,
     ExecutionEvent,
     ExecutionRun,
+    Invocation,
+    Membership,
     ToolDefinition,
     UsageRecord,
 )
 from factory.schemas import AgentSpec
-from factory.security import redact
+from factory.security import redact, require_admin
 
 
 def emit(db, org_id, kind, payload, run_id=None, job_id=None):
@@ -147,7 +150,7 @@ class ExecutionContext:
         }
         self.tool_calls.append(trace)
         emit(self.db, self.version.org_id, "tool_completed", trace, run_id=self.run.id)
-        return json.dumps(response, default=str)
+        return json.dumps(redact(response), default=str)
 
 
 def reconstruct_agent(context, mode):
@@ -332,10 +335,24 @@ async def execute(db, version, input_data, evaluation=False, state=None, mode=No
 
 
 async def resolve_approval(db, approval, actor, approved):
+    require_admin(actor)
+    if approval.org_id != actor.org_id:
+        raise PermissionError("Approval is outside this organization")
+    member = db.scalar(select(Membership).where(Membership.org_id == actor.org_id, Membership.user_id == actor.user_id))
+    if not member or member.role != "admin":
+        raise PermissionError("Approval authorization revoked")
+    approval = db.scalar(
+        select(Approval)
+        .where(Approval.id == approval.id, Approval.org_id == actor.org_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if approval.status != "pending":
         return db.get(ExecutionRun, approval.run_id)
     run = db.get(ExecutionRun, approval.run_id)
     version = db.get(AgentVersion, run.version_id)
+    if run.org_id != actor.org_id or version.org_id != actor.org_id:
+        raise PermissionError("Approval execution is outside this organization")
     spec = AgentSpec.model_validate(version.spec)
     action = approval.action
     if action["version_id"] != version.id:
@@ -343,12 +360,19 @@ async def resolve_approval(db, approval, actor, approved):
     connection = check_connection(db, actor.org_id, action["connection_id"], write=True)
     if connection.id not in spec.connection_ids:
         raise PermissionError("Approval connection not authorized")
+    if spec.connection_fingerprints.get(connection.id) != connection_fingerprint(connection):
+        raise PermissionError("Approved integration contract changed")
     if not approved:
         approval.status = "rejected"
         approval.resolved_by = actor.user_id
         run.status = "rejected"
         emit(db, actor.org_id, "approval_rejected", {"approval_id": approval.id}, run_id=run.id)
         return run
+    invocation = db.scalar(select(Invocation).where(Invocation.run_id == run.id))
+    if invocation:
+        deployment = db.get(Deployment, invocation.deployment_id)
+        if not deployment or not deployment.active or deployment.version_id != version.id:
+            raise PermissionError("Deployment is paused; pending writes cannot be approved")
     if action["kind"] == "business":
         if connection.kind != "fixture":
             raise PermissionError("Business actions require a fixture ERP")
@@ -384,12 +408,16 @@ async def resolve_approval(db, approval, actor, approved):
         ) != connection_fingerprint(connection):
             raise PermissionError("Approved integration contract changed")
         # Persist dispatch intent before external I/O. An ambiguous result is never retried automatically.
+        approval.action = {**approval.action, "dispatch_started_at": now().isoformat()}
         approval.status = "dispatching"
         approval.resolved_by = actor.user_id
         run.status = "dispatching"
         db.commit()
         try:
-            response = await adapter(db, connection, for_model=True).invoke(definition.name, action["arguments"])
+            response = await asyncio.wait_for(
+                adapter(db, connection, for_model=True).invoke(definition.name, action["arguments"]),
+                timeout=spec.timeout_seconds,
+            )
         except Exception:
             approval.status = "reconciliation_required"
             run.status = "reconciliation_required"

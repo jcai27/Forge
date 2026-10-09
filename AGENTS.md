@@ -9,6 +9,9 @@ Commands: bash scripts/dev.sh (local API/worker/web); bash scripts/test.sh
 Docker: docker compose up --build. Local infrastructure uses isolated project
 agent-factory and ports 55432/56379. Tests can use TEST_DATABASE_URL with fresh schemas.
 Consult README.md for exact setup and docs/PROGRESS.md for evidence and remaining work.
+Worker leases and queued invocations are database-backed. Recovery tests kill real
+processes; PostgreSQL-only tests verify concurrent approvals and invocation idempotency.
+DEV_API_PORT/DEV_WEB_PORT allow isolated local startup alongside Compose.
 
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require

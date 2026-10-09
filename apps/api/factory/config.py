@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4.1-mini"
     execution_mode: str = "demo"
     estimated_token_cost: float = 0.000005
+    worker_lease_seconds: int = 360
+    runtime_max_attempts: int = 3
     jwt_secret: str = "local-development-only-change-before-deployment"
     encryption_key: str = ""
     environment: str = "development"

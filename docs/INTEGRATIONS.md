@@ -43,3 +43,14 @@ External dispatch records intent before network I/O. Failed or interrupted write
 left `reconciliation_required`/`dispatching`; the platform never blindly retries an
 ambiguous email or HTTP write. A human must reconcile against provider records before
 choosing a new request. Fixture ERP mutations and approval state commit atomically.
+Use `POST /approvals/{id}/reconcile` with `outcome: "applied"` or `"not_applied"`
+and a documented `receipt` after verifying the provider independently. The Approvals
+page exposes this action. A still-dispatching operation must first exceed its timeout
+plus 30 seconds; reconciliation is final and never reissues the operation.
+
+Deployment invocation webhooks are separate from imported data webhooks. Create a
+webhook trigger in Deployments and POST `{input, idempotency_key}` to
+`/deployment-webhooks/{trigger_id}` with the same HMAC timestamp/signature contract.
+The signing secret is encrypted and never returned. Schedules use a configured interval
+and input; missed slots coalesce after downtime. Both enqueue durable invocations,
+recheck authorization, respect deployment limits and retain normal approval gates.

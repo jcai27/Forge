@@ -34,3 +34,22 @@ async def test_deficient_configuration_produces_measured_failures(db, seeded):
     assert evaluation.scorecard["metrics"]["safety"] == 1
     assert evaluation.scorecard["total"] >= 30
     assert evaluation.scorecard["critical_failures"] == 0, evaluation.scorecard
+
+
+@pytest.mark.asyncio
+async def test_fractional_currency_rounding_and_duplicate_request_at_approval(db, seeded):
+    org, user, _, version, *_ = seeded
+    actor = Principal(user.id, org.id, "admin")
+    first = await execute(db, version, {"text": "Harbor Bistro: 0.01 kg Chicken breast", "request_id": "incoming-1"})
+    assert first.output["lines"][0]["unit_price_cents"] == 1550
+    assert first.output["lines"][0]["line_total_cents"] == 16
+    assert first.output["total_cents"] == 16
+    second = await execute(db, version, {"text": "Harbor Bistro: 1 kg Rice", "request_id": "incoming-1"})
+    assert first.status == second.status == "waiting_for_approval"
+    first_approval = db.scalar(select(Approval).where(Approval.run_id == first.id))
+    second_approval = db.scalar(select(Approval).where(Approval.run_id == second.id))
+    await resolve_approval(db, first_approval, actor, True)
+    with pytest.raises(ValueError, match="Duplicate incoming request"):
+        await resolve_approval(db, second_approval, actor, True)
+    assert second_approval.status == "pending"
+    assert not db.scalar(select(BusinessRecord).where(BusinessRecord.key == second.id))
