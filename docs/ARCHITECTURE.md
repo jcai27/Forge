@@ -36,5 +36,13 @@ Approval writes serialize on the tenant before reading state, including newly in
 orders. Uncertain external dispatch can be reconciled by an administrator with a
 provider receipt; reconciliation records an outcome and never performs another send.
 
+EvaluationCase environments separate fictional forks, ordered connector replay and
+explicitly authorized read-only checks. Replay verifies exact tool arguments and never
+constructs a live adapter. Imported resources require administrator authorization,
+model visibility and field mapping; only selected columns enter the isolated fork.
+Grading uses independent deterministic output/state/schema/sequence assertions and
+optional rubric or human evidence. Pending reviews halt promotion and build progress;
+resumption retains completed trials. Model grading records usage under remaining budgets.
+
 Official SDK reference consulted: https://developers.openai.com/api/docs/guides/agents/quickstart?lang=python
 Installed openai-agents version 0.23.1 APIs were inspected locally.

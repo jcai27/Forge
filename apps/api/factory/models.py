@@ -138,6 +138,9 @@ class EvaluationCase(Owned, Base):
     assertions: Mapped[list] = mapped_column(JSON)
     critical: Mapped[bool] = mapped_column(Boolean, default=False)
     trials: Mapped[int] = mapped_column(Integer, default=1)
+    environment: Mapped[dict] = mapped_column(JSON, default=dict)
+    rubric: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    authorized_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
 class EvaluationRun(Owned, Base):

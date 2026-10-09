@@ -1414,6 +1414,100 @@
         }
       }
     },
+    "/evaluation-results/{result_id}/review": {
+      "post": {
+        "summary": "Review Result",
+        "operationId": "review_result_evaluation_results__result_id__review_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Result Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HumanReview"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/evaluation-results/{result_id}/grade": {
+      "post": {
+        "summary": "Retry Rubric Grade",
+        "operationId": "retry_rubric_grade_evaluation_results__result_id__grade_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Result Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agents/{agent_id}/evaluations": {
       "get": {
         "summary": "Evaluations",
@@ -2645,6 +2739,48 @@
         "type": "object",
         "title": "Budget"
       },
+      "CaseEnvironment": {
+        "properties": {
+          "state_overrides": {
+            "additionalProperties": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "State Overrides"
+          },
+          "replay": {
+            "items": {
+              "$ref": "#/components/schemas/ReplayResponse"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Replay"
+          },
+          "live_connection_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Live Connection Ids"
+          },
+          "data_mappings": {
+            "items": {
+              "$ref": "#/components/schemas/DataMapping"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Data Mappings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CaseEnvironment"
+      },
       "CreateAgent": {
         "properties": {
           "project_id": {
@@ -2742,6 +2878,19 @@
             "minimum": 1.0,
             "title": "Trials",
             "default": 1
+          },
+          "environment": {
+            "$ref": "#/components/schemas/CaseEnvironment"
+          },
+          "rubric": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QualitativeRubric"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -2870,6 +3019,37 @@
         ],
         "title": "CreateTrigger"
       },
+      "DataMapping": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "collection": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Collection"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "maxProperties": 100,
+            "minProperties": 1,
+            "title": "Fields"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source_id",
+          "collection",
+          "fields"
+        ],
+        "title": "DataMapping"
+      },
       "DeployRequest": {
         "properties": {
           "version_id": {
@@ -2909,6 +3089,20 @@
           "suite_id": {
             "type": "string",
             "title": "Suite Id"
+          },
+          "max_cost": {
+            "type": "number",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Max Cost",
+            "default": 5
+          },
+          "max_seconds": {
+            "type": "integer",
+            "maximum": 86400.0,
+            "minimum": 1.0,
+            "title": "Max Seconds",
+            "default": 1800
           }
         },
         "type": "object",
@@ -2929,6 +3123,27 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HumanReview": {
+        "properties": {
+          "passed": {
+            "type": "boolean",
+            "title": "Passed"
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 10,
+            "title": "Evidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "passed",
+          "evidence"
+        ],
+        "title": "HumanReview"
       },
       "Invoke": {
         "properties": {
@@ -3000,6 +3215,32 @@
         ],
         "title": "MemberUpdate"
       },
+      "QualitativeRubric": {
+        "properties": {
+          "criteria": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Criteria"
+          },
+          "threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Threshold",
+            "default": 0.8
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "criteria"
+        ],
+        "title": "QualitativeRubric"
+      },
       "Reconciliation": {
         "properties": {
           "outcome": {
@@ -3054,6 +3295,32 @@
           "organization"
         ],
         "title": "Register"
+      },
+      "ReplayResponse": {
+        "properties": {
+          "tool_id": {
+            "type": "string",
+            "title": "Tool Id"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Arguments"
+          },
+          "response": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Response"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tool_id",
+          "arguments",
+          "response"
+        ],
+        "title": "ReplayResponse"
       },
       "TriggerUpdate": {
         "properties": {

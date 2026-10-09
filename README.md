@@ -67,6 +67,9 @@ evaluation cases; the deterministic adapter supports the three provided business
 Costs are estimates from recorded tokens and `ESTIMATED_TOKEN_COST`; set this conservative
 per-token estimate for your chosen model. Scores are provisional fixture pass rates,
 with finite-sample intervals, rather than claims of real-world accuracy.
+The Evaluation Lab also supports replay recordings, expected isolated state, tool
+sequences, repeated trials, authored rubrics and independent human review. See
+[docs/EVALUATIONS.md](docs/EVALUATIONS.md) for case formats and authorization rules.
 
 ## Verification
 

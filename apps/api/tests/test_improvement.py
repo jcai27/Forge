@@ -49,6 +49,21 @@ async def test_regression_prevents_promotion(db, seeded):
 
 
 @pytest.mark.asyncio
+async def test_higher_score_candidate_with_development_fixes_and_critical_regression_is_rejected(db, seeded):
+    _, _, agent, initial, suite, _ = seeded
+    baseline = await evaluate_suite(db, initial, suite, ("development", "regression"))
+    spec = AgentSpec.model_validate(initial.spec)
+    spec.rules.update(resolve_aliases=True, fuzzy_match=True, check_inventory=False)
+    changed = persist_version(db, agent, spec, "Fix aliases and typos but bypass stock checks")
+    candidate = await evaluate_suite(db, changed, suite, ("development", "regression"))
+    assert candidate.scorecard["splits"]["development"]["score"] > baseline.scorecard["splits"]["development"]["score"]
+    assert candidate.scorecard["score"] > baseline.scorecard["score"]
+    assert candidate.scorecard["critical_failures"] > 0
+    assert candidate.scorecard["splits"]["regression"]["score"] < baseline.scorecard["splits"]["regression"]["score"]
+    assert not can_promote(candidate.scorecard, baseline.scorecard)
+
+
+@pytest.mark.asyncio
 async def test_restart_recovers_and_does_not_duplicate_results(db, seeded):
     _, _, agent, _, _, _ = seeded
     job = new_job(db, agent, Budget())

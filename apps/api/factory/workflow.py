@@ -142,7 +142,13 @@ async def advance(db, job):
         if remaining:
             case, trial = remaining[0]
             result = await evaluate_case(
-                db, evaluation, version, case, trial, max_cost=max(0, budget.max_cost - job.spent)
+                db,
+                evaluation,
+                version,
+                case,
+                trial,
+                max_cost=max(0, budget.max_cost - job.spent),
+                max_seconds=max(0, budget.max_seconds - elapsed),
             )
             run = db.get(__import__("factory.models", fromlist=["ExecutionRun"]).ExecutionRun, result.execution_id)
             job.spent += run.metrics.get("cost", 0)
@@ -166,6 +172,18 @@ async def advance(db, job):
         else:
             evaluation.scorecard = scorecard(db, evaluation)
             evaluation.status = "completed"
+            if evaluation.scorecard.get("pending_reviews"):
+                transition(
+                    db,
+                    job,
+                    "WAITING_FOR_APPROVAL",
+                    {
+                        **checkpoint,
+                        "resume_state": job.state,
+                        "waiting_reason": "Pending human review or unavailable qualitative grading; review evidence before resuming",
+                    },
+                )
+                return
             transition(db, job, "ANALYZING")
     elif job.state == "ANALYZING":
         evaluation = db.get(EvaluationRun, checkpoint["evaluation_id"])

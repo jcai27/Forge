@@ -23,9 +23,9 @@ from sqlalchemy.exc import IntegrityError
 from factory import models as m
 from factory.builder import available_tools, design, enforce_spec_scope, infer_template, persist_version
 from factory.config import settings
-from factory.connectors import FileConnector, discover_connection
+from factory.connectors import FileConnector, check_connection, discover_connection
 from factory.db import get_db, now
-from factory.fixtures import seed_business, seed_suite
+from factory.fixtures import fictional_data, seed_business, seed_suite
 from factory.runtime import emit, resolve_approval
 from factory.schemas import (
     AgentSpec,
@@ -35,6 +35,7 @@ from factory.schemas import (
     CreateConnection,
     CreateProject,
     CreateTrigger,
+    HumanReview,
     Invoke,
     Login,
     Reconciliation,
@@ -732,13 +733,136 @@ def cases(suite_id: str, offset: int = OFFSET, limit: int = LIMIT, actor=ACTOR, 
 @app.post("/suites/{suite_id}/cases", status_code=201)
 def add_case(suite_id: str, body: CreateCase, actor=ACTOR, db=DB):
     require_write(actor)
-    owned(db, m.EvaluationSuite, suite_id, actor)
-    case = m.EvaluationCase(org_id=actor.org_id, suite_id=suite_id, **body.model_dump())
+    suite = owned(db, m.EvaluationSuite, suite_id, actor)
+    reject_secret_config(body.input)
+    reject_secret_config(body.environment.model_dump())
+    if body.source != "replay" and body.environment.replay:
+        raise HTTPException(422, "Recorded tool responses require replay source")
+    for response in body.environment.replay:
+        owned(db, m.ToolDefinition, response.tool_id, actor)
+    for name in body.environment.state_overrides:
+        if name not in fictional_data():
+            raise HTTPException(422, "Unknown isolated-state collection")
+    authorized_by = None
+    if body.environment.data_mappings:
+        require_admin(actor)
+        version = db.scalar(
+            select(m.AgentVersion)
+            .where(m.AgentVersion.agent_id == suite.agent_id)
+            .order_by(m.AgentVersion.number.desc())
+        )
+        for mapping in body.environment.data_mappings:
+            source = owned(db, m.DataSource, mapping.source_id, actor)
+            if not source.model_visible or not version or source.connection_id not in version.spec["connection_ids"]:
+                raise HTTPException(403, "Mapped data requires explicit model visibility and an attached connection")
+            check_connection(db, actor.org_id, source.connection_id)
+            if mapping.collection not in fictional_data():
+                raise HTTPException(422, "Unknown imported-state collection")
+            if any(column not in source.schema.get("properties", {}) for column in mapping.fields.values()):
+                raise HTTPException(422, "Mapping references an undiscovered field")
+        authorized_by = actor.user_id
+    if body.source == "live_read_only":
+        require_admin(actor)
+        if not body.environment.live_connection_ids or body.input.get("approve_in_test"):
+            raise HTTPException(422, "Read-only evaluations need explicit connections and cannot request writes")
+        version = db.scalar(
+            select(m.AgentVersion)
+            .where(m.AgentVersion.agent_id == suite.agent_id)
+            .order_by(m.AgentVersion.number.desc())
+        )
+        for connection_id in body.environment.live_connection_ids:
+            check_connection(db, actor.org_id, connection_id)
+            if not version or connection_id not in version.spec["connection_ids"]:
+                raise HTTPException(422, "Live connection is not attached to this agent")
+        authorized_by = actor.user_id
+    elif body.environment.live_connection_ids:
+        raise HTTPException(422, "Live connections require explicitly authorized read-only source")
+    case = m.EvaluationCase(org_id=actor.org_id, suite_id=suite_id, authorized_by=authorized_by, **body.model_dump())
     db.add(case)
     db.flush()
     audit(db, actor, "evaluation_case_created", case.id)
     db.commit()
     return serialize(case)
+
+
+@app.post("/evaluation-results/{result_id}/review")
+def review_result(result_id: str, body: HumanReview, actor=ACTOR, db=DB):
+    from factory.evaluation import scorecard
+
+    require_admin(actor)
+    result = db.scalar(
+        select(m.EvaluationResult)
+        .where(m.EvaluationResult.id == result_id, m.EvaluationResult.org_id == actor.org_id)
+        .with_for_update()
+    )
+    if not result:
+        raise HTTPException(404, "Evaluation result not found")
+    pending = [check for check in result.checks if check["category"] == "human_review" and check.get("pending")]
+    if not pending:
+        raise HTTPException(409, "Result has no pending human review")
+    result.checks = [
+        {
+            **check,
+            "passed": body.passed,
+            "pending": False,
+            "evidence": redact(body.evidence),
+            "reviewed_by": actor.user_id,
+            "reviewed_at": now().isoformat(),
+        }
+        if check["category"] == "human_review"
+        else check
+        for check in result.checks
+    ]
+    result.failures = [check["category"] for check in result.checks if not check["passed"]]
+    result.passed = not result.failures
+    evaluation = db.get(m.EvaluationRun, result.evaluation_run_id)
+    db.flush()
+    evaluation.scorecard = scorecard(db, evaluation)
+    audit(db, actor, "evaluation_human_reviewed", result.id, {"passed": body.passed})
+    db.commit()
+    return serialize(result)
+
+
+@app.post("/evaluation-results/{result_id}/grade")
+async def retry_rubric_grade(result_id: str, actor=ACTOR, db=DB):
+    from factory.evaluation import scorecard
+    from factory.qualitative import grade_rubric
+
+    require_admin(actor)
+    result = db.scalar(
+        select(m.EvaluationResult)
+        .where(m.EvaluationResult.id == result_id, m.EvaluationResult.org_id == actor.org_id)
+        .with_for_update()
+    )
+    if not result:
+        raise HTTPException(404, "Evaluation result not found")
+    if not any(check["category"] == "qualitative" and check.get("pending") for check in result.checks):
+        raise HTTPException(409, "Result has no pending rubric grading")
+    case = owned(db, m.EvaluationCase, result.case_id, actor)
+    run = owned(db, m.ExecutionRun, result.execution_id, actor)
+    version = owned(db, m.AgentVersion, run.version_id, actor)
+    evaluation = owned(db, m.EvaluationRun, result.evaluation_run_id, actor)
+    jobs = list(
+        db.scalars(
+            select(m.BuildJob)
+            .where(m.BuildJob.org_id == actor.org_id, m.BuildJob.agent_id == version.agent_id)
+            .with_for_update()
+        )
+    )
+    job = next((job for job in jobs if job.checkpoint.get("evaluation_id") == evaluation.id), None)
+    remaining = max(0, job.budget["max_cost"] - job.spent) if job else version.spec["max_cost"]
+    previous_cost = run.metrics.get("cost", 0)
+    checks = await grade_rubric(db, version, run, case, max_cost=previous_cost + remaining)
+    result.checks = [check for check in result.checks if check["category"] != "qualitative"] + checks
+    result.failures = [check["category"] for check in result.checks if not check["passed"]]
+    result.passed = not result.failures
+    if job:
+        job.spent += run.metrics.get("cost", 0) - previous_cost
+    db.flush()
+    evaluation.scorecard = scorecard(db, evaluation)
+    audit(db, actor, "evaluation_rubric_graded", result.id, {"pending": any(check.get("pending") for check in checks)})
+    db.commit()
+    return serialize(result)
 
 
 @app.get("/agents/{agent_id}/evaluations")
@@ -765,6 +889,8 @@ def evaluation_detail(evaluation_id: str, actor=ACTOR, db=DB):
 
 class EvaluationRequest(BaseModel):
     suite_id: str
+    max_cost: float = Field(default=5, ge=0, le=1000)
+    max_seconds: int = Field(default=1800, ge=1, le=86400)
 
 
 @app.post("/versions/{version_id}/evaluate")
@@ -776,7 +902,7 @@ async def manual_evaluation(version_id: str, body: EvaluationRequest, actor=ACTO
     suite = owned(db, m.EvaluationSuite, body.suite_id, actor)
     if suite.agent_id != version.agent_id:
         raise HTTPException(422, "Evaluation suite belongs to another agent")
-    result = await evaluate_suite(db, version, suite)
+    result = await evaluate_suite(db, version, suite, max_cost=body.max_cost, max_seconds=body.max_seconds)
     audit(db, actor, "evaluation_executed", result.id)
     db.commit()
     return serialize(result)
@@ -804,6 +930,8 @@ def quality_gate(db, version):
     if any((case.id, trial) not in newest for case, trial in required):
         raise HTTPException(409, "All current evaluation cases require completed evidence")
     selected = [newest[(case.id, trial)] for case, trial in required]
+    if any(check.get("pending") for result in selected for check in result.checks):
+        raise HTTPException(409, "Pending independent reviews or grading must be resolved")
     if sum(row.passed for row in selected) / len(selected) < 0.95 or any(
         case.critical and not newest[(case.id, trial)].passed for case, trial in required
     ):

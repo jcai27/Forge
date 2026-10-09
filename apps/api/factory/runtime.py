@@ -16,6 +16,7 @@ from agents import (
     Runner,
     Usage,
 )
+from fastapi import HTTPException
 from jsonschema import validate
 from openai.types.responses import ResponseFunctionToolCall
 from sqlalchemy import select
@@ -23,7 +24,7 @@ from sqlalchemy import select
 from factory.builder import connection_fingerprint
 from factory.business import apply_operation, prepare_operation
 from factory.config import settings
-from factory.connectors import adapter, check_connection
+from factory.connectors import ReplayConnector, adapter, check_connection
 from factory.db import now, uid
 from factory.fixtures import business_snapshot
 from factory.models import (
@@ -80,11 +81,13 @@ class DeterministicToolModel(Model):
 
 
 class ExecutionContext:
-    def __init__(self, db, version, run, spec, state, evaluation):
+    def __init__(self, db, version, run, spec, state, evaluation, environment=None):
         self.db, self.version, self.run, self.spec = db, version, run, spec
         self.state, self.evaluation = state, evaluation
         self.tool_calls = []
         self.pending = []
+        self.environment = environment or {}
+        self.replay = ReplayConnector(self.environment.get("replay", []))
 
     def check_contract(self, definition, connection):
         if self.spec.tool_contracts.get(
@@ -112,7 +115,10 @@ class ExecutionContext:
             },
             run_id=self.run.id,
         )
-        if definition.write:
+        source = self.environment.get("source", "synthetic")
+        if self.evaluation and source == "replay" and connection.kind != "fixture":
+            response = await self.replay.invoke(definition.id, arguments)
+        elif definition.write:
             if self.evaluation:
                 raise PermissionError("External writes are forbidden during evaluation")
             approval = Approval(
@@ -134,8 +140,18 @@ class ExecutionContext:
             response = prepare_operation(self.spec, arguments["input"], self.state)
         else:
             if self.evaluation and connection.kind != "fixture":
-                # Evaluation never accidentally turns a synthetic scenario into a live request.
-                raise PermissionError("External integrations require explicit replay fixtures for evaluation")
+                if source != "live_read_only" or connection.id not in self.environment.get("live_connection_ids", []):
+                    raise PermissionError("External evaluation reads require explicit live authorization or replay")
+                member = self.db.scalar(
+                    select(Membership)
+                    .where(
+                        Membership.org_id == self.version.org_id,
+                        Membership.user_id == self.environment.get("authorized_by"),
+                    )
+                    .execution_options(populate_existing=True)
+                )
+                if not member or member.role != "admin":
+                    raise PermissionError("Live evaluation authorization revoked")
             response = await adapter(self.db, connection, for_model=True, state=self.state).invoke(
                 definition.name, arguments
             )
@@ -146,6 +162,8 @@ class ExecutionContext:
             "name": definition.name,
             "duration_ms": elapsed,
             "write": definition.write,
+            "evaluation_source": source if self.evaluation else None,
+            "simulated": self.evaluation and source == "replay" and connection.kind != "fixture",
             "result": redact(response) if connection.kind == "fixture" else {"redacted": True},
         }
         self.tool_calls.append(trace)
@@ -213,7 +231,19 @@ def reconstruct_agent(context, mode):
     )
 
 
-async def execute(db, version, input_data, evaluation=False, state=None, mode=None, run=None, max_cost=None):
+async def execute(
+    db,
+    version,
+    input_data,
+    evaluation=False,
+    state=None,
+    mode=None,
+    run=None,
+    max_cost=None,
+    environment=None,
+    observation=None,
+    max_seconds=None,
+):
     spec = AgentSpec.model_validate(version.spec)
     validate(input_data, spec.input_schema)
     mode = mode or settings().execution_mode
@@ -224,7 +254,7 @@ async def execute(db, version, input_data, evaluation=False, state=None, mode=No
     db.flush()
     isolated = deepcopy(state) if state is not None else business_snapshot(db, version.org_id)
     before = deepcopy(isolated)
-    context = ExecutionContext(db, version, run, spec, isolated, evaluation)
+    context = ExecutionContext(db, version, run, spec, isolated, evaluation, environment)
     started = time.monotonic()
     budget_hooks = BudgetHooks(min(spec.max_cost, max_cost) if max_cost is not None else spec.max_cost, mode)
     emit(
@@ -239,17 +269,23 @@ async def execute(db, version, input_data, evaluation=False, state=None, mode=No
         result = await asyncio.wait_for(
             Runner.run(
                 agent,
-                json.dumps(input_data),
+                json.dumps(redact(input_data)),
                 max_turns=spec.max_turns,
                 hooks=budget_hooks,
                 run_config=RunConfig(tracing_disabled=True, trace_include_sensitive_data=False),
             ),
-            timeout=spec.timeout_seconds,
+            timeout=min(spec.timeout_seconds, max_seconds) if max_seconds is not None else spec.timeout_seconds,
         )
         output = json.loads(result.final_output) if isinstance(result.final_output, str) else result.final_output
         if not isinstance(output, dict):
             raise ValueError("Agent output must be a JSON object")
         validate(output, spec.output_schema)
+        if (
+            evaluation
+            and context.environment.get("source") == "replay"
+            and context.replay.position != len(context.replay.responses)
+        ):
+            raise ValueError("Replay recording contains unused expected tool calls")
         tokens = result.context_wrapper.usage.total_tokens
         # Configurable billing estimates; no invented token usage in demo mode.
         cost = tokens * settings().estimated_token_cost if mode == "live" else 0.0
@@ -300,6 +336,7 @@ async def execute(db, version, input_data, evaluation=False, state=None, mode=No
             "cost": cost,
             "cost_is_estimate": mode == "live",
             "tool_calls": len(context.tool_calls),
+            "tool_sequence": [call["name"] for call in context.tool_calls],
             "state_changes": sum(1 for key in isolated if isolated[key] != before.get(key)),
             "approval_ids": context.pending,
         }
@@ -320,16 +357,25 @@ async def execute(db, version, input_data, evaluation=False, state=None, mode=No
     except Exception as error:
         run.status = "failed"
         # Never persist exception strings that may contain provider credentials or private data.
-        run.error = type(error).__name__
+        cause = error
+        while cause.__cause__ is not None:
+            cause = cause.__cause__
+        run.error = type(cause).__name__
         run.metrics = {
             "duration_ms": round((time.monotonic() - started) * 1000, 3),
             "tokens": budget_hooks.tokens,
             "cost": budget_hooks.cost,
             "tool_calls": len(context.tool_calls),
+            "tool_sequence": [call["name"] for call in context.tool_calls],
             "state_changes": 0,
+            "safety_violations": int(
+                isinstance(cause, PermissionError) or (isinstance(cause, HTTPException) and cause.status_code == 403)
+            ),
         }
         db.add(UsageRecord(org_id=version.org_id, run_id=run.id, tokens=budget_hooks.tokens, cost=budget_hooks.cost))
         emit(db, version.org_id, "execution_failed", {"error_type": type(error).__name__}, run_id=run.id)
+    if evaluation and observation is not None:
+        observation.update(state=deepcopy(isolated), tool_calls=deepcopy(context.tool_calls))
     db.flush()
     return run
 

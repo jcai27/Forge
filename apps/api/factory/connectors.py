@@ -8,6 +8,7 @@ import json
 import socket
 import ssl
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from email.message import EmailMessage
 from urllib.parse import urlparse
 
@@ -61,6 +62,23 @@ class Connector(ABC):
 
     def tools(self):
         return []
+
+
+class ReplayConnector:
+    """An ordered recording with exact argument matching; never opens a connection."""
+
+    def __init__(self, responses):
+        self.responses = deepcopy(responses)
+        self.position = 0
+
+    async def invoke(self, tool_id, arguments):
+        if self.position >= len(self.responses):
+            raise ValueError("Replay recording has no response for this call")
+        expected = self.responses[self.position]
+        if expected["tool_id"] != tool_id or expected["arguments"] != arguments:
+            raise ValueError("Replay tool sequence or arguments differ from the recording")
+        self.position += 1
+        return deepcopy(expected["response"])
 
 
 class FixtureConnector(Connector):

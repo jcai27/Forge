@@ -12,6 +12,10 @@ Consult README.md for exact setup and docs/PROGRESS.md for evidence and remainin
 Worker leases and queued invocations are database-backed. Recovery tests kill real
 processes; PostgreSQL-only tests verify concurrent approvals and invocation idempotency.
 DEV_API_PORT/DEV_WEB_PORT allow isolated local startup alongside Compose.
+Evaluation environments and case formats are documented in docs/EVALUATIONS.md.
+Pending human/rubric reviews halt promotion; reviews preserve deterministic failures.
+Replay must never instantiate a live adapter. Imported mappings require explicit
+administrator/model-visibility authorization and select only declared fields.
 
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require

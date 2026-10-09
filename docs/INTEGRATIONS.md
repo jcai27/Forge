@@ -36,8 +36,10 @@ connected. Revocation erases stored credentials and blocks existing versions.
 Versions pin tool contracts and connection configuration fingerprints. Changes require
 new immutable candidate configuration and evaluation rather than silently changing a
 production version. Reads and writes check tenant, tool, connection and resource scope.
-Evaluations currently execute fixture tools only; external connectors need a replay
-adapter before evaluating real data. Evaluations cannot invoke external write tools.
+Synthetic evaluations execute fixture tools only. Replay environments can simulate
+ordered external reads/writes without network access; explicitly authorized read-only
+checks can use approved connections. External writes are always forbidden during live
+evaluation. See [EVALUATIONS.md](EVALUATIONS.md) for recordings and minimized imports.
 
 External dispatch records intent before network I/O. Failed or interrupted writes are
 left `reconciliation_required`/`dispatching`; the platform never blindly retries an

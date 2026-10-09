@@ -47,6 +47,18 @@ test('create a project, build and improve an agent, deploy and approve a real fi
  await expect(page.getByText('completed',{exact:true})).toBeVisible();
  await page.goto(`/agents/${agentId}/studio`);
  await expect(page.getByRole('heading',{name:'Workflow',exact:true})).toBeVisible();
+ await page.getByRole('link',{name:'Evaluations',exact:true}).click();
+ await page.getByText('Import an authored evaluation case',{exact:true}).click();
+ await page.getByLabel('Evaluation case JSON').fill(JSON.stringify({name:'Operator review of prepared order',split:'development',source:'human',input:{text:'Harbor Bistro: 2 kg Tomatoes'},assertions:[{path:'total_cents',op:'equals',value:900}],trials:1}));
+ await page.getByRole('button',{name:'Add case',exact:true}).click();
+ await expect(page.getByRole('heading',{name:/Scenario library/})).toContainText('37');
+ await page.getByRole('button',{name:'Retest latest',exact:true}).click();
+ await expect(page.getByText('Pending independent reviews',{exact:true}).locator('..')).toContainText('1');
+ await page.locator('summary').filter({hasText:'Operator review of prepared order'}).click();
+ await page.getByLabel('Review evidence',{exact:true}).fill('Verified customer, SKU quantities and arithmetic against the catalog.');
+ await page.getByRole('button',{name:'Record independent review',exact:true}).click();
+ await expect(page.getByText('Pending independent reviews',{exact:true}).locator('..')).toContainText('0');
+ await expect(page.getByRole('button',{name:'Record independent review',exact:true})).toHaveCount(0);
  await page.goto('/dashboard');
  await page.screenshot({path:'test-results/dashboard.png',fullPage:true});
 });

@@ -36,6 +36,20 @@ Next: replay/read-only evaluation environments, expected test state and tool seq
 checks, qualitative and human review evidence, repeated-trial variability, builder roles
 and accounting, then remaining governance/frontend/security audit. Full goal remains active.
 
+2026-10-09 evaluation milestone verified: exact ordered replay of external tools,
+administrator-authorized read-only evaluation, minimized imported-state mappings,
+independent state/schema/tool-sequence assertions, trial variability, optional bounded
+SDK rubric grading, audited human reviews and pending-review pause/resume. Critical
+regression rejects a candidate even when development and aggregate pass rates improve.
+Executed checks: 39 SQLite tests (4 PG-only skips), 43 PostgreSQL tests, populated
+SQLite migration upgrade/downgrade, no Alembic drift on either DB, Ruff, TypeScript,
+2 Vitest tests, expanded browser flow, optimized images and Compose health checks.
+Actual provider rubric responses remain unverified without OPENAI_API_KEY; local tests
+prove grading availability/budget behavior and real SDK multi-tool provider contracts.
+Next milestone: persistent structured requirements, background factory roles and
+general test design, bounded/accounted builder/optimizer calls, configurable quality
+policy/objectives; then membership/pagination/mobile and production transport audit.
+
 Verified frontend milestone: all specified routes, live persisted build events, studio,
 evaluation lab, comparisons, integration forms, approvals, deployments and execution
 logs. Complete browser acceptance path passes. Current automated checks: Ruff clean,

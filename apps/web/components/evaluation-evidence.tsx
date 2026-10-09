@@ -1,0 +1,17 @@
+'use client';
+import {useState} from 'react';
+import type {EvaluationResult, Scorecard} from '../../../packages/contracts/src';
+import {percent} from '@/lib/api';
+import {Button} from './ui/button';
+import {Card, JsonView, useAction} from './shared';
+
+export function TrialEvidence({scorecard}: {scorecard: Scorecard}) {
+  const variability=scorecard.variability;
+  return <Card><h2>Reliability and review evidence</h2><div className="grid grid-3" style={{marginTop:20}}><div><span className="muted small">Pending independent reviews</span><div className="stat">{scorecard.pending_reviews??0}</div></div><div><span className="muted small">Cases with repeated trials</span><div className="stat">{variability?.repeated_cases??0}</div></div><div><span className="muted small">Cases with varying outcomes</span><div className="stat">{variability?.unstable_cases??0}</div></div></div>{variability&&Object.keys(variability.cases).length>0&&<details><summary>Inspect trial variability</summary><table className="table"><thead><tr><th>Case</th><th>Trials</th><th>Pass rate</th><th>Standard deviation</th></tr></thead><tbody>{Object.entries(variability.cases).map(([id,row])=><tr key={id}><td>{id.slice(0,8)}</td><td>{row.trials}</td><td>{percent(row.pass_rate)}</td><td>{row.standard_deviation.toFixed(3)}</td></tr>)}</tbody></table></details>}<p className="help">Repeated trials can expose inconsistent outcomes. Correlated trials and small scenario libraries limit conclusions about business reliability.</p></Card>;
+}
+
+export function IndependentReview({result}: {result: EvaluationResult}) {
+  const [evidence,setEvidence]=useState(''), [passed,setPassed]=useState(true), {act,pending}=useAction();
+  const human=result.checks.some(check=>check.category==='human_review'&&check.pending), qualitative=result.checks.find(check=>check.category==='qualitative');
+  return <>{qualitative&&<div style={{marginTop:16}}><h3>Qualitative rubric evidence</h3><p className="help">{qualitative.evidence}</p>{qualitative.rubric&&<JsonView value={qualitative.rubric}/>} {qualitative.grades&&<JsonView value={qualitative.grades}/>} {qualitative.pending&&<Button variant="secondary" disabled={pending} onClick={()=>void act(`/evaluation-results/${result.id}/grade`,{})}>Retry pending rubric grading</Button>}</div>}{human&&<form style={{marginTop:20}} onSubmit={event=>{event.preventDefault();void act(`/evaluation-results/${result.id}/review`,{passed,evidence});}}><h3>Independent human review</h3><p className="help">Record your assessment and supporting evidence. This review preserves every deterministic assertion result and requires administrator permission.</p><div className="field"><label htmlFor={`review-outcome-${result.id}`}>Review outcome</label><select id={`review-outcome-${result.id}`} className="input" value={passed?'passed':'failed'} onChange={event=>setPassed(event.target.value==='passed')}><option value="passed">Accept qualitative behavior</option><option value="failed">Reject qualitative behavior</option></select></div><div className="field"><label htmlFor={`review-evidence-${result.id}`}>Review evidence</label><textarea id={`review-evidence-${result.id}`} className="input" value={evidence} onChange={event=>setEvidence(event.target.value)} minLength={10} maxLength={4000} required/></div><Button disabled={pending||evidence.trim().length<10}>Record independent review</Button></form>}</>;
+}

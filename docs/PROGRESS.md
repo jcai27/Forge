@@ -82,3 +82,35 @@ budget accounting, imported-data minimization/mapping, membership management,
 configurable quality policies, frontend pagination/mobile/accessibility and security
 transport/deployment hardening. OPENAI_API_KEY/external credentials remain absent;
 actual live provider calls are unverified. No unauthorized production writes occurred.
+
+2026-10-09 evaluation milestone verified: ReplayConnector consumes exact ordered
+tool/argument/response recordings and never constructs live adapters. External writes
+can be simulated in replay; authorized live checks reject them. Administrator grants,
+tool/version scopes, connection revocation and imported-resource visibility are checked
+server-side. Field mappings copy only selected columns into fresh test forks; imported
+private columns and full state snapshots stay outside recorded grading evidence.
+
+Assertions now cover expected test records, JSON schemas and actual tool sequences,
+alongside independent arithmetic, completion, approval and safety checks. Permission
+violations fail safety even when no mutation occurred. Scorecards expose per-case
+repeated-trial variability and pending reviews. Optional SDK rubric grading records
+criterion evidence and observed usage under case/build/time budgets. Unavailable live
+grading is explicitly pending. Human reviewers resolve only human checks, retain every
+deterministic failure and leave audit evidence; builds pause and resume the same trials.
+The lab exposes these metrics and review/retry controls. An explicit higher-score
+candidate that fixes development cases but breaks critical stock regression is rejected.
+
+Executed final checks: bash scripts/test.sh passes (Ruff, 39 backend tests with 4 PG-only
+skips, strict TypeScript, 2 Vitest tests, complete browser flow including authored human
+case/retest/review). The PostgreSQL suite passes all 43 tests. Alembic 0003 applies
+without drift on both databases. A populated SQLite evaluation history survives upgrade,
+downgrade and re-upgrade with foreign keys enabled. Docker images build; rebuilt
+Compose API/worker/web/PG/Redis run; health, dashboard and new review routes are verified.
+
+Remaining next: persistent structured requirements and genuine background builder/test
+design roles; complete builder/optimizer usage accounting and budgets; configurable
+quality policies/objectives; broader live template/custom role contracts; membership
+management; pagination, mobile/accessibility and redirect UX; SSRF/DNS/streaming bounds,
+non-root deployment and full tenant/schema/security audit. Actual OpenAI/provider
+execution, real email/OAuth/MCP credentials remain unavailable. The goal stays active;
+passing local fixtures and transport contracts do not establish live model correctness.

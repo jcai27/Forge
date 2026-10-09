@@ -1,6 +1,6 @@
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StrictModel(BaseModel):
@@ -83,6 +83,44 @@ class Invoke(StrictModel):
     idempotency_key: str = Field(min_length=1, max_length=200)
 
 
+class Assertion(StrictModel):
+    scope: Literal["output", "state", "metrics"] = "output"
+    path: str = Field(default="$", max_length=500)
+    op: Literal["equals", "contains", "gte", "lte", "json_schema", "contains_record"] = "equals"
+    value: Any = None
+    expected_schema: dict | None = Field(default=None, alias="schema")
+    category: str = Field(default="structured_accuracy", min_length=1, max_length=100, pattern=r"^[a-z_]+$")
+
+
+class ReplayResponse(StrictModel):
+    tool_id: str
+    arguments: dict
+    response: dict
+
+
+class DataMapping(StrictModel):
+    source_id: str
+    collection: str = Field(min_length=1, max_length=100)
+    fields: dict[str, str] = Field(min_length=1, max_length=100)
+
+
+class CaseEnvironment(StrictModel):
+    state_overrides: dict[str, list[dict]] = Field(default_factory=dict)
+    replay: list[ReplayResponse] = Field(default_factory=list, max_length=1000)
+    live_connection_ids: list[str] = Field(default_factory=list, max_length=100)
+    data_mappings: list[DataMapping] = Field(default_factory=list, max_length=20)
+
+
+class QualitativeRubric(StrictModel):
+    criteria: list[str] = Field(min_length=1, max_length=20)
+    threshold: float = Field(default=0.8, ge=0, le=1)
+
+
+class HumanReview(StrictModel):
+    passed: bool
+    evidence: str = Field(min_length=10, max_length=4000)
+
+
 class CreateCase(StrictModel):
     name: str = Field(min_length=1, max_length=200)
     split: Literal["development", "regression", "validation"]
@@ -91,6 +129,23 @@ class CreateCase(StrictModel):
     assertions: list[dict]
     critical: bool = False
     trials: int = Field(default=1, ge=1, le=20)
+    environment: CaseEnvironment = Field(default_factory=CaseEnvironment)
+    rubric: QualitativeRubric | None = None
+
+    @field_validator("assertions")
+    @classmethod
+    def valid_assertions(cls, assertions):
+        from jsonschema import Draft202012Validator
+
+        for item in assertions:
+            assertion = Assertion.model_validate(item)
+            if assertion.op == "contains_record" and not isinstance(assertion.value, dict):
+                raise ValueError("Record assertions require expected field values")
+            if assertion.op == "json_schema":
+                if assertion.expected_schema is None:
+                    raise ValueError("Schema assertions require a schema")
+                Draft202012Validator.check_schema(assertion.expected_schema)
+        return assertions
 
 
 class CreateTrigger(StrictModel):
