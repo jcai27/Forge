@@ -88,6 +88,7 @@ class ExecutionContext:
         self.state, self.evaluation = state, evaluation
         self.tool_calls = []
         self.pending = []
+        self.staged_approvals = []
         self.secret_values = known_secret_values(db, version.org_id)
         self.environment = environment or {}
         self.replay = ReplayConnector(self.environment.get("replay", []))
@@ -125,6 +126,7 @@ class ExecutionContext:
             if self.evaluation:
                 raise PermissionError("External writes are forbidden during evaluation")
             approval = Approval(
+                id=uid(),
                 org_id=self.version.org_id,
                 run_id=self.run.id,
                 action={
@@ -135,10 +137,9 @@ class ExecutionContext:
                     "version_id": self.version.id,
                 },
             )
-            self.db.add(approval)
-            self.db.flush()
+            self.staged_approvals.append(approval)
             self.pending.append(approval.id)
-            response = {"requires_approval": True, "approval_id": approval.id, "status": "pending"}
+            response = {"requires_approval": True, "approval_id": approval.id, "status": "staged"}
         elif connection.kind == "fixture" and definition.name == "prepare_operation":
             response = prepare_operation(self.spec, arguments["input"], self.state)
         else:
@@ -375,6 +376,7 @@ async def execute(
             "state_changes": sum(1 for key in isolated if isolated[key] != before.get(key)),
             "approval_ids": context.pending,
         }
+        db.add_all(context.staged_approvals)
         if not durable:
             db.add(UsageRecord(org_id=version.org_id, run_id=run.id, tokens=tokens, cost=cost))
         emit(
@@ -446,6 +448,8 @@ async def resolve_approval(db, approval, actor, approved):
     version = db.get(AgentVersion, run.version_id)
     if run.org_id != actor.org_id or version.org_id != actor.org_id:
         raise PermissionError("Approval execution is outside this organization")
+    if approved and run.status in ("queued", "running", "failed"):
+        raise PermissionError("Approval execution has not reached a valid decision checkpoint")
     spec = AgentSpec.model_validate(version.spec)
     action = approval.action
     if action["version_id"] != version.id:

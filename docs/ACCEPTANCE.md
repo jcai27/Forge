@@ -118,3 +118,13 @@ approvals. Deployment/production durable accounting and wider acceptance remain 
 Final checks: 139 SQLite tests (4 PG-only skips), 143 PostgreSQL tests, Ruff/TypeScript,
 Vitest, both browser journeys, migration drift and rebuilt Compose health pass. Actual
 OpenAI/provider responses remain unverified without credentials.
+
+
+2026-10-09: production connector write requests remain staged until valid final output.
+Real SDK tests commit an interim checkpoint and inspect a second session: invalid output,
+provider failure and timeout publish no approval, while a valid result publishes a
+pending request and only explicit approval invokes the fictional adapter. Queued/running/
+failed runs cannot dispatch, and stale requests can be rejected safely. Durable deployment
+accounting remains incomplete; staging establishes its approval transaction prerequisite.
+Final checks: 149 SQLite tests (4 PG-only skips), 153 PostgreSQL tests, Ruff/TypeScript,
+Vitest, both browser journeys, migration drift and rebuilt Compose health pass.

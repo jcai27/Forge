@@ -33,6 +33,11 @@ for production tool transactions: deployment/production durable accounting still
 its own transaction design. Live evaluated-agent calls now use evaluation_agent ledgers
 and control checks at model/tool boundaries. Recover abandoned calls as uncertain and
 mark their orphaned execution failed; rerun only within the remaining build budget.
+Production connector write requests stay staged in ExecutionContext until final output
+validation succeeds. Do not attach them to the SQLAlchemy session during model/tool
+checkpoints. Publish pending approvals with the validated execution result; failures must
+expose no new actionable approval. Approval dispatch rejects queued/running/failed runs,
+while authorized rejection remains available for stale requests.
 Read PLANS.md's current priorities rather than older progress snapshots.
 Build redirection requires a fresh immutable version/evaluation and retains global
 time/cost/iteration limits. Never reuse previous scorecards for a revised objective or

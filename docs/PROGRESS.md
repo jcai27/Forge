@@ -452,3 +452,36 @@ Remaining: durable deployment/production provider accounting with safe approval/
 transaction boundaries; broader custom workflows/proposal browser review; email/Postgres
 transport and private-field hardening; memberships/pagination/mobile/accessibility; full
 acceptance audit. External credentials remain absent. The complete goal stays active.
+
+
+2026-10-09 production approval-staging milestone verified: connector write tool calls
+allocate a stable approval ID and stage the request in execution context, without
+attaching it to the SQLAlchemy session. The tool response labels it staged. A validated
+final agent result publishes pending approvals with its decision checkpoint. Invalid
+final output, subsequent provider failure and timeout do not publish a request, even
+when an interim execution-event checkpoint commits. This closes a prerequisite safety
+boundary for future durable production model accounting; the deployment ledger itself
+is still incomplete.
+
+Approval dispatch rejects queued/running/failed executions. Authorized administrators
+can reject stale requests without applying them. Existing tenant, membership, immutable
+contract, deployment and explicit-write checks remain in the normal resolver. A valid
+staged request reaches the adapter only after explicit human approval.
+
+Ten new tests exercise actual multi-turn SDK write requests and a deliberately committed
+interim checkpoint, inspect another database session, and verify valid versus invalid,
+failed and timed-out final results. They also cover approval/rejection across each unsafe
+execution status. Only a clearly fictional mock email adapter runs after approval; no
+external production write or actual live provider was used, and no score was overridden.
+
+Final checks: 149 SQLite tests passed (4 PG-only skips), all 153 PostgreSQL tests passed;
+Ruff, strict TypeScript, 2 Vitest tests and both browser journeys pass. SQLite/PG migration
+drift checks pass; optimized Docker images rebuild and API/worker/web/PG/Redis startup
+plus API health/dashboard HTTP checks pass. AGENTS.md, the roadmap and integration docs
+describe the staging boundary and leave production accounting explicitly outstanding.
+
+Remaining: per-model deployment ledgers/lease/authorization checkpoints, unknown charges
+retained inside queue reservations, atomic final settlement and interruption recovery;
+broader custom workflows/proposal browser review; email/Postgres transport and private
+field hardening; membership/pagination/mobile/accessibility; full acceptance audit.
+The complete goal stays active.

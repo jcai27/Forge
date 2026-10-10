@@ -66,8 +66,14 @@ ordered external reads/writes without network access; explicitly authorized read
 checks can use approved connections. External writes are always forbidden during live
 evaluation. See [EVALUATIONS.md](EVALUATIONS.md) for recordings and minimized imports.
 
-External dispatch records intent before network I/O. Failed or interrupted writes are
-left `reconciliation_required`/`dispatching`; the platform never blindly retries an
+Production tool write requests first stage an approval in execution context. A valid
+final agent result publishes it as pending. Invalid final
+output, provider failure or timeout exposes no actionable approval, even if an interim
+checkpoint commits execution events. Queued/running/failed executions cannot dispatch
+an approval; administrators can reject stale requests without a side effect.
+
+Explicit approval records dispatch intent before network I/O. Failed or interrupted
+external dispatches remain `reconciliation_required`/`dispatching`; the platform never blindly retries an
 ambiguous email or HTTP write. A human must reconcile against provider records before
 choosing a new request. Fixture ERP mutations and approval state commit atomically.
 Use `POST /approvals/{id}/reconcile` with `outcome: "applied"` or `"not_applied"`
