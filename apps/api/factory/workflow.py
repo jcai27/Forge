@@ -92,7 +92,14 @@ def record_role_usage(db, job, role, usage):
 
 # A proposal that breaks its contract is a rejected idea, not a failed build.
 # A proposal that runs out of time is one too: the reservation is kept as uncertain, the build goes on.
-REJECTED_PROPOSAL = (PermissionError, ValidationError, ModelBehaviorError, MaxTurnsExceeded, TimeoutError)
+REJECTED_PROPOSAL = (
+    PermissionError,
+    ValidationError,
+    SchemaError,
+    ModelBehaviorError,
+    MaxTurnsExceeded,
+    TimeoutError,
+)
 
 STRATEGIES = [
     "Make the smallest change to the instructions that fixes the most common development failure.",

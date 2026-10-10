@@ -237,26 +237,40 @@ differs. It refuses to run without `EXECUTION_MODE=live` and a key.
 
 No OpenAI key is configured. A local `llama3.2:3b` under Ollama was the only real model on
 this machine, reached through its OpenAI-compatible endpoint (`OPENAI_BASE_URL`,
-`OPENAI_API=chat_completions`, `OPENAI_STRUCTURED_OUTPUT=prompt`). Measured on 2026-10-10,
-two runs of two builds per arm, iteration cap 4:
+`OPENAI_API=chat_completions`, `OPENAI_STRUCTURED_OUTPUT=prompt`). All runs 2026-10-10.
 
-| Role | Result |
-| --- | --- |
-| As the deployed agent | Baseline pass rate 0.57 to 0.79 across eight builds of the same version, so the same agent varies by about 20 points run to run. Seven of eight baselines had a critical failure. |
-| As the builder, one-shot | Every reply was an invalid patch and was rejected. No candidate was ever evaluated. |
-| As the builder, harness | Every reply was an invalid patch and was rejected. No candidate was ever evaluated. |
+**As the deployed agent.** The same baseline version scored 0.57 to 0.79 across eight builds,
+about 20 points of run-to-run variation, and seven of eight baselines had a critical failure.
+That noise would hide anything a builder did, so the builder runs below use
+`--isolate-builder`: the agent executes deterministically and the only model in the loop is
+the builder. The baseline is then a stable 0.75.
 
-What this establishes: the whole pipeline runs with a real model. Provider calls, per-call
-reservation and settlement, real agent execution inside evaluation, and the rejection of
-malformed proposals all worked, and no build crashed on bad model output.
+**As the builder**, with an 8,192-token context (see defect 7), iteration cap 4:
 
-What it does not establish: whether the builder helps. This model cannot act as a builder at
-all. It wraps its answer in an extra object, emits invalid JSON and fills every field with
-junk, so neither arm produced a single candidate and the comparison is empty. That needs a
-capable model, and none is available here: no API key, and 1.5 GB of free disk rules out a
+| Arm | Builds | Improved the agent | Reached target | Replies rejected as invalid | Candidates fully evaluated |
+| --- | --- | --- | --- | --- | --- |
+| One-shot optimizer | 9 | 0 | 0 | 29 | 4 |
+| Harness (investigate, 3 screened) | 9 | 1 | 1 | at least 79 | 14, plus 3 pruned in screening |
+
+The harness count of rejected replies is a lower bound: the build notebook keeps the last
+twelve attempts and several builds filled it.
+
+The one success took the agent from 0.75 to 1.00 and passed every held-out case, after
+screening pruned two candidates that fixed nothing, with invalid fields in the model's reply
+dropped and the valid change kept.
+
+What this establishes: the builder works end to end with a real model. A model-written patch
+was parsed, scope-checked, screened, fully evaluated, promoted on measured evidence and
+validated on held-out cases, with no scripted provider anywhere in the loop.
+
+What it does not establish: that the harness beats the one-shot optimizer, or how often the
+builder helps. One success in nine against none in nine is not a measurable difference, and
+this model produces a usable reply only a few times in a hundred. A capable model is needed
+for that comparison, and none is available here: no API key, and too little free disk for a
 larger local model.
 
-Running a real model also exposed five defects that scripted providers could not, all fixed:
+Running a real model exposed defects that scripted providers could not. All are fixed and
+covered by `tests/test_live_provider.py`:
 
 1. Tools were shown to the model under opaque names (`t_<uuid>`), so it had to choose from
    descriptions alone and chose wrongly. Tools are now named `<name>__<id>`.
@@ -268,9 +282,25 @@ Running a real model also exposed five defects that scripted providers could not
 4. The factory could only reach api.openai.com. `OPENAI_BASE_URL` and `OPENAI_API` now select
    an OpenAI-compatible endpoint, and every live call goes through the configured client.
 5. This server rejected the larger output schemas ("failed to parse grammar").
-   `OPENAI_STRUCTURED_OUTPUT=prompt` puts the schema in the instructions; replies are
-   validated in code identically in both modes. Separately, a proposal that timed out failed
-   the whole build; it is now a rejected attempt.
+   `OPENAI_STRUCTURED_OUTPUT=prompt` puts the schema in the instructions instead.
+6. A proposal that timed out, or that carried a malformed JSON Schema, failed the whole build.
+   Both are now rejected attempts.
+7. A reply that was partly valid was discarded whole. `parse_patch` now unwraps a wrapper
+   object, treats empty placeholders as "no change", keeps each field that validates on its
+   own and records what it dropped. A reply naming a field outside the patch is still refused.
+
+One operational finding is not a code defect: Ollama's default context window is 4,096
+tokens and the optimizer's request is about 3,500 before tools and history, so the model was
+answering a truncated prompt and every reply was unusable until the window was raised. With a
+local server, create a model alias with a larger window:
+
+```sh
+printf 'FROM llama3.2:3b\nPARAMETER num_ctx 8192\n' > Modelfile && ollama create llama3.2-8k -f Modelfile
+cd apps/api
+EXECUTION_MODE=live OPENAI_API_KEY=local OPENAI_BASE_URL=http://127.0.0.1:11434/v1 \
+  OPENAI_API=chat_completions OPENAI_STRUCTURED_OUTPUT=prompt OPENAI_MODEL=llama3.2-8k \
+  .venv/bin/python -m benchmarks.search --live --isolate-builder --seeds 6 --max-iterations 4
+```
 
 To run it with a capable model:
 
@@ -281,10 +311,11 @@ EXECUTION_MODE=live OPENAI_API_KEY=... .venv/bin/python -m benchmarks.search --l
 
 ## What is not verified or not built
 
-- Whether the builder helps is unmeasured. The only real model available, a local 3B model,
-  cannot produce a valid patch, so the live comparison produced no candidates (see Benchmark).
-  A capable model is needed. The live benchmark covers one task family; workflows over custom
-  connectors and a mock vendor API with messy documentation are still to add.
+- How often the builder helps, and whether the harness beats the one-shot optimizer, is
+  unmeasured. With the only real model available, a local 3B model, the harness improved the
+  agent in 1 of 9 builds and the one-shot optimizer in 0 of 9 (see Benchmark). A capable model
+  is needed. The live benchmark covers one task family; workflows over custom connectors and
+  a mock vendor API with messy documentation are still to add.
 - Research, generated tools and connection drafts have not been exercised by any real model.
 - The search endpoint integration is exercised against a local transport only.
 - Trials still run one at a time; there is no parallel evaluator pool.

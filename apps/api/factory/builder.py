@@ -76,6 +76,59 @@ def parse_structured(model_class, final_output):
         raise ModelBehaviorError(f"Role output is not a valid {model_class.__name__}") from error
 
 
+def parse_patch(final_output):
+    """Read a SpecPatch from a model reply, keeping what is valid and saying what was dropped.
+
+    Weaker models wrap the patch in another object, echo empty placeholders and fill optional fields
+    with junk. Each field kept here passes exactly the validation a clean reply would, a reply that
+    names a field outside the patch is still refused, and a reply with nothing usable is rejected.
+    Returns (patch, dropped field names).
+    """
+    from agents import ModelBehaviorError
+    from pydantic import ValidationError
+
+    from factory.schemas import SpecPatch
+
+    if isinstance(final_output, SpecPatch):
+        return final_output, []
+    try:
+        if isinstance(final_output, str):
+            start, end = final_output.find("{"), final_output.rfind("}")
+            if start < 0 or end <= start:
+                raise ValueError("no JSON object in the reply")
+            data = json.loads(final_output[start : end + 1])
+        else:
+            data = final_output
+        if not isinstance(data, dict):
+            raise ValueError("the reply is not an object")
+    except ValueError as error:
+        raise ModelBehaviorError("Role output is not a valid SpecPatch") from error
+    fields = set(SpecPatch.model_fields)
+    if len(data) == 1 and not set(data) & fields and isinstance(next(iter(data.values())), dict):
+        data = next(iter(data.values()))  # {"spec": {...}} or {"patch": {...}}
+    outside = sorted(set(data) & (set(AgentSpec.model_fields) - fields))
+    if outside:
+        raise ModelBehaviorError(f"A patch may not name fields outside the patch: {', '.join(outside)}")
+    kept, dropped = {}, []
+    for key, value in data.items():
+        if key not in fields:
+            dropped.append(key)
+        elif value in (None, "", [], {}):
+            continue  # an empty placeholder means "not changing this"
+        else:
+            try:
+                SpecPatch.model_validate({key: value})
+                kept[key] = value
+            except ValidationError:
+                dropped.append(key)
+    if dropped and not set(kept) - {"hypothesis"}:
+        raise ModelBehaviorError("Role output contained no valid change")
+    try:
+        return SpecPatch.model_validate(kept), sorted(dropped)
+    except ValidationError as error:
+        raise ModelBehaviorError("Role output is not a valid SpecPatch") from error
+
+
 def builder_model():
     """Factory roles may run on a stronger model than the deployed agent; default to the shared model."""
     return settings().builder_model or settings().openai_model
@@ -490,16 +543,20 @@ async def optimize(
                 usage.update(tokens=hooks.tokens, cost=hooks.cost, mode="live", cost_is_estimate=True)
             if hasattr(hooks, "finish"):
                 hooks.finish(usage)
-        patch = parse_structured(SpecPatch, result.final_output)
+        patch, dropped = parse_patch(result.final_output)
         candidate = apply_patch(spec, patch)
         if candidate == spec:
             return (
                 candidate,
                 "Model returned an unchanged configuration; evaluation must determine whether it improves anything",
             )
-        return candidate, (
+        hypothesis = (
             patch.hypothesis or "Model proposed targeted configuration changes from recorded development failures"
         )
+        if dropped:
+            # Say so in the record: part of the reply was unusable and was not applied.
+            hypothesis += f" [dropped invalid fields: {', '.join(dropped)}]"
+        return candidate, hypothesis[:1000]
     candidate = spec.model_copy(deep=True)
     flags = [flag for failure in development_failures for flag in failure.get("output", {}).get("flags", [])]
     if any(flag.startswith("missing_sku:") for flag in flags):

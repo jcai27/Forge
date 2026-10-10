@@ -29,14 +29,16 @@ upgrade/drift checks on both DBs; populated migration upgrade/downgrade; optimiz
 and Compose startup/health. These prove working slices, not complete phases or the
 whole product specification.
 
-Builder checks (2026-10-10): Ruff; 321 SQLite tests (6 PG-only skips); 327 PostgreSQL tests;
+Builder checks (2026-10-10): Ruff; 323 SQLite tests (6 PG-only skips); 329 PostgreSQL tests;
 migration 0008 drift-free on both; 36 sandbox isolation checks; containerized worker-to-
 sandbox end-to-end; strict TypeScript; 3 Vitest; production web build; all 6 browser journeys.
 Search benchmark with a simulated proposer, 30 builds per arm: history raises target-reached
 from 67% to 100% and cuts trials by about a quarter; screening cuts full evaluations by 30%.
-First real-model runs used a local llama3.2:3b, the only model available: the pipeline ran
-end to end and exposed six defects now fixed, but the model could not produce one valid
-patch, so whether the builder helps is still unmeasured.
+Real-model runs used a local llama3.2:3b, the only model available. They exposed seven
+defects, now fixed. With the builder isolated, the harness improved the agent in 1 of 9
+builds (0.75 to 1.00, held-out passing) and the one-shot optimizer in 0 of 9: the builder
+works end to end with a real model, but how often, and whether the harness is better, is
+not measurable with this model.
 
 Builder work still open, in priority order:
 

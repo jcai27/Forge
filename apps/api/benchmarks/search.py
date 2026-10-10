@@ -206,20 +206,43 @@ async def simulated(seeds):
     return report
 
 
-async def live(seeds, max_cost, max_iterations=5):
+def deterministic_agent():
+    """Run the agent under test deterministically while the builder stays live.
+
+    A weak or noisy model as the deployed agent moves scores by itself and hides what the builder did.
+    With this, the only model in the loop is the builder, and every score change is caused by its patch.
+    Returns a function that restores normal execution.
+    """
+    from factory import evaluation
+
+    original = evaluation.execute
+
+    async def execute_in_demo_mode(*args, **kwargs):
+        return await original(*args, **{**kwargs, "mode": "demo"})
+
+    evaluation.execute = execute_in_demo_mode
+    return lambda: setattr(evaluation, "execute", original)
+
+
+async def live(seeds, max_cost, max_iterations=5, isolate_builder=False):
     if settings().execution_mode != "live" or not settings().openai_api_key:
         raise SystemExit(
             "The live benchmark needs a real provider: set EXECUTION_MODE=live and OPENAI_API_KEY. "
             "No key is configured, so only the simulated search-mechanics benchmark can run."
         )
     report = []
-    for name, arm in LIVE_ARMS.items():
-        budget = {**arm["budget"], "max_cost": max_cost, "max_iterations": max_iterations, "stagnation_limit": 3}
-        runs = []
-        for index in range(seeds):
-            runs.append(await run_build(budget, skip_architect=True))
-            print(f"[{name}] build {index + 1}: {runs[-1]['state']} best={runs[-1]['best_score']}", flush=True)
-        report.append({**summarize(name, runs), "runs": runs})
+    restore = deterministic_agent() if isolate_builder else None
+    try:
+        for name, arm in LIVE_ARMS.items():
+            budget = {**arm["budget"], "max_cost": max_cost, "max_iterations": max_iterations, "stagnation_limit": 4}
+            runs = []
+            for index in range(seeds):
+                runs.append(await run_build(budget, skip_architect=True))
+                print(f"[{name}] build {index + 1}: {runs[-1]['state']} best={runs[-1]['best_score']}", flush=True)
+            report.append({**summarize(name, runs), "runs": runs})
+    finally:
+        if restore:
+            restore()
     return report
 
 
@@ -248,14 +271,23 @@ def main(argv=None):
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--max-cost", type=float, default=5.0)
     parser.add_argument("--max-iterations", type=int, default=5, help="full evaluations per live build")
+    parser.add_argument(
+        "--isolate-builder",
+        action="store_true",
+        help="run the agent under test deterministically so only the live builder varies",
+    )
     parser.add_argument("--json", type=Path)
     arguments = parser.parse_args(argv)
     report = asyncio.run(
-        live(arguments.seeds, arguments.max_cost, arguments.max_iterations)
+        live(arguments.seeds, arguments.max_cost, arguments.max_iterations, arguments.isolate_builder)
         if arguments.live
         else simulated(arguments.seeds)
     )
-    mode = "live" if arguments.live else "simulated proposer (search mechanics only)"
+    mode = (
+        ("live builder, deterministic agent" if arguments.isolate_builder else "live")
+        if arguments.live
+        else "simulated proposer (search mechanics only)"
+    )
     print(f"Mode: {mode}. Builds per arm: {arguments.seeds}.\n")
     print(table(report))
     if arguments.json:

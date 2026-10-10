@@ -83,3 +83,53 @@ async def test_a_proposal_that_times_out_is_a_rejected_attempt_not_a_failed_buil
     assert job.state == "OPTIMIZING" and job.error is None
     assert job.checkpoint["attempts"][-1]["rejected_before_evaluation"] == "TimeoutError"
     assert job.checkpoint["version_id"] == initial.id
+
+
+def test_patch_parsing_keeps_valid_fields_and_never_widens_what_a_patch_can_do():
+    from agents import ModelBehaviorError
+
+    from factory.builder import parse_patch
+
+    # A weak model's reply: wrapped, with empty placeholders, one good change and junk elsewhere.
+    reply = (
+        '{"spec": {"hypothesis": "Aliases are not resolved", "instructions": "", "output_schema": {}, '
+        '"rules": {"resolve_aliases": true}, "examples": [{"text": "not an example"}], '
+        '"verifiers": [{"path": "x"}], "status": "passed"}}'
+    )
+    patch, dropped = parse_patch(reply)
+    assert patch.rules == {"resolve_aliases": True} and patch.hypothesis == "Aliases are not resolved"
+    assert patch.instructions is None and patch.output_schema is None, "empty placeholders change nothing"
+    assert patch.examples is None and patch.verifiers is None
+    assert dropped == ["examples", "status", "verifiers"]
+
+    clean, none_dropped = parse_patch('{"hypothesis": "x", "rules": {"margin": 0.3}}')
+    assert clean.rules == {"margin": 0.3} and none_dropped == []
+    assert parse_patch('{"hypothesis": ""}')[0] == SpecPatch(), "an explicitly empty patch is still allowed"
+
+    # Naming a field outside the patch is refused, wrapped or not. Nothing is salvaged from it.
+    for locked in ('{"tools": ["x"], "rules": {"margin": 0.3}}', '{"spec": {"template": "custom", "rules": {"a": 1}}}'):
+        with pytest.raises(ModelBehaviorError, match="outside the patch"):
+            parse_patch(locked)
+    # A reply with nothing usable is rejected rather than evaluated as a no-op.
+    for useless in ('{"examples": [{"bad": 1}]}', '{"hypothesis": "h", "verifiers": [{}]}', "no json", "[1, 2]"):
+        with pytest.raises(ModelBehaviorError):
+            parse_patch(useless)
+    # A junk object is not accepted as an output schema.
+    patch, dropped = parse_patch('{"rules": {"margin": 0.3}, "output_schema": {"requires_approval": null}}')
+    assert patch.output_schema is None and dropped == ["output_schema"]
+
+
+def test_a_malformed_json_schema_in_a_patch_is_a_dropped_field_not_a_crash():
+    from factory.builder import parse_patch
+    from factory.schemas import GeneratedTool, Verifier
+
+    # Seen from a real model: a schema whose "type" is not a valid JSON Schema type.
+    bad = {"type": "object", "properties": {"a": {"type": "not-a-type"}}}
+    patch, dropped = parse_patch({"rules": {"margin": 0.3}, "output_schema": bad})
+    assert patch.output_schema is None and dropped == ["output_schema"]
+    with pytest.raises(ValueError):
+        Verifier(id="v", kind="schema", schema={"type": "nope"})
+    with pytest.raises(ValueError):
+        GeneratedTool(name="tool", description="d", code="x", input_schema={"type": "nope"})
+    with pytest.raises(ValueError):
+        SpecPatch(output_schema=bad)

@@ -7,6 +7,18 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def checked_schema(schema):
+    """A malformed JSON Schema is a validation error here, never an unhandled SchemaError."""
+    from jsonschema import Draft202012Validator
+    from jsonschema.exceptions import SchemaError
+
+    try:
+        Draft202012Validator.check_schema(schema)
+    except SchemaError as error:
+        raise ValueError(f"Invalid JSON Schema: {error.message[:120]}") from None
+    return schema
+
+
 class BusinessRequirements(StrictModel):
     objective: str
     inputs: list[str] = Field(default_factory=list)
@@ -69,9 +81,7 @@ class Verifier(StrictModel):
         if not needs[self.kind]:
             raise ValueError(f"Verifier kind {self.kind} is missing required parameters")
         if self.expected_schema is not None:
-            from jsonschema import Draft202012Validator
-
-            Draft202012Validator.check_schema(self.expected_schema)
+            checked_schema(self.expected_schema)
         return self
 
 
@@ -98,10 +108,7 @@ class GeneratedTool(StrictModel):
     @field_validator("input_schema", "output_schema")
     @classmethod
     def valid_schema(cls, schema):
-        from jsonschema import Draft202012Validator
-
-        Draft202012Validator.check_schema(schema)
-        return schema
+        return checked_schema(schema)
 
 
 class AgentSpec(StrictModel):
@@ -171,6 +178,16 @@ class SpecPatch(StrictModel):
     verifiers: list[Verifier] | None = Field(default=None, max_length=20)
     tool_notes: dict[str, str] | None = None
     generated_tools: list[GeneratedTool] | None = Field(default=None, max_length=6)
+
+    @field_validator("output_schema")
+    @classmethod
+    def object_schema(cls, schema):
+        # An agent result is a JSON object. Anything else here is a malformed reply, not a schema.
+        if schema is not None:
+            if schema.get("type") != "object":
+                raise ValueError("output_schema must be a JSON Schema of type object")
+            checked_schema(schema)
+        return schema
 
 
 class Budget(StrictModel):

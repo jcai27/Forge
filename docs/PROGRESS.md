@@ -821,8 +821,22 @@ that cannot compile large output schemas; and a proposal timeout failing the who
 After the first three fixes the local model drove the order agent correctly in three of
 three runs, from zero of three.
 
-Not established: whether the builder improves agents. That needs a capable model.
+A later set of runs isolated the builder (`--isolate-builder`: the agent executes
+deterministically, baseline a stable 0.75) and raised the model's context window from
+Ollama's default 4,096 tokens to 8,192, since the optimizer's request was being truncated.
+Across nine builds per arm the harness improved the agent once, from 0.75 to 1.00 with every
+held-out case passing, and the one-shot optimizer never did. At least 79 and exactly 29
+replies respectively were rejected as invalid. That one build is a model-written patch parsed, scope-checked,
+screened, evaluated, promoted and validated with no scripted provider in the loop.
 
-Checks: Ruff; 321 SQLite tests passed (6 PG-only skips); all 327 PostgreSQL tests passed;
-strict TypeScript; 3 Vitest tests; all 6 browser journeys; 36 sandbox isolation checks.
+Further fixes from these runs: partly valid replies are now salvaged field by field
+(`parse_patch`), with locked fields still refused and dropped fields recorded in the
+hypothesis; and a malformed JSON Schema in a patch is a dropped field, not a failed build.
+
+Not established: how often the builder helps, or whether the harness beats the one-shot
+optimizer. One success in nine against none in nine is not a measurable difference. That
+needs a capable model.
+
+Checks after these changes: Ruff; 323 SQLite tests passed (6 PG-only skips); all 329
+PostgreSQL tests passed; strict TypeScript; 3 Vitest tests; all 6 browser journeys.
 
