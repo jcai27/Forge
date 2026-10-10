@@ -4,14 +4,20 @@ Administrators configure connections in the integration workspace. Credentials g
 `secret`, which is encrypted at rest and never returned by REST APIs. Configuration
 is restricted to non-secret metadata. Connections with missing credentials remain in
 `setup_required`; testing discovers approved tools and marks successful connections
-connected. Revocation erases stored credentials and blocks existing versions.
+connected. Revocation clears active dispatch credentials and blocks existing versions.
+Retired ciphertext is kept only for historical filtering; see SECRET_BOUNDARIES.md.
 
 - Fixture: built-in fictional ERP. Read and approval-gated write permissions are separate.
 - REST: `base_url`, `allowed_hosts`, `health_path`, and `operations` containing `name`,
   `description`, static relative `path`, `method`, `input_schema`, `output_schema`.
   Store bearer token as secret. Private/loopback/metadata hosts are rejected; redirects
-  are disabled; 429 responses have bounded retries. Explicit host/network egress policy
-  should be enforced by the deployment network as well.
+  are disabled. GET/HEAD requests may retry HTTP 429 twice; write methods dispatch once.
+  Discarded responses close before a bounded retry delay. Responses stream with separate
+  2 MB wire/decoded limits, including capped gzip/deflate decompression. Oversized length
+  headers reject before a body read; oversized streams stop early. Unsupported, truncated
+  or trailing compressed payloads reject. The HTTP request/retry/body phase has a 15-second
+  total deadline. DNS validation/pinning and other connector transport paths still require
+  hardening; enforce host/network egress policy at deployment as well.
 - PostgreSQL: store a DSN as secret, set `schema` and a `tables` allowlist. Use a dedicated
   read-only database role. The adapter enforces read-only transactions, statement timeout,
   identifier quoting and bounded results; it exposes no arbitrary SQL execution.

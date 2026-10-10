@@ -5,8 +5,10 @@ import csv
 import io
 import ipaddress
 import json
+import math
 import socket
 import ssl
+import zlib
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from email.message import EmailMessage
@@ -110,6 +112,46 @@ class FixtureConnector(Connector):
         raise ValueError("prepare_operation is bound with versioned runtime context")
 
 
+REST_REQUEST_TIMEOUT = 15
+
+
+async def bounded_json(response, limit=2_000_000):
+    """Bound both wire bytes and decoded bytes before parsing an upstream payload."""
+    length = response.headers.get("Content-Length")
+    if length is not None:
+        try:
+            advertised = int(length)
+        except ValueError:
+            raise ValueError("Invalid response length") from None
+        if advertised < 0 or advertised > limit:
+            raise ValueError("Response exceeds resource budget")
+    encoding = response.headers.get("Content-Encoding", "identity").strip().lower()
+    if encoding not in ("identity", "gzip", "deflate"):
+        raise ValueError("Unsupported response encoding")
+    decoder = (
+        zlib.decompressobj(16 + zlib.MAX_WBITS if encoding == "gzip" else zlib.MAX_WBITS)
+        if encoding != "identity"
+        else None
+    )
+    body, received = bytearray(), 0
+    chunks = response.aiter_raw(chunk_size=65536) if decoder else response.aiter_bytes(chunk_size=65536)
+    async for chunk in chunks:
+        received += len(chunk)
+        if received > limit:
+            raise ValueError("Response exceeds resource budget")
+        if decoder:
+            try:
+                chunk = decoder.decompress(chunk, limit - len(body) + 1)
+            except zlib.error:
+                raise ValueError("Invalid compressed response") from None
+        if len(body) + len(chunk) > limit:
+            raise ValueError("Decoded response exceeds resource budget")
+        body.extend(chunk)
+    if decoder and (not decoder.eof or decoder.unused_data):
+        raise ValueError("Incomplete or trailing compressed response")
+    return json.loads(body)
+
+
 class RESTConnector(Connector):
     def tools(self):
         return [
@@ -129,24 +171,31 @@ class RESTConnector(Connector):
         if not path.startswith("/") or path.startswith("//") or ".." in path or "?" in path or "#" in path:
             raise ValueError("Operation path must be static and relative")
         url = base.rstrip("/") + path
-        headers = {"Authorization": f"Bearer {self.secret}"} if self.secret else {}
+        headers = {"Accept-Encoding": "gzip, deflate, identity"}
+        if self.secret:
+            headers["Authorization"] = f"Bearer {self.secret}"
         method = operation.get("method", "GET").upper()
-        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
-            for attempt in range(3):
-                response = await client.request(
+        attempts = 3 if method in ("GET", "HEAD") else 1
+        async with asyncio.timeout(REST_REQUEST_TIMEOUT), httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+            for attempt in range(attempts):
+                async with client.stream(
                     method,
                     url,
                     headers=headers,
                     params=arguments if method in ("GET", "HEAD") else None,
                     json=arguments if method not in ("GET", "HEAD") else None,
-                )
-                if response.status_code == 429 and attempt < 2:
-                    await asyncio.sleep(min(float(response.headers.get("Retry-After", 1)), 5))
-                    continue
-                response.raise_for_status()
-                if len(response.content) > 2_000_000:
-                    raise ValueError("Response exceeds resource budget")
-                return response.json()
+                ) as response:
+                    if response.status_code == 429 and attempt < attempts - 1:
+                        try:
+                            delay = float(response.headers.get("Retry-After", 1))
+                        except ValueError:
+                            delay = 1
+                        delay = min(delay, 5) if math.isfinite(delay) and delay >= 0 else 1
+                    else:
+                        response.raise_for_status()
+                        return await bounded_json(response)
+                # Close discarded responses before waiting; writes never retry invisibly.
+                await asyncio.sleep(delay)
         raise ValueError("Rate limit retries exhausted")
 
     async def discover(self):

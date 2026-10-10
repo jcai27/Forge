@@ -65,3 +65,10 @@ with active dispatch credentials removed; historical filtering and tenant separa
 are tested. This does not prove complete PII/minimization or encoding coverage.
 Final checks: 64 SQLite tests (4 PG-only skips), 68 PostgreSQL tests, TypeScript,
 Vitest, both browser journeys, migrations and rebuilt Compose services pass.
+
+
+2026-10-09: REST responses have verified streaming wire/decoded bounds, bounded
+compression, body closure and HTTP-phase deadlines. Read-only 429 retries are bounded;
+write methods dispatch once. DNS rebinding/pinning and other connector transport paths
+remain unverified/incomplete. Final checks: 74 SQLite tests (4 PG-only skips), 78 PG
+tests, Ruff/TypeScript/Vitest, both browser journeys, migration drift and rebuilt Compose.

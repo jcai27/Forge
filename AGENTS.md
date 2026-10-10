@@ -35,6 +35,10 @@ known-value filtering at model/tool/output/browser boundaries. Retired ciphertex
 redaction-only and must never be used for connector authentication or exposed by APIs.
 Preserve historical filtering when removing or rotating active credentials.
 
+REST response handling must bound wire and decoded bytes during streaming, including
+compressed bodies. Keep total HTTP deadlines and close discarded streams. Never retry
+HTTP write methods automatically; uncertain results go through reconciliation.
+
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require
 explicit authorization; secrets never enter model context or browser responses;

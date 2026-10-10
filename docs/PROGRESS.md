@@ -272,3 +272,35 @@ Remaining: resource-specific private-field minimization and unknown-data policie
 streaming/DNS/SSRF and production runtime hardening; durable evaluation/rubric/runtime
 provider accounting; broader workflows/proposal review, memberships/pagination/mobile
 and full acceptance audit. The full goal stays active.
+
+
+2026-10-09 REST response-bound milestone verified: HTTP response bodies now stream
+with independent 2 MB wire/decoded limits. Oversized advertised lengths reject before
+reading; chunked responses stop as soon as the limit is exceeded. Gzip/deflate decoding
+uses bounded output rather than HTTPX's full automatic decompression. Unknown encodings,
+truncated compressed streams and trailing compressed data reject. Successful responses
+still parse actual JSON through the registered REST connector.
+
+The HTTP request/retry/body phase has a 15-second total deadline as well as transport
+timeouts. GET/HEAD may retry HTTP 429 twice, with finite capped delays and closure of
+discarded bodies before waiting. Write methods dispatch once, preventing automatic
+retransmission of an ambiguous approved operation; runtime reconciliation remains the
+existing recovery boundary. DNS validation occurs separately and needs further pinning
+and deadline work; this does not establish whole-platform egress security.
+
+Tracked real HTTPX stream fixtures verify zero reads for rejected length/encoding,
+early termination of oversized bodies, closure, gzip expansion rejection, valid gzip
+and deflate, truncated payload rejection, read-only retry behavior, zero body consumption
+for 429 and real async deadline cancellation of a trickling response. No score overrides,
+actual provider calls or production writes were used.
+
+Final checks: 74 SQLite tests passed (4 PG-only skips), all 78 PostgreSQL tests passed;
+Ruff, strict TypeScript, 2 Vitest tests and both complete browser journeys passed.
+SQLite/PG migration drift checks pass; Docker images rebuild and API/worker/web/PG/Redis
+health/dashboard checks pass. Integration documentation now states streaming limits,
+write retry policy and retired-credential handling accurately.
+
+Remaining: DNS rebinding-safe connection pinning and other transport bounds; generic
+private-field minimization and production/security audit; durable evaluation/rubric/
+deployment provider accounting; broader workflows/proposal review and remaining UX.
+The full goal stays active.
