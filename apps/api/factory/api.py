@@ -19,6 +19,7 @@ from jsonschema.exceptions import ValidationError as JsonValidationError
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import object_session
 
 from factory import models as m
 from factory.builder import available_tools, design, enforce_spec_scope, infer_template, persist_version
@@ -53,6 +54,7 @@ from factory.security import (
     passwords,
     principal,
     redact,
+    redact_tenant,
     require_admin,
     require_write,
     token_for,
@@ -205,7 +207,7 @@ app.add_middleware(
 )
 
 
-def serialize(row):
+def serialize(row, org_id=None):
     result = {}
     for column in row.__table__.columns:
         if column.name in ("password_hash", "encrypted_secret", "lease_owner", "lease_until"):
@@ -213,7 +215,10 @@ def serialize(row):
         value = getattr(row, column.name)
         if hasattr(value, "isoformat"):
             value = value.isoformat()
-        result[column.name] = redact(value)
+        result[column.name] = value
+    org_id = org_id or getattr(row, "org_id", None) or (row.id if isinstance(row, m.Organization) else None)
+    db = object_session(row)
+    result = redact_tenant(db, org_id, result) if db is not None and org_id else redact(result)
     if isinstance(row, (m.Connection, m.DeploymentTrigger)):
         result["has_secret"] = bool(row.encrypted_secret)
     return result
@@ -248,7 +253,7 @@ def register(body: Register, db=DB):
     db.add(m.Membership(org_id=org.id, user_id=user.id, role="admin"))
     audit(db, Principal(user.id, org.id, "admin"), "organization_created", org.id)
     db.commit()
-    return {"token": token_for(user.id, org.id), "organization": serialize(org), "user": serialize(user)}
+    return {"token": token_for(user.id, org.id), "organization": serialize(org), "user": serialize(user, org.id)}
 
 
 @app.post("/auth/login")
@@ -270,7 +275,7 @@ def login(body: Login, db=DB):
         raise HTTPException(403, "No organization membership")
     return {
         "token": token_for(user.id, member.org_id),
-        "user": serialize(user),
+        "user": serialize(user, member.org_id),
         "organization": serialize(db.get(m.Organization, member.org_id)),
     }
 
@@ -279,7 +284,7 @@ def login(body: Login, db=DB):
 def me(actor=ACTOR, db=DB):
     memberships = db.scalars(select(m.Membership).where(m.Membership.user_id == actor.user_id))
     return {
-        "user": serialize(db.get(m.User, actor.user_id)),
+        "user": serialize(db.get(m.User, actor.user_id), actor.org_id),
         "organization": serialize(db.get(m.Organization, actor.org_id)),
         "role": actor.role,
         "memberships": [serialize(row) for row in memberships],
@@ -720,7 +725,20 @@ async def test_connection(connection_id: str, actor=ACTOR, db=DB):
 @app.post("/integrations/{connection_id}/revoke")
 def revoke(connection_id: str, actor=ACTOR, db=DB):
     require_admin(actor)
-    connection = owned(db, m.Connection, connection_id, actor)
+    connection = db.scalar(
+        select(m.Connection)
+        .where(m.Connection.id == connection_id, m.Connection.org_id == actor.org_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if not connection:
+        raise HTTPException(404, "Connection not found")
+    if connection.encrypted_secret:
+        db.add(
+            m.SecretRedactionEntry(
+                org_id=actor.org_id, connection_id=connection.id, encrypted_secret=connection.encrypted_secret
+            )
+        )
     connection.status = "revoked"
     connection.encrypted_secret = ""
     audit(db, actor, "integration_revoked", connection.id)

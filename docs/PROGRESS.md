@@ -240,3 +240,35 @@ No live OpenAI credentials or production writes were used. The full goal stays a
 Next: general custom connector workflow/proposal-review browser evidence; durable
 provider accounting for evaluation/rubric/deployment; secret/private-data and transport
 hardening; memberships, pagination/mobile/accessibility and final acceptance audit.
+
+
+2026-10-09 credential-boundary milestone verified: field-name filtering is extended to
+known credential values, including ordinary text fields/dictionary keys and common URL,
+JSON and base64 encodings. Credential JSON/DSNs contribute password values and Basic-auth
+combinations. Filtering is tenant-scoped and covers global API/signing/encryption keys.
+Model instructions/schemas/inputs, tool responses, runtime outputs, execution events,
+factory role payloads, optimizer evidence, rubric payloads/grades, imported state and
+browser serialization use the boundary. Queued input/idempotency comparisons use the
+same safe representation. Authorized external receipts are sanitized before persistence.
+Server-owned has_secret flags remain booleans.
+
+Revocation archives ciphertext in an internal redaction-only table, clears active
+credentials and marks the connection revoked. This preserves historical filtering
+without granting dispatch or changing immutable historical configurations. Repeated
+revocation is idempotent. No model, browser or adapter can retrieve the archive through
+an API. Migration 0006 adds the tenant-owned table and passes drift/populated migration
+checks. See docs/SECRET_BOUNDARIES.md for the tested scope and remaining limitations.
+
+Adversarial fictional-credential tests inspect real SDK transport inputs/tool results,
+an intentionally secret-bearing provider output, persisted events/browser rows,
+authorized mocked adapter receipts, ordinary/encoded/key occurrences, tenant isolation
+and post-revocation history. They do not execute a live model or production connector.
+Final checks: bash scripts/test.sh passes (Ruff, 64 SQLite tests plus 4 PG-only skips,
+TypeScript, 2 Vitest tests, 2 complete browser journeys); all 68 PostgreSQL tests pass.
+SQLite/PG migration upgrades and drift checks pass; optimized Docker images rebuild;
+API/worker/web/PG/Redis health and dashboard checks pass. No live credentials were used.
+
+Remaining: resource-specific private-field minimization and unknown-data policies;
+streaming/DNS/SSRF and production runtime hardening; durable evaluation/rubric/runtime
+provider accounting; broader workflows/proposal review, memberships/pagination/mobile
+and full acceptance audit. The full goal stays active.

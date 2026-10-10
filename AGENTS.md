@@ -30,6 +30,11 @@ allow a stale returning worker to overwrite the redirected checkpoint.
 Generated test proposals are not evidence: keep them outside evaluation_cases until
 administrator correction/acceptance. No proposed plan can grant live/imported access.
 
+Credential filtering is documented in docs/SECRET_BOUNDARIES.md. Apply tenant-scoped
+known-value filtering at model/tool/output/browser boundaries. Retired ciphertext is
+redaction-only and must never be used for connector authentication or exposed by APIs.
+Preserve historical filtering when removing or rotating active credentials.
+
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require
 explicit authorization; secrets never enter model context or browser responses;

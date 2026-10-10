@@ -228,6 +228,14 @@ class UsageRecord(Owned, Base):
     reserved_cost: Mapped[float] = mapped_column(Float, default=0)
 
 
+class SecretRedactionEntry(Owned, Base):
+    """Retired ciphertext used only for filtering historical data, never authentication."""
+
+    __tablename__ = "secret_redaction_entries"
+    connection_id: Mapped[str] = mapped_column(ForeignKey("integration_connections.id"), unique=True)
+    encrypted_secret: Mapped[str] = mapped_column(Text)
+
+
 class BusinessRecord(Owned, Base):
     __tablename__ = "business_records"
     __table_args__ = (UniqueConstraint("org_id", "collection", "key"),)

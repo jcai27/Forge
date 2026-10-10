@@ -24,6 +24,7 @@ from factory.models import (
 from factory.provider_accounting import BuildInterrupted, FactoryBudgetHooks, recover_reservations
 from factory.runtime import BudgetExceeded, emit
 from factory.schemas import AgentSpec, Budget
+from factory.security import known_secret_values
 
 TERMINAL = {"READY_FOR_REVIEW", "DEPLOYED", "FAILED", "CANCELLED", "BUDGET_EXHAUSTED"}
 INACTIVE = TERMINAL | {"PAUSED", "WAITING_FOR_APPROVAL"}
@@ -361,6 +362,7 @@ async def advance(db, job):
                 max_cost=max(0, budget.max_cost - job.spent),
                 max_seconds=min(60, max(0, budget.max_seconds - elapsed)),
                 usage=usage,
+                secret_values=known_secret_values(db, job.org_id),
                 hooks=FactoryBudgetHooks(
                     max(0, budget.max_cost - job.spent),
                     db,

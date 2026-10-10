@@ -57,3 +57,11 @@ a static stage label is not readiness evidence. Auth profile reads no longer exh
 credential quotas, and rate protection errors preserve CORS/security headers.
 Final checks: 60 SQLite tests (4 PG-only skips), 64 PostgreSQL tests, strict TypeScript,
 2 Vitest tests, 2 complete browser journeys, migrations and rebuilt Compose pass.
+
+
+2026-10-09: known tenant/global credential values and conventional encodings are filtered
+at model/tool/output/trace/browser boundaries. Revoked ciphertext is redaction-only,
+with active dispatch credentials removed; historical filtering and tenant separation
+are tested. This does not prove complete PII/minimization or encoding coverage.
+Final checks: 64 SQLite tests (4 PG-only skips), 68 PostgreSQL tests, TypeScript,
+Vitest, both browser journeys, migrations and rebuilt Compose services pass.

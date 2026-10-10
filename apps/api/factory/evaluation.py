@@ -14,7 +14,7 @@ from factory.fixtures import business_snapshot
 from factory.models import DataSource, EvaluationCase, EvaluationResult, EvaluationRun, ExecutionRun, Membership
 from factory.runtime import execute
 from factory.schemas import QualityPolicy
-from factory.security import redact
+from factory.security import redact, redact_tenant
 
 
 def get_path(value, path):
@@ -165,7 +165,7 @@ def evaluation_environment(db, case, version):
     for collection, records in environment.get("state_overrides", {}).items():
         if collection not in state:
             raise ValueError("Unknown test-state collection")
-        state[collection] = redact(records)
+        state[collection] = redact_tenant(db, version.org_id, records)
     if environment.get("data_mappings"):
         member = db.scalar(
             select(Membership).where(Membership.org_id == version.org_id, Membership.user_id == case.authorized_by)
@@ -187,7 +187,7 @@ def evaluation_environment(db, case, version):
                 raise ValueError("Unknown imported-state collection")
             # Select only explicitly mapped fields; unrelated private columns never enter the fork.
             mapped = []
-            for record in redact(source.records):
+            for record in redact_tenant(db, version.org_id, source.records):
                 row = {destination: record[column] for destination, column in mapping["fields"].items()}
                 exemplar = state[collection][0] if state[collection] else {}
                 for field, value in row.items():
@@ -367,7 +367,7 @@ def development_evidence(db, evaluation):
                 "failed_checks": [c for c in result.checks if not c["passed"]],
             }
         )
-    return evidence
+    return redact_tenant(db, evaluation.org_id, evidence)
 
 
 def can_promote(candidate, baseline=None, policy=None):

@@ -2,7 +2,7 @@
 
 Authoritative scope: docs/AGENT_FACTORY_SPEC.md. The complete goal remains active.
 See docs/ACCEPTANCE.md for requirement-level evidence and gaps; chronological evidence
-is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 immutable build redirection and browser readiness.
+is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 tenant-scoped current/retired credential filtering.
 
 Verified working slices:
 
@@ -20,7 +20,7 @@ Verified working slices:
 9. Orders/quotes/administrative hiring share runtime, factory, tools and assertions.
 10. Real worker kill/recovery, tenant/RBAC/secret tests and PG concurrency tests.
 
-Latest checks: Ruff; 60 SQLite tests passed (4 PG-only skips); 64 PG tests passed;
+Latest checks: Ruff; 64 SQLite tests passed (4 PG-only skips); 68 PG tests passed;
 strict TypeScript; 2 Vitest tests; two browser journeys; Alembic drift checks on both
 DBs; populated migration upgrade/downgrade; optimized images and Compose health.
 These prove working slices, not complete phases or the whole product specification.
@@ -36,7 +36,7 @@ Next work, in priority order:
    retries and preserve pause/cancel/lease ownership. Billing reconciliation remains
    unavailable; unknown charges are conservatively retained. Verify broader contracts
    without inventing metrics.
-3. Known-secret-value minimization, streaming response bounds, DNS/SSRF transport audit,
+3. Broader private-field minimization, streaming response bounds, DNS/SSRF transport audit,
    safe deployment users/settings and tenant/relational enforcement audit.
 4. Membership/invitation management, collection pagination, mobile/accessibility checks,
    template browser journeys and controlled manual editing/redirect usability.

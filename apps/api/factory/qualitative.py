@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from factory.config import settings
 from factory.models import UsageRecord
 from factory.runtime import BudgetHooks
-from factory.security import redact
+from factory.security import redact_tenant
 
 
 class CriterionGrade(BaseModel):
@@ -58,7 +58,9 @@ async def grade_rubric(db, version, run, case, max_cost=None, max_seconds=None):
         result = await asyncio.wait_for(
             Runner.run(
                 grader,
-                json.dumps(redact({"rubric": case.rubric, "input": run.input, "output": run.output})),
+                json.dumps(
+                    redact_tenant(db, version.org_id, {"rubric": case.rubric, "input": run.input, "output": run.output})
+                ),
                 hooks=hooks,
                 max_turns=2,
                 run_config=RunConfig(tracing_disabled=True, trace_include_sensitive_data=False),
@@ -78,7 +80,7 @@ async def grade_rubric(db, version, run, case, max_cost=None, max_seconds=None):
                 "expected": case.rubric["threshold"],
                 "actual": score,
                 "rubric": case.rubric,
-                "grades": [redact(g.model_dump()) for g in grades],
+                "grades": [redact_tenant(db, version.org_id, g.model_dump()) for g in grades],
                 "evidence": "Model judgment with an explicit rubric; provisional and subject to evaluator bias",
             }
         ]

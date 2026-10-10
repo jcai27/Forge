@@ -77,6 +77,9 @@ against build budgets; `/usage` and metrics distinguish them from observed token
 estimates. See [docs/FACTORY.md](docs/FACTORY.md) for promotion objectives,
 editable thresholds, in-progress build redirection and current limitations.
 
+Credential filtering and retired-ciphertext handling are described in
+[docs/SECRET_BOUNDARIES.md](docs/SECRET_BOUNDARIES.md).
+
 ## Verification
 
 ```sh

@@ -17,7 +17,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from factory.models import Connection, DataSource, ToolDefinition
-from factory.security import decrypt, redact
+from factory.security import decrypt, redact_tenant
 
 
 def safe_url(url, allowed_hosts):
@@ -450,6 +450,7 @@ async def discover_connection(db, connection):
         ]
         connection.config = {**connection.config, "discovered_tools": definitions}
         result["tools"] = definitions
+    result = redact_tenant(db, connection.org_id, result)
     existing = {
         t.name: t for t in db.scalars(select(ToolDefinition).where(ToolDefinition.connection_id == connection.id))
     }
@@ -469,4 +470,4 @@ async def discover_connection(db, connection):
                 )
             )
     connection.status = "connected"
-    return redact(result)
+    return redact_tenant(db, connection.org_id, result)

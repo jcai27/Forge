@@ -11,7 +11,7 @@ from factory.db import SessionLocal, now, uid
 from factory.models import AgentVersion, Deployment, DeploymentTrigger, ExecutionRun, Invocation, Membership, RuntimeJob
 from factory.runtime import emit, execute
 from factory.schemas import AgentSpec
-from factory.security import Principal, audit, redact, require_write
+from factory.security import Principal, audit, redact_tenant, require_write
 
 RUNNABLE = ("PENDING", "RUNNING")
 
@@ -38,7 +38,7 @@ def enqueue(db, deployment_id, actor, input_data, idempotency_key):
     )
     if previous:
         run = db.get(ExecutionRun, previous.run_id)
-        if run.input != redact(input_data):
+        if run.input != redact_tenant(db, deployment.org_id, input_data):
             raise HTTPException(409, "Idempotency key already used for different input")
         return run, db.scalar(select(RuntimeJob).where(RuntimeJob.invocation_id == previous.id))
     if not deployment.active:
@@ -66,7 +66,7 @@ def enqueue(db, deployment_id, actor, input_data, idempotency_key):
         org_id=actor.org_id,
         version_id=version.id,
         mode=settings().execution_mode,
-        input=redact(input_data),
+        input=redact_tenant(db, deployment.org_id, input_data),
         status="queued",
     )
     db.add(run)
