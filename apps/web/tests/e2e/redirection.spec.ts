@@ -5,7 +5,7 @@ test('redirect a paused build through a new immutable configuration and fresh ev
   page.on('response',response=>{if(response.status()===429)rateLimited.push(response.url());});
   await page.goto('/dashboard');
   await page.getByRole('button',{name:'Open local demo workspace'}).click();
-  await expect(page.getByRole('heading',{name:'Your agent factory'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Overview'})).toBeVisible();
   const token=await page.evaluate(()=>localStorage.getItem('factory-token'));
   const headers={Authorization:`Bearer ${token}`}, base='http://127.0.0.1:8100';
   const projects=await (await page.request.get(`${base}/projects`,{headers})).json();

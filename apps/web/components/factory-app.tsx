@@ -3,8 +3,8 @@ import {useEffect, useState} from 'react';
 import Link from 'next/link';
 import {usePathname} from 'next/navigation';
 import {QueryClient, QueryClientProvider, useQueryClient} from '@tanstack/react-query';
-import {Boxes, LayoutDashboard, Bot, Plug, ShieldCheck, Settings, Plus, LogOut} from 'lucide-react';
-import type {Me} from '../../../packages/contracts/src';
+import {Boxes, LayoutDashboard, Plug, ShieldCheck, Settings, Plus, LogOut, CircleCheck} from 'lucide-react';
+import type {Me, Agent, Metrics} from '../../../packages/contracts/src';
 import {api, useResource} from '@/lib/api';
 import {Button} from './ui/button';
 import {ToastContext, Loading} from './shared';
@@ -25,20 +25,81 @@ function Session() {
 function Login({onLogin}: {onLogin: () => void}) {
   const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [organization, setOrganization] = useState(''), [register, setRegister] = useState(false), [error, setError] = useState(''), [pending, setPending] = useState(false);
   async function login(demo = false) {setPending(true); setError(''); try {const result = await api<{token: string}>(demo ? '/auth/demo' : register ? '/auth/register' : '/auth/login', demo ? {} : register ? {email, password, organization} : {email, password}); localStorage.setItem('factory-token', result.token); onLogin();} catch(e) {setError(e instanceof Error ? e.message : 'Sign in failed');} finally {setPending(false);}}
-  return <div className="login"><div className="card login-card"><div className="brand"><span className="brand-icon"><Boxes size={21}/></span>Agent Factory</div><h1>{register ? 'Create your workspace' : 'Welcome to the factory'}</h1><p className="muted small">Turn business processes into agents you can test, trust and deploy.</p><div className="separator"/>{error && <div role="alert" className="error">{error}</div>}<form onSubmit={e => {e.preventDefault(); void login();}}><div className="field"><label htmlFor="email">Email</label><input id="email" className="input" type="email" required value={email} onChange={e => setEmail(e.target.value)}/></div><div className="field"><label htmlFor="password">Password</label><input id="password" className="input" type="password" required minLength={register ? 10 : 1} value={password} onChange={e => setPassword(e.target.value)}/></div>{register && <div className="field"><label htmlFor="organization">Organization name</label><input id="organization" className="input" required value={organization} onChange={e => setOrganization(e.target.value)}/></div>}<Button className="full" disabled={pending}>{pending ? 'Connecting…' : register ? 'Create workspace' : 'Sign in'}</Button></form><Button variant="ghost" className="full" onClick={() => setRegister(!register)}>{register ? 'Already have an account? Sign in' : 'Create an account'}</Button><div className="separator"/><Button variant="secondary" className="full" disabled={pending} onClick={() => void login(true)}>Open local demo workspace</Button><p className="help">Local development only. Fictional business data and explicitly labeled deterministic execution.</p></div></div>;
+  return <div className="login">
+    <aside className="login-aside">
+      <div className="brand"><span className="brand-icon"><Boxes size={16}/></span>Agent Factory</div>
+      <div>
+        <h2>Agents you can measure before you trust them.</h2>
+        <p>Build an agent for a business process, test it against real cases, and release it only when the evidence holds.</p>
+        <ul className="login-points">
+          <li><CircleCheck size={17}/>Every version is immutable and scored on held-out cases.</li>
+          <li><CircleCheck size={17}/>Production writes wait for a named approver.</li>
+          <li><CircleCheck size={17}/>Credentials are encrypted and never shown to a model.</li>
+        </ul>
+      </div>
+      <div className="login-legal">Access is limited to invited workspace members.</div>
+    </aside>
+    <main className="login-main"><div className="login-card">
+      <h1>{register ? 'Create your workspace' : 'Sign in'}</h1>
+      <p className="muted small" style={{marginBottom:24}}>{register ? 'Set up an organization and its first administrator.' : 'Use your workspace account to continue.'}</p>
+      {error && <div role="alert" className="error">{error}</div>}
+      <form onSubmit={e => {e.preventDefault(); void login();}}>
+        <div className="field"><label htmlFor="email">Email</label><input id="email" className="input" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)}/></div>
+        <div className="field"><label htmlFor="password">Password</label><input id="password" className="input" type="password" autoComplete={register ? 'new-password' : 'current-password'} required minLength={register ? 10 : 1} value={password} onChange={e => setPassword(e.target.value)}/></div>
+        {register && <div className="field"><label htmlFor="organization">Organization name</label><input id="organization" className="input" required value={organization} onChange={e => setOrganization(e.target.value)}/></div>}
+        <Button className="full" disabled={pending}>{pending ? 'Connecting…' : register ? 'Create workspace' : 'Sign in'}</Button>
+      </form>
+      <Button variant="ghost" className="full" style={{marginTop:8}} onClick={() => setRegister(!register)}>{register ? 'Already have an account? Sign in' : 'Create an account'}</Button>
+      <div className="or">Local development</div>
+      <Button variant="secondary" className="full" disabled={pending} onClick={() => void login(true)}>Open local demo workspace</Button>
+      <p className="help">Fictional business data. Runs are deterministic and labeled as demo, never as live model execution.</p>
+    </div></main>
+  </div>;
 }
+const SECTIONS: Record<string, string> = {integrations:'Integrations', approvals:'Approvals', settings:'Settings', runs:'Executions', dashboard:'Overview'};
+function initials(value: string) {return value.split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || '–';}
 function Workspace({path, logout}: {path: string; logout: () => void}) {
   const me = useResource<Me>('/auth/me');
-  const nav = [{href:'/dashboard', label:'Overview', icon:LayoutDashboard}, {href:'/agents/new', label:'Create agent', icon:Plus}, {href:'/integrations', label:'Integrations', icon:Plug}, {href:'/approvals', label:'Approvals', icon:ShieldCheck}, {href:'/settings', label:'Settings', icon:Settings}];
   const parts = path.split('/').filter(Boolean);
+  const agentId = parts[0] === 'agents' && parts[1] && parts[1] !== 'new' ? parts[1] : '';
+  const agent = useResource<Agent>(`/agents/${agentId}`, !!agentId), metrics = useResource<Metrics>('/metrics', false); // reads what the overview already fetched; a request of its own here exceeds the API request budget
+  const waiting = metrics.data?.pending_approvals ?? 0, live = me.data?.execution_mode === 'live';
+  const groups = [
+    {label:'Build', items:[{href:'/dashboard', label:'Overview', icon:LayoutDashboard, active:parts.length === 0 || parts[0] === 'dashboard' || !!agentId || parts[0] === 'runs'}, {href:'/agents/new', label:'Create agent', icon:Plus, active:path === '/agents/new'}]},
+    {label:'Operate', items:[{href:'/approvals', label:'Approvals', icon:ShieldCheck, active:parts[0] === 'approvals', count:waiting}, {href:'/integrations', label:'Integrations', icon:Plug, active:parts[0] === 'integrations'}]},
+    {label:'Administration', items:[{href:'/settings', label:'Settings', icon:Settings, active:parts[0] === 'settings'}]},
+  ];
   let page;
   if (parts[0] === 'agents' && parts[1] === 'new') page = <NewAgent/>;
-  else if (parts[0] === 'agents' && parts[1]) page = <AgentWorkspace id={parts[1]} section={parts[2] ?? 'overview'}/>;
+  else if (agentId) page = <AgentWorkspace id={agentId} section={parts[2] ?? 'overview'}/>;
   else if (parts[0] === 'integrations') page = <Integrations/>;
   else if (parts[0] === 'approvals') page = <Approvals/>;
   else if (parts[0] === 'settings') page = <SettingsPage/>;
   else if (parts[0] === 'runs' && parts[1]) page = <RunDetail id={parts[1]}/>;
   else if (parts.length === 0 || parts[0] === 'dashboard') page = <Dashboard/>;
-  else page = <div className="card"><h1>Page not found</h1><Link className="link" href="/dashboard">Return to dashboard</Link></div>;
-  return <div className="shell"><aside className="sidebar"><Link href="/dashboard" className="brand"><span className="brand-icon"><Boxes size={21}/></span>Agent Factory</Link><div className="nav-label">Workspace</div>{nav.map(item => <Link key={item.href} className={`nav-link ${path === item.href || (item.href === '/dashboard' && path === '/') ? 'active' : ''}`} href={item.href}><item.icon size={17}/>{item.label}</Link>)}<div className="nav-label">Your factory</div><Link className={`nav-link ${parts[0] === 'agents' && parts[1] !== 'new' ? 'active' : ''}`} href="/dashboard"><Bot size={17}/>Agent library</Link><div className="sidebar-bottom"><div className="row"><span className="avatar">{me.data?.organization.name.slice(0,2).toUpperCase() ?? 'AF'}</span><div><div style={{color:'#d1d6e5'}}>{me.data?.organization.name ?? 'Workspace'}</div><div className="small muted">{me.data?.role ?? 'Connecting'}</div></div></div></div></aside><div className="workspace"><header className="topbar"><span className="crumb">Workspace <span style={{margin:'0 10px',color:'#c5c8d1'}}>/</span> {parts[0] === 'agents' ? 'Agent workspace' : parts[0] ? parts[0][0].toUpperCase()+parts[0].slice(1) : 'Overview'}</span><div className="topbar-right"><span className="mode"><span className="dot"/>{me.data?.execution_mode === 'live' ? 'Live model runtime' : 'Deterministic demo mode'}</span><span className="avatar">AF</span><Button variant="ghost" aria-label="Sign out" onClick={logout}><LogOut size={15}/></Button></div></header><main className="content">{me.error ? <div className="error">{me.error.message} <Button variant="secondary" onClick={logout}>Sign in again</Button></div> : page}</main></div></div>;
+  else page = <div className="card"><h1>Page not found</h1><p className="muted small" style={{margin:'8px 0 16px'}}>The address does not match a page in this workspace.</p><Link className="link" href="/dashboard">Return to overview</Link></div>;
+  // The current page is plain text, never a link, so navigation links keep unique names.
+  const trail: {label: string; href?: string}[] = agentId ? [{label:'Agents', href:'/dashboard'}, {label:agent.data?.name ?? 'Agent', href:parts[2] ? `/agents/${agentId}` : undefined}, ...(parts[2] ? [{label:parts[2][0].toUpperCase() + parts[2].slice(1)}] : [])]
+    : parts[0] === 'agents' ? [{label:'Agents', href:'/dashboard'}, {label:'New agent'}]
+    : parts[0] === 'runs' ? [{label:'Executions', href:'/dashboard'}, {label:(parts[1] ?? '').slice(0, 8)}]
+    : [{label:SECTIONS[parts[0] ?? 'dashboard'] ?? 'Not found'}];
+  const organization = me.data?.organization.name ?? 'Workspace', email = me.data?.user.email ?? '';
+  return <div className="shell">
+    <aside className="sidebar">
+      <Link href="/dashboard" className="brand"><span className="brand-icon"><Boxes size={16}/></span>Agent Factory</Link>
+      <nav className="nav" aria-label="Primary">{groups.map(group => <div key={group.label} style={{display:'contents'}}><div className="nav-label">{group.label}</div>{group.items.map(item => <Link key={item.href} className={`nav-link ${item.active ? 'active' : ''}`} aria-current={item.active ? 'page' : undefined} href={item.href}><item.icon size={16}/>{item.label}{'count' in item && !!item.count && <span className="nav-count" aria-hidden="true" title={`${item.count} waiting for a decision`}>{item.count}</span>}</Link>)}</div>)}</nav>
+      <div className="sidebar-bottom"><span className="avatar">{initials(organization)}</span><div style={{minWidth:0}}><div className="org-name">{organization}</div><div className="org-role">{me.data?.role ?? 'Connecting'}</div></div></div>
+    </aside>
+    <div className="workspace">
+      <header className="topbar">
+        <nav className="breadcrumbs" aria-label="Breadcrumb"><span className="root">{organization}</span>{trail.map((crumb, index) => <span key={index} style={{display:'contents'}}><span className={index ? 'sep' : 'sep root'}>/</span>{crumb.href ? <Link href={crumb.href}>{crumb.label}</Link> : <span className="here">{crumb.label}</span>}</span>)}</nav>
+        <div className="topbar-right">
+          <span className={`env ${live ? 'live' : ''}`} title={live ? `Agents run on ${me.data?.model}` : 'Deterministic tool dispatch. No model calls and no model charges.'}>{live ? 'Live model runtime' : 'Demo mode'}</span>
+          <span className="userchip"><span className="avatar light">{initials(email)}</span><span className="who">{email}</span></span>
+          <Button variant="ghost" className="icon" aria-label="Sign out" title="Sign out" onClick={logout}><LogOut size={15}/></Button>
+        </div>
+      </header>
+      <main className="content">{me.error ? <div className="error">{me.error.message} <Button variant="secondary" onClick={logout}>Sign in again</Button></div> : page}</main>
+    </div>
+  </div>;
 }

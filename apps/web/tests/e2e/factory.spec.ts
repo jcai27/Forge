@@ -4,7 +4,7 @@ test('create a project, build and improve an agent, deploy and approve a real fi
   page.on('response',response=>{if(response.status()===429)rateLimited.push(response.url());});
  await page.goto('/dashboard');
  await page.getByRole('button',{name:'Open local demo workspace'}).click();
- await expect(page.getByRole('heading',{name:'Your agent factory'})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Overview'})).toBeVisible();
  await page.getByRole('link',{name:'Create agent',exact:true}).first().click();
  await page.getByLabel('Project name',{exact:true}).fill('Browser acceptance project');
  await page.getByRole('button',{name:'Create project',exact:true}).click();

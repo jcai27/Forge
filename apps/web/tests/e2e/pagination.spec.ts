@@ -7,7 +7,7 @@ test('reach older agents and select projects and integrations beyond the first p
   await page.getByLabel('Email',{exact:true}).fill('pagination-fixture@example.invalid');
   await page.getByLabel('Password',{exact:true}).fill('local-pagination-fixture-password');
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Your agent factory'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Overview'})).toBeVisible();
   await expect(page.getByRole('heading',{name:'Collection Agent 000',exact:true})).toHaveCount(0);
   await expect(page.getByText('Showing 50 of 53 agents',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Load more agents',exact:true}).click();

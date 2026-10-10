@@ -5,7 +5,7 @@ test('invite a teammate, switch workspaces, change access and revoke an existing
   page.on('response',response=>{if(response.status()===429)rateLimited.push(response.url());});
   await page.goto('/dashboard');
   await page.getByRole('button',{name:'Open local demo workspace'}).click();
-  await expect(page.getByRole('heading',{name:'Your agent factory'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Overview'})).toBeVisible();
   await page.getByRole('link',{name:'Settings',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Workspace members'})).toBeVisible();
   await expect(page.getByLabel('Role for demo@agentfactory.local')).toBeDisabled();
@@ -28,11 +28,11 @@ test('invite a teammate, switch workspaces, change access and revoke an existing
     await recipient.getByLabel('Password',{exact:true}).fill(password);
     await recipient.getByLabel('Organization name').fill('Teammate personal workspace');
     await recipient.getByRole('button',{name:'Create workspace',exact:true}).click();
-    await expect(recipient.getByRole('heading',{name:'Your agent factory'})).toBeVisible();
+    await expect(recipient.getByRole('heading',{name:'Overview'})).toBeVisible();
     await recipient.getByRole('link',{name:'Settings',exact:true}).click();
     await recipient.getByLabel('Invitation code',{exact:true}).fill(code);
     await recipient.getByRole('button',{name:'Accept invitation and open workspace'}).click();
-    await expect(recipient.getByRole('heading',{name:'Your agent factory'})).toBeVisible();
+    await expect(recipient.getByRole('heading',{name:'Overview'})).toBeVisible();
     await recipient.getByRole('link',{name:'Settings',exact:true}).click();
     await expect(recipient.getByRole('table',{name:'Workspace members'})).toContainText('demo@agentfactory.local');
     await expect(recipient.getByRole('heading',{name:'Invite a teammate'})).toHaveCount(0);
@@ -43,12 +43,12 @@ test('invite a teammate, switch workspaces, change access and revoke an existing
     const target=me.organization.id;
     await recipient.getByLabel('Workspace',{exact:true}).selectOption(original.org_id);
     await recipient.getByRole('button',{name:'Switch workspace',exact:true}).click();
-    await expect(recipient.getByRole('heading',{name:'Your agent factory'})).toBeVisible();
+    await expect(recipient.getByRole('heading',{name:'Overview'})).toBeVisible();
     await recipient.getByRole('link',{name:'Settings',exact:true}).click();
     await expect(recipient.getByRole('table',{name:'Workspace members'})).not.toContainText('demo@agentfactory.local');
     await recipient.getByLabel('Workspace',{exact:true}).selectOption(target);
     await recipient.getByRole('button',{name:'Switch workspace',exact:true}).click();
-    await expect(recipient.getByRole('heading',{name:'Your agent factory'})).toBeVisible();
+    await expect(recipient.getByRole('heading',{name:'Overview'})).toBeVisible();
     await page.reload();
     await expect(page.getByLabel(`Role for ${email}`)).toHaveValue('editor');
     const changed=page.waitForResponse(response=>response.request().method()==='PATCH'&&response.url().includes('/organizations/members/'));
@@ -67,7 +67,7 @@ test('invite a teammate, switch workspaces, change access and revoke an existing
     await recipient.getByLabel('Email',{exact:true}).fill(email);
     await recipient.getByLabel('Password',{exact:true}).fill(password);
     await recipient.getByRole('button',{name:'Sign in',exact:true}).click();
-    await expect(recipient.getByRole('heading',{name:'Your agent factory'})).toBeVisible();
+    await expect(recipient.getByRole('heading',{name:'Overview'})).toBeVisible();
     await recipient.getByRole('link',{name:'Settings',exact:true}).click();
     await expect(recipient.getByRole('table',{name:'Workspace members'})).not.toContainText('demo@agentfactory.local');
     await expect(recipient.getByRole('heading',{name:'Your workspaces'})).toHaveCount(0);
