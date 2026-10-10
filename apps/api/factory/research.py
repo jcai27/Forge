@@ -287,7 +287,11 @@ async def research(question, screen, hooks=None, max_turns=8, max_seconds=60):
         raise ValueError(f"A research question is 1 to {MAX_QUESTION_CHARS} characters")
     screen.check(question, "question")
     gateway = WebGateway(screen)
-    instructions, output_type = structured_output(ResearchNotes, RESEARCH_INSTRUCTIONS)
+    if settings().openai_structured_output == "schema":
+        instructions, output_type = structured_output(ResearchNotes, RESEARCH_INSTRUCTIONS)
+    else:
+        # Notes are free text. Asking a weaker model to wrap them in JSON only adds a way to fail.
+        instructions, output_type = RESEARCH_INSTRUCTIONS + "\n\nReply with your notes as plain text.", None
     researcher = Agent(
         name="Research step",
         model=builder_model(),
@@ -306,5 +310,10 @@ async def research(question, screen, hooks=None, max_turns=8, max_seconds=60):
         ),
         timeout=max_seconds,
     )
-    notes = parse_structured(ResearchNotes, result.final_output).notes[:MAX_NOTES_CHARS]
+    if isinstance(result.final_output, str) and output_type is None:
+        notes = result.final_output.strip()[:MAX_NOTES_CHARS]
+        if not notes:
+            raise ValueError("The research step returned no notes")
+    else:
+        notes = parse_structured(ResearchNotes, result.final_output).notes[:MAX_NOTES_CHARS]
     return {"question": question, "notes": notes, "sources": list(gateway.fetched)}

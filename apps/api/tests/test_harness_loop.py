@@ -499,7 +499,7 @@ async def test_prompt_mode_sends_no_schema_to_the_provider_and_still_enforces_th
     db.commit()
     assert job.state == "RETESTING", (job.state, job.error)
     assert seen["schema"] is None, "no JSON Schema is sent to the provider in prompt mode"
-    assert "It must validate against this JSON Schema" in seen["instructions"]
+    assert "Use only these keys" in seen["instructions"], "the optimizer gets the field guide in prompt mode"
     assert db.get(AgentVersion, job.checkpoint["version_id"]).spec["rules"]["resolve_aliases"] is True
 
     # A reply that tries to name a locked field is still rejected, not applied.

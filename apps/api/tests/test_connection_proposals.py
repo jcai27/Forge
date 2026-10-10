@@ -447,7 +447,9 @@ async def test_builder_can_draft_a_connection_but_gains_no_capability(db, seeded
     connections = db.scalar(select(func.count()).select_from(Connection))
     await advance(db, job)
     db.commit()
-    assert job.state == "RETESTING", (job.state, job.error)
+    # An unchanged proposal is a rejected attempt; nothing is persisted or re-evaluated.
+    assert job.state == "OPTIMIZING" and job.error is None, (job.state, job.error)
+    assert job.checkpoint["attempts"][-1]["rejected_before_evaluation"] == "UnchangedProposal"
     assert "static relative path" in json.loads(builder.outputs[0])["error"]
     accepted = json.loads(builder.outputs[1])
     assert accepted["status"] == "proposed" and accepted["checks"]["samples_checked"] == 1

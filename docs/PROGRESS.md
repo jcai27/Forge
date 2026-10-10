@@ -833,10 +833,37 @@ Further fixes from these runs: partly valid replies are now salvaged field by fi
 (`parse_patch`), with locked fields still refused and dropped fields recorded in the
 hypothesis; and a malformed JSON Schema in a patch is a dropped field, not a failed build.
 
-Not established: how often the builder helps, or whether the harness beats the one-shot
-optimizer. One success in nine against none in nine is not a measurable difference. That
-needs a capable model.
+That first round was not a measurable difference. Reading the rejected replies led to more
+fixes: only the first complete JSON object is read; in prompt mode the optimizer gets a short
+field guide instead of the patch's full JSON Schema; research notes may be plain text; and a
+per-proposal strategy is stated in the instructions. On the same evidence valid optimizer
+replies went from 6 of 20 to 17 of 30, and replies with a change that fixes a defect from
+0 of 20 to 7 of 30.
 
-Checks after these changes: Ruff; 323 SQLite tests passed (6 PG-only skips); all 329
+Second round, eight builds per arm: the harness improved the agent in 6 of 8 builds and
+reached the target with every held-out case passing in 2; the one-shot optimizer improved
+it in 0 of 8. Mean best score 0.87 against 0.75. Screening pruned 13 candidates in the harness
+arm, while the one-shot arm spent full evaluations on three candidates that scored 0.00 and
+five identical to their parent. Caveats: one weak model, one task family, equal iteration cap
+but about 3.5 times the builder spend for the harness, and a deterministic agent.
+
+Directed exercises with the real model: research fetched https://example.com over the real
+internet through the pinned transport and reported it correctly in 2 of 4 runs; a model-
+written tool passed the code policy, was pinned and ran correctly in the host-run sandbox in
+2 of 20 attempts; no connection draft was produced in 10 attempts.
+
+A proposal identical to its parent is now a rejected attempt instead of a full re-evaluation.
+
+Incident: the local model held in memory pushed the machine into swap and, with a production
+web build present, filled the host disk during a test run. Docker Desktop's VM hung at that
+moment and the development Compose stack went down. Recovery: the model aliases and the build
+output were removed, Docker Desktop was restarted, and the existing containers were started
+again without rebuilding. The repository was verified intact (git fsck, no truncated files,
+all Python compiles, full suite passing). The development database was verified: schema at
+0007, public tables empty at 904 kB total, so no data was lost, and no test schemas were left
+behind. Lesson for future runs on this machine: check free disk before loading a local model
+or building images, and do not run them together.
+
+Checks after these changes: Ruff; 326 SQLite tests passed (6 PG-only skips); all 332
 PostgreSQL tests passed; strict TypeScript; 3 Vitest tests; all 6 browser journeys.
 

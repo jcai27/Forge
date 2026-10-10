@@ -372,5 +372,7 @@ async def test_research_calls_per_proposal_are_capped(db, seeded, monkeypatch):
     )
     await advance(db, job)
     db.commit()
-    assert job.state == "RETESTING", (job.state, job.error)
+    # An unchanged proposal is a rejected attempt; nothing is persisted or re-evaluated.
+    assert job.state == "OPTIMIZING" and job.error is None, (job.state, job.error)
+    assert job.checkpoint["attempts"][-1]["rejected_before_evaluation"] == "UnchangedProposal"
     assert "budget" in json.loads(builder.outputs[2])["error"].lower()

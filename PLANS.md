@@ -29,22 +29,24 @@ upgrade/drift checks on both DBs; populated migration upgrade/downgrade; optimiz
 and Compose startup/health. These prove working slices, not complete phases or the
 whole product specification.
 
-Builder checks (2026-10-10): Ruff; 323 SQLite tests (6 PG-only skips); 329 PostgreSQL tests;
+Builder checks (2026-10-10): Ruff; 326 SQLite tests (6 PG-only skips); 332 PostgreSQL tests;
 migration 0008 drift-free on both; 36 sandbox isolation checks; containerized worker-to-
 sandbox end-to-end; strict TypeScript; 3 Vitest; production web build; all 6 browser journeys.
 Search benchmark with a simulated proposer, 30 builds per arm: history raises target-reached
 from 67% to 100% and cuts trials by about a quarter; screening cuts full evaluations by 30%.
-Real-model runs used a local llama3.2:3b, the only model available. They exposed seven
-defects, now fixed. With the builder isolated, the harness improved the agent in 1 of 9
-builds (0.75 to 1.00, held-out passing) and the one-shot optimizer in 0 of 9: the builder
-works end to end with a real model, but how often, and whether the harness is better, is
-not measurable with this model.
+Real-model runs used a local llama3.2:3b, the only model available, and exposed eleven
+defects, now fixed. With the builder isolated, eight builds per arm: the harness improved
+the agent in 6 of 8 builds (2 reached the target with held-out passing) and the one-shot
+optimizer in 0 of 8. Caveats: one weak model, one task family, unequal builder spend.
+Research and a generated tool were each driven by the real model a few times; a connection
+draft never was.
 
 Builder work still open, in priority order:
 
-a. Run the live benchmark with a capable model (`python -m benchmarks.search --live`). It
-   needs an API key, or disk space for a larger local model through `OPENAI_BASE_URL`. Then
-   add workflows over custom connectors and a mock vendor API with messy documentation.
+a. Repeat the live benchmark with a capable model and equal builder spend per arm
+   (`python -m benchmarks.search --live`). It needs an API key or a larger local model through
+   `OPENAI_BASE_URL`. Add workflows over custom connectors and a mock vendor API with messy
+   documentation, and get a connection draft out of a real model.
 b. Parallel trial execution, rerun-to-confirm promotion and a rotating held-out set.
 c. Path parameters in the REST connector and non-REST proposals.
 d. Reviewed third-party packages for generated tools; a hardened sandbox runtime for

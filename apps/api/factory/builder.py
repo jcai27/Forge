@@ -38,7 +38,27 @@ async def run_factory_role(*args, **kwargs):
         return await Runner.run(*args, **kwargs)
 
 
-def structured_output(model_class, instructions, strict=False):
+# In prompt mode a field guide replaces the patch's JSON Schema. The schema is several thousand
+# characters of nested definitions; weaker models follow a short description far more reliably, and
+# the reply is validated against the real schema either way.
+PATCH_GUIDE = (
+    "Reply with exactly one JSON object and nothing else: no prose, no code fence, no wrapper object. "
+    "Use only these keys and leave out every key you are not changing:\n"
+    '- "hypothesis": one sentence naming the failure you expect to fix. Always include it.\n'
+    '- "rules": an object with only the settings you change. The current settings are in spec.rules of the '
+    'input; each is a switch or number the tools obey, so read their names. Example: {"some_setting": true}\n'
+    '- "instructions": a string that fully replaces the agent instructions.\n'
+    '- "tool_notes": an object from a tool id in spec.tools to a short usage note.\n'
+    '- "examples": a list of {"input": object, "output": object, "note": string}.\n'
+    '- "verifiers": a list of {"id": "snake_case", "kind": "required", "path": "field.path"}; other kinds are '
+    "one_of (with values), range (with minimum or maximum), sum_equals (with field and total_path).\n"
+    '- "generated_tools": a list of {"name": "snake_case", "description": string, "code": string, '
+    '"capabilities": {}} where code is Python defining run(input, call) and returning a JSON object.\n'
+    "Change as little as possible. Prefer one change to rules when a setting there explains the failures."
+)
+
+
+def structured_output(model_class, instructions, strict=False, guide=None):
     """Return (instructions, output_type) for a role that must answer with `model_class`.
 
     In "prompt" mode the schema travels in the instructions and no output type is sent, so the reply is
@@ -46,6 +66,8 @@ def structured_output(model_class, instructions, strict=False):
     """
     if settings().openai_structured_output == "schema":
         return instructions, AgentOutputSchema(model_class, strict_json_schema=strict)
+    if guide:
+        return instructions + "\n\n" + guide, None
     schema = json.dumps(model_class.model_json_schema(), separators=(",", ":"))
     return (
         instructions
@@ -93,10 +115,11 @@ def parse_patch(final_output):
         return final_output, []
     try:
         if isinstance(final_output, str):
-            start, end = final_output.find("{"), final_output.rfind("}")
-            if start < 0 or end <= start:
+            start = final_output.find("{")
+            if start < 0:
                 raise ValueError("no JSON object in the reply")
-            data = json.loads(final_output[start : end + 1])
+            # The first complete object. Models often append a second object or commentary.
+            data, _ = json.JSONDecoder().raw_decode(final_output[start:])
         else:
             data = final_output
         if not isinstance(data, dict):
@@ -507,7 +530,10 @@ async def optimize(
 
         set_default_openai_key(settings().openai_api_key)
         hooks = hooks or BudgetHooks(max_cost, "live", max_output_tokens=4000)
-        optimizer_instructions, optimizer_output = structured_output(SpecPatch, OPTIMIZER_INSTRUCTIONS)
+        # The strategy goes in the instructions, not only the payload: buried in a large JSON input it
+        # is easily ignored, and then every proposal of a round converges on the same idea.
+        directed = OPTIMIZER_INSTRUCTIONS + (f"\n\nFor this proposal: {strategy}" if strategy else "")
+        optimizer_instructions, optimizer_output = structured_output(SpecPatch, directed, guide=PATCH_GUIDE)
         optimizer = Agent(
             name="Evidence-based Optimization Agent",
             model=builder_model(),

@@ -133,3 +133,87 @@ def test_a_malformed_json_schema_in_a_patch_is_a_dropped_field_not_a_crash():
         GeneratedTool(name="tool", description="d", code="x", input_schema={"type": "nope"})
     with pytest.raises(ValueError):
         SpecPatch(output_schema=bad)
+
+
+def test_patch_parsing_reads_the_first_complete_object_and_prompt_mode_uses_the_field_guide(monkeypatch):
+    from factory.builder import OPTIMIZER_INSTRUCTIONS, PATCH_GUIDE, parse_patch
+
+    # Seen from a real model: a second object, or commentary, after a valid patch.
+    patch, dropped = parse_patch('{"hypothesis": "h", "rules": {"margin": 0.3}}, \n{"instructions": "another object"}')
+    assert patch.rules == {"margin": 0.3} and patch.instructions is None and dropped == []
+    patch, _ = parse_patch('```json\n{"hypothesis": "h", "rules": {"margin": 0.3}}\n``` I changed the margin.')
+    assert patch.rules == {"margin": 0.3}
+
+    monkeypatch.setattr(settings(), "openai_structured_output", "prompt")
+    instructions, output_type = structured_output(SpecPatch, OPTIMIZER_INSTRUCTIONS, guide=PATCH_GUIDE)
+    assert output_type is None and instructions.endswith(PATCH_GUIDE)
+    assert "$defs" not in instructions, "the field guide replaces the JSON Schema"
+    # The guide may only describe fields the patch really has, and must not hint at the benchmark's answer.
+    for field in ("hypothesis", "rules", "instructions", "tool_notes", "examples", "verifiers", "generated_tools"):
+        assert f'"{field}"' in PATCH_GUIDE and field in SpecPatch.model_fields
+    assert "resolve_aliases" not in PATCH_GUIDE and "fuzzy_match" not in PATCH_GUIDE
+
+
+class PlainText:
+    """Builds a local provider transport that answers with fixed text and records what it was sent."""
+
+    def __init__(self, reply):
+        from agents import Model, ModelResponse, Usage
+        from openai.types.responses import ResponseOutputMessage, ResponseOutputText
+
+        from factory.db import uid
+
+        seen = self.seen = {}
+
+        class Transport(Model):
+            async def get_response(
+                self, system_instructions, input, model_settings, tools, output_schema, handoffs, tracing, **kwargs
+            ):
+                seen["instructions"], seen["schema"] = system_instructions, output_schema
+                text = ResponseOutputText(type="output_text", text=reply, annotations=[])
+                item = ResponseOutputMessage(
+                    type="message", role="assistant", id=uid(), status="completed", content=[text]
+                )
+                return ModelResponse(output=[item], usage=Usage(requests=1, total_tokens=10), response_id=uid())
+
+            async def stream_response(self, *args, **kwargs):
+                raise NotImplementedError
+                yield
+
+        self.model = Transport()
+
+
+@pytest.mark.asyncio
+async def test_research_notes_may_be_plain_text_in_prompt_mode(monkeypatch):
+    from agents import Agent
+
+    from factory.research import OutboundScreen, research
+
+    provider = PlainText("Amounts are integers in cents.\nSee the orders page.")
+    monkeypatch.setattr(settings(), "openai_api_key", "local-provider-contract-only")
+    monkeypatch.setattr(settings(), "openai_structured_output", "prompt")
+    monkeypatch.setattr("factory.research.Agent", lambda **kwargs: Agent(**{**kwargs, "model": provider.model}))
+    result = await research("What unit does the Acme API use for amounts?", OutboundScreen())
+    assert result["notes"] == "Amounts are integers in cents.\nSee the orders page."
+    assert provider.seen["schema"] is None and "plain text" in provider.seen["instructions"]
+    monkeypatch.setattr("factory.research.Agent", lambda **kwargs: Agent(**{**kwargs, "model": PlainText("  ").model}))
+    with pytest.raises(ValueError):
+        await research("What unit does the Acme API use for amounts?", OutboundScreen())
+
+
+@pytest.mark.asyncio
+async def test_a_proposal_strategy_is_stated_in_the_instructions(monkeypatch):
+    from agents import Agent
+
+    from factory.builder import optimize
+
+    spec = AgentSpec(name="n", purpose="p", template="custom", instructions="base", tools=["t1"], connection_ids=["c1"])
+    provider = PlainText('{"hypothesis": "h", "rules": {"margin": 0.3}}')
+    monkeypatch.setattr(settings(), "execution_mode", "live")
+    monkeypatch.setattr(settings(), "openai_api_key", "local-provider-contract-only")
+    monkeypatch.setattr("factory.builder.Agent", lambda **kwargs: Agent(**{**kwargs, "model": provider.model}))
+    candidate, _ = await optimize(spec, [{"case": "x"}], strategy="Add a verifier for the total.")
+    assert candidate.rules["margin"] == 0.3
+    assert "For this proposal: Add a verifier for the total." in provider.seen["instructions"]
+    await optimize(spec, [{"case": "x"}])
+    assert "For this proposal" not in provider.seen["instructions"]

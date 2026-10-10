@@ -299,14 +299,16 @@ async def test_optimizer_records_usage_and_receives_only_development_evidence(db
     job.checkpoint = {**job.checkpoint, "diagnosis": {"development_failures": evidence}}
     await advance(db, job)
     db.commit()
-    assert job.state == "RETESTING"
+    # An unchanged proposal is a rejected attempt; nothing is persisted or re-evaluated.
+    assert job.state == "OPTIMIZING" and job.error is None, (job.state, job.error)
+    assert job.checkpoint["attempts"][-1]["rejected_before_evaluation"] == "UnchangedProposal"
     assert len(calls) == 1 and calls[0]["development_failures"] == evidence
     assert set(calls[0]) == {"spec", "development_failures", "attempt_history", "passing_examples"}
     # A fresh checkpoint has no notebook or contrast examples; nothing else may be added to the payload.
     assert calls[0]["attempt_history"] == [] and calls[0]["passing_examples"] == []
     assert calls[0]["spec"]["requirements"]["required_systems"] == initial.spec["connection_ids"]
-    generated = db.get(AgentVersion, job.checkpoint["version_id"])
-    assert generated.id != initial.id and "unchanged configuration" in generated.hypothesis
+    assert job.checkpoint["version_id"] == initial.id
+    assert db.scalar(select(func.count()).select_from(AgentVersion).where(AgentVersion.agent_id == agent.id)) == 1
     usage = db.scalar(select(UsageRecord).where(UsageRecord.job_id == job.id))
     assert usage.role == "optimizer" and usage.tokens == 30
     assert usage.cost == job.spent == pytest.approx(30 * settings().estimated_token_cost)

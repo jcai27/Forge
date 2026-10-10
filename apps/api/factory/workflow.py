@@ -550,8 +550,10 @@ async def advance(db, job):
         if proposal:
             candidate, hypothesis = proposal
             seen = {mutable_view(db.get(AgentVersion, item["version_id"]).spec) for item in candidates}
-            duplicate = mutable_view(candidate) in seen or (index > 0 and mutable_view(candidate) == mutable_view(spec))
-            if duplicate:
+            if mutable_view(candidate) == mutable_view(spec):
+                # Identical to its already-evaluated parent: a full evaluation could only repeat its score.
+                rejection = "UnchangedProposal"
+            elif mutable_view(candidate) in seen:
                 rejection = "DuplicateProposal"
             else:
                 try:
@@ -597,7 +599,8 @@ async def advance(db, job):
             emit(db, job.org_id, "proposal_rejected", {"reason": rejection}, job_id=job.id)
         round_["candidates"] = candidates
         checkpoint["round"] = round_
-        exhausted = rejection == "DuplicateProposal" and not live  # the deterministic ladder has no more ideas
+        # The deterministic ladder has no more ideas once it repeats itself.
+        exhausted = rejection in ("DuplicateProposal", "UnchangedProposal") and not live
         if len(candidates) + round_["discarded"] < budget.candidates_per_round and not exhausted:
             job.checkpoint = deepcopy(checkpoint)
             return

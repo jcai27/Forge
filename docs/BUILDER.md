@@ -245,29 +245,43 @@ That noise would hide anything a builder did, so the builder runs below use
 `--isolate-builder`: the agent executes deterministically and the only model in the loop is
 the builder. The baseline is then a stable 0.75.
 
-**As the builder**, with an 8,192-token context (see defect 7), iteration cap 4:
+**As the builder**, with an 8,192-token context. Two rounds were run. The first, nine builds
+per arm, produced almost nothing usable: one improvement by the harness, none by the one-shot
+optimizer, and over a hundred replies rejected as invalid. Reading those replies led to the
+prompt and parsing fixes listed below (defects 7 to 9). On twenty and then thirty optimizer
+replies to the same evidence, valid replies went from 6 of 20 to 17 of 30 and replies
+containing a change that actually fixes a defect from 0 of 20 to 7 of 30.
 
-| Arm | Builds | Improved the agent | Reached target | Replies rejected as invalid | Candidates fully evaluated |
+The second round, after those fixes, eight builds per arm, iteration cap 5:
+
+| Arm | Improved the agent | Reached target, held-out all passing | Mean best score | Candidates pruned by screening | Estimated builder cost |
 | --- | --- | --- | --- | --- | --- |
-| One-shot optimizer | 9 | 0 | 0 | 29 | 4 |
-| Harness (investigate, 3 screened) | 9 | 1 | 1 | at least 79 | 14, plus 3 pruned in screening |
+| One-shot optimizer | 0 of 8 | 0 of 8 | 0.75 (the baseline) | none, it has no screen | 0.11 |
+| Harness (investigate, 3 screened) | 6 of 8 | 2 of 8 | 0.87 | 13 | 0.39 |
 
-The harness count of rejected replies is a lower bound: the build notebook keeps the last
-twelve attempts and several builds filled it.
+The one-shot arm fully evaluated 13 candidates and promoted none: three scored 0.00 with 15
+critical failures and five were identical to their parent. The harness arm fully evaluated 16
+and promoted 6, after screening removed 13 cheaply.
 
-The one success took the agent from 0.75 to 1.00 and passed every held-out case, after
-screening pruned two candidates that fixed nothing, with invalid fields in the model's reply
-dropped and the valid change kept.
+What this establishes: with a real model as the builder, the harness improved the agent in
+most builds and the one-shot optimizer in none (6 of 8 against 0 of 8; a one-sided Fisher
+exact test gives p of about 0.004). Model-written patches were parsed, scope-checked,
+screened, evaluated, promoted on measured evidence and validated on held-out cases with no
+scripted provider in the loop.
 
-What this establishes: the builder works end to end with a real model. A model-written patch
-was parsed, scope-checked, screened, fully evaluated, promoted on measured evidence and
-validated on held-out cases, with no scripted provider anywhere in the loop.
+How far to trust it: this is one weak model, one task family and eight builds per arm. The
+arms had the same iteration cap, not the same spend: the harness asks for three proposals a
+round and cost about 3.5 times as much in builder tokens, so part of its advantage is simply
+more attempts. The agent was held deterministic, so nothing here speaks to noisy agents.
+A capable model and more task families are still needed, and none is available here.
 
-What it does not establish: that the harness beats the one-shot optimizer, or how often the
-builder helps. One success in nine against none in nine is not a measurable difference, and
-this model produces a usable reply only a few times in a hundred. A capable model is needed
-for that comparison, and none is available here: no API key, and too little free disk for a
-larger local model.
+**The newer capabilities, each driven directly by the real model:**
+
+| Capability | Result | What was checked |
+| --- | --- | --- |
+| Open-web research | 2 of 4 runs | The model called `fetch` on https://example.com through the pinned transport over the real internet and reported the page's stated purpose correctly. A question containing customer data was refused before any model or network call. |
+| Generated tool | 2 of 20 directed attempts | The model's code passed the static policy, was pinned by hash in a persisted version, and returned the right answer from a sandbox run. The sandbox here was the host-run service, not the container. |
+| Connection draft | 0 of 10 directed attempts | The model never completed a `propose_connection` call; with five tools and a long context it stalled or timed out. This remains unproven with a real model. |
 
 Running a real model exposed defects that scripted providers could not. All are fixed and
 covered by `tests/test_live_provider.py`:
@@ -288,6 +302,16 @@ covered by `tests/test_live_provider.py`:
 7. A reply that was partly valid was discarded whole. `parse_patch` now unwraps a wrapper
    object, treats empty placeholders as "no change", keeps each field that validates on its
    own and records what it dropped. A reply naming a field outside the patch is still refused.
+8. A second JSON object or commentary after a valid patch made the whole reply unparseable.
+   Only the first complete object is read.
+9. In prompt mode the optimizer was sent the patch's full JSON Schema, several thousand
+   characters of nested definitions. It now gets a short field guide; the reply is validated
+   against the real schema as before. Research notes may be plain text in prompt mode.
+10. A per-proposal strategy travelled only as one key in a large JSON input and was ignored.
+    It is now also stated in the instructions.
+11. A proposal identical to its already-evaluated parent was fully evaluated again. It is now
+    a rejected attempt. This was fixed after the second benchmark round, so that round still
+    includes those wasted evaluations in the one-shot arm.
 
 One operational finding is not a code defect: Ollama's default context window is 4,096
 tokens and the optimizer's request is about 3,500 before tools and history, so the model was
@@ -311,12 +335,12 @@ EXECUTION_MODE=live OPENAI_API_KEY=... .venv/bin/python -m benchmarks.search --l
 
 ## What is not verified or not built
 
-- How often the builder helps, and whether the harness beats the one-shot optimizer, is
-  unmeasured. With the only real model available, a local 3B model, the harness improved the
-  agent in 1 of 9 builds and the one-shot optimizer in 0 of 9 (see Benchmark). A capable model
-  is needed. The live benchmark covers one task family; workflows over custom connectors and
-  a mock vendor API with messy documentation are still to add.
-- Research, generated tools and connection drafts have not been exercised by any real model.
+- The real-model evidence comes from one weak local model, one task family and eight builds
+  per arm at unequal builder spend (see Benchmark). A capable model, equal-spend arms and
+  workflows over custom connectors and a mock vendor API with messy documentation are still
+  needed before the size of the builder's benefit can be stated.
+- Connection drafts have never been produced by a real model. Research and generated tools
+  have, a few times each, in directed exercises rather than inside a full build.
 - The search endpoint integration is exercised against a local transport only.
 - Trials still run one at a time; there is no parallel evaluator pool.
 - There is no rerun-to-confirm promotion step and no rotating held-out set, so repeated

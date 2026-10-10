@@ -335,6 +335,8 @@ async def test_live_optimizer_is_shown_only_this_tenants_playbook(db, seeded, mo
     monkeypatch.setattr("factory.builder.Agent", lambda **kwargs: Agent(**{**kwargs, "model": Recorder()}))
     await advance(db, job)
     db.commit()
-    assert job.state == "RETESTING", (job.state, job.error)
+    # An unchanged proposal is a rejected attempt; nothing is persisted or re-evaluated.
+    assert job.state == "OPTIMIZING" and job.error is None, (job.state, job.error)
+    assert job.checkpoint["attempts"][-1]["rejected_before_evaluation"] == "UnchangedProposal"
     assert payloads[0]["playbook"] == ["Resolve customer aliases before catalog lookup"]
     assert "Another tenant" not in json.dumps(payloads)
