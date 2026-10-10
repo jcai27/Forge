@@ -6,7 +6,7 @@ export interface Version {id: string; agent_id: string; number: number; spec: Sp
 export interface Agent {id: string; name: string; request: string; template: string; best_version_id: string | null; latest_version?: Version; builds?: Build[]; created_at: string}
 export interface Scorecard {score: number; passed: number; total: number; critical_failures: number; metrics: Record<string, number>; splits: Record<string, {score: number; total: number; passed: number}>; mean_latency_ms: number; cost: number; tokens: number; confidence_interval_95: number[]; provisional: boolean; limitations: string; pending_reviews?: number; variability?: {repeated_cases: number; unstable_cases: number; cases: Record<string, {trials: number; pass_rate: number; standard_deviation: number; min: number; max: number}>}}
 export interface Iteration {id: string; number: number; version_id: string; scorecard: Scorecard; diagnosis: Json; promoted: boolean}
-export interface Build {id: string; state: string; iteration: number; spent: number; budget: Budget; checkpoint: Record<string, Json>; error: string | null; iterations?: Iteration[]}
+export interface Build {factory_observed_cost?: number; factory_reserved_cost?: number; id: string; state: string; iteration: number; spent: number; budget: Budget; checkpoint: Record<string, Json>; error: string | null; iterations?: Iteration[]}
 export interface Budget {max_iterations: number; max_cost: number; max_seconds: number; target_score: number; stagnation_limit: number}
 export interface Evaluation {id: string; version_id: string; suite_id: string; status: string; scorecard: Scorecard; results?: EvaluationResult[]; created_at: string}
 export interface Check {category: string; path?: string; passed: boolean; expected?: Json; actual?: Json; evidence?: string; pending?: boolean; reviewed_by?: string; reviewed_at?: string; rubric?: Json; grades?: Json}
@@ -20,4 +20,4 @@ export interface Run {id: string; version_id: string; mode: string; status: stri
 export interface EventRecord {id: string; kind: string; payload: Record<string, Json>; created_at: string}
 export interface Approval {id: string; run_id: string; action: Json; status: string; created_at: string}
 export interface Me {user: {email: string}; organization: {name: string}; role: string; execution_mode: string; model: string}
-export interface Metrics {agents: number; deployed: number; pending_approvals: number; runs: number; failure_rate: number; cost: number; mean_latency_ms: number; execution_mode: string; evaluations: Evaluation[]}
+export interface Metrics {reserved_cost: number; agents: number; deployed: number; pending_approvals: number; runs: number; failure_rate: number; cost: number; mean_latency_ms: number; execution_mode: string; evaluations: Evaluation[]}

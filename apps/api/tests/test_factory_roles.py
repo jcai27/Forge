@@ -1,10 +1,13 @@
 import json
 
+import httpx
 import pytest
 from agents import Agent, Model, ModelResponse, Usage
 from fastapi.testclient import TestClient
+from openai import AsyncOpenAI
 from openai.types.responses import ResponseOutputMessage, ResponseOutputText
 from sqlalchemy import func, select
+from sqlalchemy.orm import sessionmaker
 
 from factory.api import app, limits
 from factory.builder import persist_version
@@ -15,6 +18,89 @@ from factory.models import AgentVersion, EvaluationCase, Membership, UsageRecord
 from factory.schemas import AgentSpec, Budget
 from factory.security import token_for
 from factory.workflow import advance, new_job
+
+
+@pytest.mark.asyncio
+async def test_factory_transport_does_not_retry_an_uncertain_http_request(db, seeded, monkeypatch):
+    _, _, agent, *_ = seeded
+    job = new_job(db, agent, Budget())
+    job.state = "DESIGNING"
+    db.commit()
+    requests = []
+
+    def transport(request):
+        requests.append(request)
+        return httpx.Response(500, json={"error": {"message": "Explicit local HTTP failure", "type": "server_error"}})
+
+    monkeypatch.setattr(settings(), "execution_mode", "live")
+    monkeypatch.setattr(settings(), "openai_api_key", "explicit-local-transport-contract")
+    monkeypatch.setattr(
+        "factory.builder.AsyncOpenAI",
+        lambda **kwargs: AsyncOpenAI(
+            **kwargs,
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(transport)),
+        ),
+    )
+    await advance(db, job)
+    db.commit()
+    record = db.scalar(select(UsageRecord).where(UsageRecord.job_id == job.id))
+    assert len(requests) == 1 and requests[0].url.path == "/v1/responses"
+    assert job.state == "FAILED" and job.error == "InternalServerError"
+    assert record.status == "uncertain" and job.spent == record.reserved_cost > 0
+    assert record.cost == record.tokens == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["pause", "cancel", "provider_error", "lease_transfer"])
+async def test_factory_dispatch_preserves_user_control_and_uncertain_usage(db, seeded, monkeypatch, action):
+    from datetime import timedelta
+
+    from factory.db import now
+    from factory.models import BuildJob
+    from factory.workflow import control, worker_tick
+
+    _, _, agent, *_ = seeded
+    job = new_job(db, agent, Budget())
+    job.state = "DESIGNING"
+    db.commit()
+    sessions = sessionmaker(db.get_bind(), expire_on_commit=False)
+
+    class ControlledProvider(ConfigurationProvider):
+        async def get_response(self, *args, **kwargs):
+            # A separate transaction proves the worker released its lock before I/O.
+            with sessions() as other:
+                pending = other.scalar(select(UsageRecord).where(UsageRecord.job_id == job.id))
+                assert pending.status == "pending" and pending.reserved_cost > 0
+                if action == "lease_transfer":
+                    transferred = other.get(BuildJob, job.id)
+                    transferred.lease_owner = "another-worker"
+                    transferred.lease_until = now() + timedelta(seconds=60)
+                    other.commit()
+                elif action != "provider_error":
+                    control(other, other.get(BuildJob, job.id), action)
+                    other.commit()
+            if action == "provider_error":
+                raise RuntimeError("Explicit simulated transport failure after dispatch")
+            return await super().get_response(*args, **kwargs)
+
+    monkeypatch.setattr(settings(), "execution_mode", "live")
+    monkeypatch.setattr(settings(), "openai_api_key", "explicit-local-provider-contract")
+    monkeypatch.setattr("factory.builder.Agent", lambda **kwargs: Agent(**{**kwargs, "model": ControlledProvider([])}))
+    await worker_tick(sessions)
+    db.expire_all()
+    record = db.scalar(select(UsageRecord).where(UsageRecord.job_id == job.id))
+    assert db.scalar(select(func.count()).select_from(AgentVersion).where(AgentVersion.agent_id == agent.id)) == 1
+    if action == "provider_error":
+        assert job.state == "FAILED" and record.status == "uncertain"
+        assert job.spent == record.reserved_cost > 0
+        assert record.cost == record.tokens == 0
+    elif action == "lease_transfer":
+        assert job.state == "DESIGNING" and job.lease_owner == "another-worker"
+        assert record.status == "recorded" and record.tokens == 30
+    else:
+        assert job.state == ("PAUSED" if action == "pause" else "CANCELLED")
+        assert record.status == "recorded" and record.tokens == 30
+        assert record.reserved_cost == 0 and job.spent == pytest.approx(record.cost)
 
 
 def authored_proposal():

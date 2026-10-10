@@ -224,6 +224,8 @@ class UsageRecord(Owned, Base):
     role: Mapped[str] = mapped_column(String(100), default="execution")
     tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost: Mapped[float] = mapped_column(Float, default=0)
+    status: Mapped[str] = mapped_column(String(30), default="recorded")
+    reserved_cost: Mapped[float] = mapped_column(Float, default=0)
 
 
 class BusinessRecord(Owned, Base):

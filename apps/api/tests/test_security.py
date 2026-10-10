@@ -1,10 +1,27 @@
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import sessionmaker
 
 from factory.models import Approval, BusinessRecord, Connection, ToolDefinition
 from factory.runtime import BudgetHooks, execute, resolve_approval
 from factory.schemas import AgentSpec
 from factory.security import Principal
+
+
+def test_connection_revocation_refreshes_a_previously_loaded_session(db, seeded):
+    from fastapi import HTTPException
+
+    from factory.connectors import check_connection
+
+    org, _, _, _, _, connection = seeded
+    assert check_connection(db, org.id, connection.id).status == "connected"
+    db.commit()
+    with sessionmaker(db.get_bind(), expire_on_commit=False)() as other:
+        other.get(Connection, connection.id).status = "revoked"
+        other.commit()
+    with pytest.raises(HTTPException) as denied:
+        check_connection(db, org.id, connection.id)
+    assert denied.value.status_code == 403
 
 
 @pytest.mark.asyncio

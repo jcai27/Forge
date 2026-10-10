@@ -530,6 +530,7 @@ class BudgetHooks(RunHooks):
             default=str,
         )
         reserve = (len(payload.encode()) + self.max_output_tokens) * settings().estimated_token_cost
+        self.next_reservation = reserve
         if self.cost + reserve > self.max_cost:
             raise BudgetExceeded("Insufficient execution budget for next model call")
 

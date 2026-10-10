@@ -20,9 +20,23 @@ an output-token ceiling, timeout and pre-call conservative budget reservation. T
 and configured cost estimates are recorded as factory-role UsageRecords linked to
 BuildJob. Measured usage survives a handled output/scope failure, and zero budget
 prevents provider dispatch. The cost estimate is configurable, not a provider invoice.
-Worker termination during an unresolved provider request still needs a durable cost
-reservation/reconciliation mechanism; process recovery of fixture evaluations and
-deployment invocations is separately verified.
+Factory roles commit a `pending` UsageRecord and charge its `reserved_cost` to the
+build before dispatch. A response settles that reservation to observed token usage and
+its configured cost estimate (`recorded`). A failed/interrupted request becomes
+`uncertain`; its reservation remains against the budget, without inventing tokens or
+actual billing. Recovery marks abandoned pending requests uncertain and permits a
+fresh attempt only within the remaining budget. Automatic HTTP retries are disabled
+for these roles. The lease outlives the bounded request; returning workers recheck the
+lease and user state before persisting results, preserving pause/cancel decisions.
+
+`GET /usage` exposes tenant-owned paginated ledger entries. Metrics report observed
+cost estimates and outstanding reservations separately; build details expose
+`factory_observed_cost` and `factory_reserved_cost`. The build page labels unresolved
+reservations. Provider billing reconciliation is not yet available, so unknown charges
+are conservatively retained. Evaluation/rubric/deployment model calls still use the
+in-memory pre-call guard and require equivalent durable accounting; this milestone
+covers architecture, test design and optimization only. Fixture evaluation and
+invocation transaction recovery is separately verified.
 
 Each immutable AgentSpec carries a `quality_policy`:
 

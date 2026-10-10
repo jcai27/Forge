@@ -21,6 +21,7 @@ from factory.models import (
     EvaluationSuite,
     UsageRecord,
 )
+from factory.provider_accounting import BuildInterrupted, FactoryBudgetHooks, recover_reservations
 from factory.runtime import BudgetExceeded, emit
 from factory.schemas import AgentSpec, Budget
 
@@ -68,12 +69,13 @@ def start_evaluation(db, job, version, suite, validation=False):
 
 
 def record_role_usage(db, job, role, usage):
-    job.spent += usage.get("cost", 0)
-    db.add(
-        UsageRecord(
-            org_id=job.org_id, job_id=job.id, role=role, tokens=usage.get("tokens", 0), cost=usage.get("cost", 0)
+    if not usage.get("accounted"):
+        job.spent += usage.get("cost", 0)
+        db.add(
+            UsageRecord(
+                org_id=job.org_id, job_id=job.id, role=role, tokens=usage.get("tokens", 0), cost=usage.get("cost", 0)
+            )
         )
-    )
     emit(db, job.org_id, "factory_role_usage", {"role": role, **usage}, job_id=job.id)
 
 
@@ -114,8 +116,9 @@ async def advance(db, job):
                     agent,
                     version.spec["connection_ids"],
                     max_cost=max(0, budget.max_cost - job.spent),
-                    max_seconds=max(0, budget.max_seconds - elapsed),
+                    max_seconds=min(120, max(0, budget.max_seconds - elapsed)),
                     usage=usage,
+                    hooks=FactoryBudgetHooks(max(0, budget.max_cost - job.spent), db, job, "requirements_architect"),
                 )
                 # User quality policy and resource ceilings remain authoritative.
                 spec.quality_policy = AgentSpec.model_validate(version.spec).quality_policy
@@ -123,6 +126,8 @@ async def advance(db, job):
                 checkpoint["version_id"] = version.id
                 job.checkpoint = checkpoint
                 agent.name = spec.name
+            except BuildInterrupted:
+                return
             except Exception as error:
                 record_role_usage(db, job, "requirements_architect", usage)
                 job.error = type(error).__name__
@@ -156,10 +161,19 @@ async def advance(db, job):
                         db,
                         version,
                         max_cost=max(0, budget.max_cost - job.spent),
-                        max_seconds=max(0, budget.max_seconds - elapsed),
+                        max_seconds=min(60, max(0, budget.max_seconds - elapsed)),
                         usage=usage,
+                        hooks=FactoryBudgetHooks(
+                            max(0, budget.max_cost - job.spent),
+                            db,
+                            job,
+                            "test_designer",
+                            max_seconds=min(60, max(0, budget.max_seconds - elapsed)),
+                        ),
                     )
                     checkpoint["test_proposals"] = proposal.model_dump()
+                except BuildInterrupted:
+                    return
                 except Exception as error:
                     record_role_usage(db, job, "test_designer", usage)
                     job.error = type(error).__name__
@@ -345,9 +359,20 @@ async def advance(db, job):
                 AgentSpec.model_validate(version.spec),
                 checkpoint["diagnosis"]["development_failures"],
                 max_cost=max(0, budget.max_cost - job.spent),
-                max_seconds=max(0, budget.max_seconds - elapsed),
+                max_seconds=min(60, max(0, budget.max_seconds - elapsed)),
                 usage=usage,
+                hooks=FactoryBudgetHooks(
+                    max(0, budget.max_cost - job.spent),
+                    db,
+                    job,
+                    "optimizer",
+                    max_seconds=min(60, max(0, budget.max_seconds - elapsed)),
+                )
+                if settings().execution_mode == "live"
+                else None,
             )
+        except BuildInterrupted:
+            return
         except Exception as error:
             record_role_usage(db, job, "optimizer", usage)
             job.error = type(error).__name__
@@ -417,13 +442,33 @@ async def worker_tick(session_factory=SessionLocal):
         if not job:
             return True
         try:
+            recover_reservations(db, job)
+            db.commit()
+            job = db.scalar(
+                select(BuildJob)
+                .where(BuildJob.id == job_id, BuildJob.lease_owner == owner)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if not job:
+                return True
             await advance(db, job)
+            if job.lease_owner != owner:
+                db.rollback()
+                return True
             job.lease_owner = None
             job.lease_until = None
             db.commit()
         except Exception as error:
             db.rollback()
-            job = db.get(BuildJob, job_id)
+            job = db.scalar(
+                select(BuildJob)
+                .where(BuildJob.id == job_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if job.lease_owner != owner:
+                return True
             job.error = type(error).__name__
             job.lease_owner = None
             job.lease_until = None

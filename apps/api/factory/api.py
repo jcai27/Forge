@@ -453,8 +453,13 @@ def start_build(agent_id: str, body: Budget, actor=ACTOR, db=DB):
 @app.get("/builds/{job_id}")
 def build(job_id: str, actor=ACTOR, db=DB):
     job = owned(db, m.BuildJob, job_id, actor)
+    usage = list(
+        db.scalars(select(m.UsageRecord).where(m.UsageRecord.org_id == actor.org_id, m.UsageRecord.job_id == job.id))
+    )
     return {
         **serialize(job),
+        "factory_observed_cost": sum(record.cost for record in usage),
+        "factory_reserved_cost": sum(record.reserved_cost for record in usage),
         "iterations": collection(db, m.BuildIteration, actor, predicates=(m.BuildIteration.job_id == job.id,))["items"],
     }
 
@@ -1158,11 +1163,21 @@ def metrics(actor=ACTOR, db=DB):
         "pending_approvals": count(m.Approval, m.Approval.status == "pending"),
         "runs": len(runs),
         "failure_rate": sum(r.status == "failed" for r in runs) / len(runs) if runs else 0,
-        "cost": sum(r.metrics.get("cost", 0) for r in runs),
+        "cost": db.scalar(
+            select(func.coalesce(func.sum(m.UsageRecord.cost), 0)).where(m.UsageRecord.org_id == actor.org_id)
+        ),
+        "reserved_cost": db.scalar(
+            select(func.coalesce(func.sum(m.UsageRecord.reserved_cost), 0)).where(m.UsageRecord.org_id == actor.org_id)
+        ),
         "mean_latency_ms": sum(r.metrics.get("duration_ms", 0) for r in runs) / len(runs) if runs else 0,
         "execution_mode": settings().execution_mode,
         "evaluations": [serialize(e) for e in evaluations],
     }
+
+
+@app.get("/usage")
+def usage_history(offset: int = OFFSET, limit: int = LIMIT, actor=ACTOR, db=DB):
+    return collection(db, m.UsageRecord, actor, offset, limit)
 
 
 @app.get("/deployments/{deployment_id}/triggers")

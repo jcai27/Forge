@@ -173,3 +173,35 @@ expanded scenario. No real provider credentials or production writes were used.
 Next: durable provider-call reservation/recovery, build redirection and broader custom
 connector workflows; known-secret/private-data and transport hardening; memberships,
 pagination/mobile/accessibility; complete acceptance audit. Goal remains active.
+
+
+2026-10-09 durable factory provider accounting milestone verified: architecture,
+test design and optimization persist a pending usage reservation before SDK dispatch.
+Observed responses replace it with recorded tokens and the configured cost estimate.
+Interrupted/failed requests retain uncertain reservations against the build budget;
+no unknown tokens or provider invoice amounts are invented. Lease recovery marks
+abandoned pending requests uncertain and permits retries only within remaining budget.
+Factory HTTP automatic retries are disabled. Roles have bounded stage timeouts and
+leases covering the request. Returning workers preserve user pause/cancel decisions
+and cannot persist results or clear a lease owned by another worker.
+
+Real subprocess kill tests cover pending-reservation durability, measured retry usage,
+no duplicate version and zero dispatch when the retained charge leaves insufficient
+budget. Separate-session pause/cancel, lease transfer and transport failure tests pass. A real SDK
+HTTP transport fixture returns 500 and verifies exactly one request, with retained
+unknown cost. Tenant-owned paginated /usage, metrics and build details separate observed
+cost estimates from unresolved reservations; the build page labels reservations.
+Connection permission checks now refresh previously loaded state, and a two-session
+revocation test verifies denial. Migration 0005 preserves existing recorded usage;
+populated upgrade/downgrade/re-upgrade tests and drift checks pass on SQLite/PG.
+
+Final checks: Ruff; 56 SQLite tests passed (4 PostgreSQL-only skips); all 60 PostgreSQL
+tests passed; strict TypeScript; 2 Vitest tests; existing complete browser journey;
+optimized Docker builds; rebuilt API/worker/web/PG/Redis health, dashboard and usage
+route checks. Browser coverage does not yet exercise the new reservation notice itself.
+No actual provider credentials or production writes were used.
+
+Remaining: durable evaluation/rubric/deployment provider accounting with safe approval
+transactions and billing reconciliation; broader custom connector workflow evidence
+and build redirection; secret/private-data and DNS/streaming hardening; memberships,
+pagination, mobile/accessibility; full acceptance audit. The complete goal stays active.

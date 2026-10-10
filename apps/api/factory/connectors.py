@@ -430,7 +430,11 @@ def adapter(db, connection, for_model=False, state=None):
 
 
 def check_connection(db, org_id, connection_id, write=False):
-    connection = db.get(Connection, connection_id)
+    connection = db.scalar(
+        select(Connection)
+        .where(Connection.id == connection_id, Connection.org_id == org_id)
+        .execution_options(populate_existing=True)
+    )
     if not connection or connection.org_id != org_id or connection.status != "connected":
         raise HTTPException(403, "Connection unavailable or unauthorized")
     if not connection.permissions.get("write" if write else "read", False):

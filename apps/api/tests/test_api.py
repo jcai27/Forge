@@ -90,6 +90,32 @@ def test_secrets_are_encrypted_and_never_returned(client, db):
     )
 
 
+def test_usage_reports_observed_cost_separately_from_unknown_reservations(client, seeded, db):
+    from factory.models import UsageRecord
+    from factory.schemas import Budget
+    from factory.workflow import new_job
+
+    org, user, agent, *_ = seeded
+    job = new_job(db, agent, Budget())
+    other = Organization(name="Other usage tenant")
+    db.add(other)
+    db.flush()
+    db.add_all(
+        [
+            UsageRecord(org_id=org.id, job_id=job.id, role="requirements_architect", cost=0.2, tokens=40),
+            UsageRecord(org_id=org.id, job_id=job.id, role="optimizer", status="uncertain", reserved_cost=0.4),
+            UsageRecord(org_id=other.id, role="optimizer", cost=99, reserved_cost=99),
+        ]
+    )
+    db.commit()
+    summary = client.get("/metrics").json()
+    assert summary["cost"] == 0.2 and summary["reserved_cost"] == 0.4
+    build = client.get(f"/builds/{job.id}").json()
+    assert build["factory_observed_cost"] == 0.2 and build["factory_reserved_cost"] == 0.4
+    rows = client.get("/usage").json()
+    assert rows["total"] == 2 and all(row["org_id"] == org.id for row in rows["items"])
+
+
 @pytest.mark.asyncio
 async def test_approval_deployment_invocation_rollback(client, seeded, db):
     org, user, agent, initial, suite, connection = seeded
