@@ -45,8 +45,18 @@ Retired ciphertext is kept only for historical filtering; see SECRET_BOUNDARIES.
   with the same public-IP pinning, origin restriction and verified TLS identity as REST.
   Tests initialize, discover and call a tool through an owned local TLS server, with a
   test-only socket delegate; production never allows that loopback mapping. Wrong-host
-  certificates reject before an HTTP request. MCP streaming/result-size bounds still
-  require further hardening. No external server credentials have been supplied.
+  certificates reject before an HTTP request. Each session shares separate 2 MB wire and
+  decoded response budgets across initialization, pagination and open streams. Gzip and
+  deflate are decoded with an output cap before JSON/SSE parsing; unsupported encodings
+  and oversized advertised lengths reject. Completed compressed bodies reject truncation
+  and trailing data. Streams
+  close on failure. The installed SDK caps individual SSE events at 1 MB; automatic tool
+  discovery stops after 10 pages. Initialization/discovery or initialization/tool-call
+  share a 15-second operation deadline, including trickling responses and reconnect waits.
+  The transport applies the same lifetime deadline to further requests and body reads;
+  session cleanup cannot dispatch another HTTP request after that deadline.
+  Automatic tool-call retries are disabled. No external server credentials have been
+  supplied; email/Postgres transport bounds and deployment egress still need audit.
 
 Versions pin tool contracts and connection configuration fingerprints. Changes require
 new immutable candidate configuration and evaluation rather than silently changing a

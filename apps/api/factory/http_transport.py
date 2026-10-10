@@ -5,6 +5,8 @@ import ipaddress
 import socket
 import ssl
 import time
+import zlib
+from functools import partial
 from urllib.parse import urlparse
 
 import httpcore
@@ -80,8 +82,9 @@ class PinnedNetworkBackend(httpcore.AsyncNetworkBackend):
 
 
 class ResponseStream(httpx.AsyncByteStream):
-    def __init__(self, stream, request, client_library=httpx):
+    def __init__(self, stream, request, headers=(), client_library=httpx):
         self.stream, self.request, self.client_library = stream, request, client_library
+        self.headers = headers
 
     async def __aiter__(self):
         try:
@@ -142,10 +145,15 @@ class PinnedHTTPTransport(httpx.AsyncBaseTransport):
         except (httpcore.TimeoutException, httpcore.NetworkError, httpcore.ProtocolError) as error:
             error_type = getattr(self.client_library, type(error).__name__, self.client_library.TransportError)
             raise error_type("Connector HTTP transport failed", request=request) from None
+        try:
+            stream = self.stream_class(response.stream, request, response.headers)
+        except Exception:
+            await response.aclose()
+            raise
         return self.client_library.Response(
             response.status,
-            headers=response.headers,
-            stream=self.stream_class(response.stream, request),
+            headers=stream.headers,
+            stream=stream,
             extensions=response.extensions,
         )
 
@@ -160,13 +168,72 @@ def pinned_client(url, allowed_hosts, **kwargs):
     )
 
 
+class MCPResponseBudget:
+    """One shared response budget across initialization, pagination and SSE streams."""
+
+    def __init__(self, limit=2_000_000):
+        self.limit, self.wire, self.decoded = limit, 0, 0
+        self.deadline = time.monotonic() + 15
+
+
 class MCPResponseStream(httpx2.AsyncByteStream):
-    def __init__(self, stream, request):
-        self.stream = ResponseStream(stream, request, httpx2)
+    def __init__(self, stream, request, headers=(), budget=None):
+        self.stream = ResponseStream(stream, request, headers, httpx2)
+        self.budget = budget or MCPResponseBudget()
+        metadata = httpx2.Headers(headers)
+        length = metadata.get("Content-Length")
+        if length is not None:
+            try:
+                advertised = int(length)
+            except ValueError:
+                raise httpx2.StreamError("Invalid MCP response length") from None
+            if advertised < 0 or advertised > self.budget.limit - self.budget.wire:
+                raise httpx2.StreamError("MCP response exceeds wire budget")
+        encoding = metadata.get("Content-Encoding", "identity").strip().lower()
+        if encoding not in ("identity", "gzip", "deflate"):
+            raise httpx2.StreamError("Unsupported MCP response encoding")
+        self.decoder = (
+            zlib.decompressobj(16 + zlib.MAX_WBITS if encoding == "gzip" else zlib.MAX_WBITS)
+            if encoding != "identity"
+            else None
+        )
+        # Decode before HTTPX2/SSE parsing, preventing its automatic unbounded decoder.
+        self.headers = [
+            (key, value) for key, value in headers if key.lower() not in (b"content-encoding", b"content-length")
+        ]
 
     async def __aiter__(self):
-        async for chunk in self.stream:
-            yield chunk
+        try:
+            iterator = aiter(self.stream)
+            while True:
+                try:
+                    # Keep cancellation scopes inside reads, never across generator yields.
+                    async with asyncio.timeout(max(0, self.budget.deadline - time.monotonic())):
+                        chunk = await anext(iterator)
+                except StopAsyncIteration:
+                    break
+                if self.budget.decoded > self.budget.limit:
+                    raise httpx2.StreamError("MCP response exceeds decoded budget")
+                self.budget.wire += len(chunk)
+                if self.budget.wire > self.budget.limit:
+                    raise httpx2.StreamError("MCP response exceeds wire budget")
+                if self.decoder:
+                    try:
+                        chunk = self.decoder.decompress(chunk, self.budget.limit - self.budget.decoded + 1)
+                    except zlib.error:
+                        raise httpx2.StreamError("Invalid compressed MCP response") from None
+                    if self.decoder.unused_data:
+                        raise httpx2.StreamError("Trailing compressed MCP response")
+                self.budget.decoded += len(chunk)
+                if self.budget.decoded > self.budget.limit:
+                    raise httpx2.StreamError("MCP response exceeds decoded budget")
+                yield chunk
+            if self.decoder and (not self.decoder.eof or self.decoder.unused_data):
+                raise httpx2.StreamError("Incomplete or trailing compressed MCP response")
+        except TimeoutError:
+            raise httpx2.ReadTimeout("MCP session deadline exceeded", request=self.stream.request) from None
+        finally:
+            await self.aclose()
 
     async def aclose(self):
         await self.stream.aclose()
@@ -174,12 +241,24 @@ class MCPResponseStream(httpx2.AsyncByteStream):
 
 class MCPPinnedTransport(httpx2.AsyncBaseTransport):
     def __init__(self, url, allowed_hosts, **kwargs):
+        self.budget = MCPResponseBudget()
         self.inner = PinnedHTTPTransport(
-            url, allowed_hosts, client_library=httpx2, stream_class=MCPResponseStream, **kwargs
+            url,
+            allowed_hosts,
+            client_library=httpx2,
+            stream_class=partial(MCPResponseStream, budget=self.budget),
+            **kwargs,
         )
 
     async def handle_async_request(self, request):
-        return await self.inner.handle_async_request(request)
+        remaining = self.budget.deadline - time.monotonic()
+        if remaining <= 0:
+            raise httpx2.ReadTimeout("MCP session deadline exceeded", request=request)
+        try:
+            async with asyncio.timeout(remaining):
+                return await self.inner.handle_async_request(request)
+        except TimeoutError:
+            raise httpx2.ReadTimeout("MCP session deadline exceeded", request=request) from None
 
     async def aclose(self):
         await self.inner.aclose()

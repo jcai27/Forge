@@ -44,6 +44,10 @@ preflight DNS followed by an ordinary client connection, enable environment prox
 redirects, or permit private/transition destinations. MCP 2 requires native httpx2
 transport/stream types and snake_case SDK attributes. Loopback remapping and custom
 test certificates are owned-test-fixture dependencies, never user configuration.
+MCP responses share wire/decoded limits across a client session, before JSON/SSE parsing.
+Keep bounded decompression, pagination limits and whole-operation deadlines. An exhausted
+decoded budget must never reach zlib with max_length=0 (which means unlimited output).
+Do not enable automatic tool-call retries or expose resource ceilings as server overrides.
 
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require

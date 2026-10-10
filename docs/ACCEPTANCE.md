@@ -10,7 +10,7 @@ AGENT_FACTORY_SPEC.md. The goal stays active until remaining feasible work is do
 | All 25 required relational entities | Frozen migration with FK/index/unique constraints; PG/SQLite migration checks | Composite tenant FK/DB enforcement audit |
 | Auth and organization/RBAC boundaries | Authenticated APIs, membership checks, tenant negative tests, editor/admin roles | Membership invitation/add flow; pagination audit |
 | Immutable structured specs/runtime | Version creation/edit API, pinned tool contracts, SDK reconstruction | Live provider calls unavailable without key; multi-tool custom SDK provider-contract test passes; actual provider responses unavailable |
-| Generic connectors | REST/Postgres/file/webhook/email/MCP adapters and contract tests; actual local TLS MCP SDK initialization/discovery/call | Real PostgreSQL discovery/read/denied-write test passed; MCP streaming/result bounds and external credentials remain |
+| Generic connectors | REST/Postgres/file/webhook/email/MCP adapters and contract tests; actual local TLS MCP SDK initialization/discovery/call with bounded JSON/SSE, compression, pagination and deadline tests | Real PostgreSQL discovery/read/denied-write test passed; email/Postgres transport bounds and external credentials remain |
 | Data discovery and least privilege | Integration test/discovery, typed registered tools, allowed tables/hosts, revocation | Resource-specific approval UX and contracts audit |
 | Natural-language builder | Template inference, versioned baseline, live architect SDK role | Structured requirements and background architecture/usage verified; general reviewed Test Designer verified; broader arbitrary connector workflow journeys remain |
 | Safe evaluation | Independent assertions, fresh fixture state, JSON schemas, dev/regression/validation splits | Replay/read-only grants, isolated state/schema/sequence checks and human review pass; rubric availability/budget tested, actual provider grades unavailable |
@@ -83,3 +83,15 @@ local TLS fixture; wrong-host certificates reject before HTTP dispatch. External
 credentials and MCP stream/result-size bounds remain unavailable/incomplete respectively.
 Final checks: 92 SQLite tests (4 PG-only skips), 96 PostgreSQL tests, Ruff/TypeScript,
 2 Vitest tests, both browser journeys, migration drift and rebuilt Compose services pass.
+
+
+2026-10-09: MCP responses have shared 2 MB wire/decoded session budgets before JSON/SSE
+parsing, bounded gzip/deflate, failed-stream closure, 10-page discovery and 15-second
+operation/session deadlines. Expired sessions reject later dispatch including cleanup;
+exhausted decoded budgets cannot enable unlimited zlib output on another stream. Actual
+SDK/TLS tests pass valid compressed JSON/SSE, reject a gzip bomb without another tool
+call, cancel a trickle and reject pagination at 10 pages. Email/Postgres transport and
+the wider security/runtime audit remain incomplete. Full checks: 112 SQLite tests
+(4 PG-only skips), 116 PostgreSQL tests, Ruff/TypeScript/Vitest and both browser journeys,
+migration drift and rebuilt Compose pass. The final iterator scope adjustment also
+passes all 23 focused MCP tests and is present in rebuilt API/worker images.

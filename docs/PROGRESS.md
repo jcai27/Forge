@@ -340,3 +340,38 @@ Remaining: MCP stream/result-size bounds, email/Postgres transport limits, broad
 private-field minimization and production/security audit; durable evaluation/rubric/
 deployment provider accounting; broader workflows/proposal review and remaining UX.
 The complete goal stays active.
+
+
+2026-10-09 MCP response-budget milestone: every MCP client session shares separate
+2 MB wire/decoded budgets across initialization, pagination, JSON and open SSE responses.
+Gzip/deflate decoding uses a positive output cap before HTTPX2 or SDK parsing; invalid
+lengths/encodings reject before reads, oversized streams stop early, completed compressed
+bodies reject truncation/trailing data, and failed streams close. After budget exhaustion,
+another stream cannot pass max_length=0 to zlib and trigger unlimited decompression.
+Decoded headers are normalized to prevent a second native automatic decoder.
+
+Discovery stops at 10 SDK pages and automatic tool-call retries remain disabled.
+Initialization/discovery and initialization/tool execution have a 15-second deadline.
+The transport also applies a shared lifetime deadline to headers, body reads and later
+requests: cleanup cannot dispatch after expiry. Read timeout scopes end before yielding
+to consumers, preserving async generator cancellation ownership.
+
+Tests use tracked actual HTTP Core response streams through the native HTTPX2 transport:
+zero reads for invalid headers, early oversized-body termination, bounded gzip expansion,
+valid identity/gzip/deflate, truncated/trailing compression, shared open-stream budgets,
+post-exhaustion decompression and trickle/expired-cleanup cancellation. The actual SDK
+TLS fixture passes compressed JSON and compressed SSE tool results, rejects a gzip bomb
+without repeating tools/call, cancels a trickle and stops malicious pagination at exactly
+10 pages. No live model/provider credentials, metric overrides or production writes.
+
+Final checks: 112 SQLite tests passed (4 PG-only skips), all 116 PostgreSQL tests passed;
+Ruff, strict TypeScript, 2 Vitest tests and both browser journeys pass. Both database
+migration drift checks pass. Optimized Docker images rebuild; API/worker/web/PG/Redis
+startup and API health/dashboard HTTP checks pass. The final read-loop adjustment avoids
+holding timeout scopes across generator yields and passes all 23 focused MCP tests;
+the updated API/worker images were rebuilt afterward.
+
+Remaining: email/Postgres transport bounds, private-field minimization and production/
+security audit; durable evaluation/rubric/deployment provider accounting; broader workflows,
+proposal browser review, memberships/pagination/mobile/accessibility and final acceptance.
+The complete goal remains active.

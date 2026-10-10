@@ -1,8 +1,10 @@
 import asyncio
 import contextlib
+import gzip
 import json
 import socket
 import ssl
+import zlib
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
@@ -20,7 +22,7 @@ from factory.http_transport import MCPPinnedTransport, PinnedHTTPTransport, Pinn
 
 
 @asynccontextmanager
-async def tls_fixture(tmp_path, certificate_host="approved.example"):
+async def tls_fixture(tmp_path, certificate_host="approved.example", response_mode=None):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, certificate_host)])
     certificate = (
@@ -43,9 +45,11 @@ async def tls_fixture(tmp_path, certificate_host="approved.example"):
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(cert_path, key_path)
     sni, requests = [], []
+    handlers = set()
     context.set_servername_callback(lambda sock, name, ctx: sni.append(name))
 
     async def handle(reader, writer):
+        handlers.add(asyncio.current_task())
         try:
             header = await reader.readuntil(b"\r\n\r\n")
             lines = header.decode().split("\r\n")
@@ -72,8 +76,12 @@ async def tls_fixture(tmp_path, certificate_host="approved.example"):
                         }
                     ]
                 }
+                if response_mode == "pagination":
+                    result["nextCursor"] = str(int(message.get("params", {}).get("cursor", "0")) + 1)
             elif method == "tools/call":
                 result = {"content": [{"type": "text", "text": json.dumps({"sku": "SKU-001"})}], "isError": False}
+                if response_mode == "gzip_bomb":
+                    result["content"][0]["text"] = "x" * 4_000_000
             else:
                 result = {"ok": True}
             status = "202 Accepted" if method and "id" not in message else "200 OK"
@@ -82,15 +90,33 @@ async def tls_fixture(tmp_path, certificate_host="approved.example"):
                 if status.startswith("202")
                 else json.dumps({"jsonrpc": "2.0", "id": message.get("id"), "result": result}).encode()
             )
+            content_type, extra = "application/json", ""
+            if method == "tools/call":
+                if response_mode == "sse_gzip":
+                    content_type = "text/event-stream"
+                    payload = b"event: message\ndata: " + payload + b"\n\n"
+                if response_mode in ("gzip", "sse_gzip", "gzip_bomb"):
+                    payload, extra = gzip.compress(payload), "Content-Encoding: gzip\r\n"
+                elif response_mode == "deflate":
+                    payload, extra = zlib.compress(payload), "Content-Encoding: deflate\r\n"
             writer.write(
-                f"HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {len(payload)}\r\nConnection: close\r\n\r\n".encode()
-                + payload
+                f"HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\n{extra}Content-Length: {len(payload)}\r\nConnection: close\r\n\r\n".encode()
             )
-            await writer.drain()
+            if method == "tools/call" and response_mode == "trickle":
+                for byte in payload:
+                    writer.write(bytes([byte]))
+                    await writer.drain()
+                    await asyncio.sleep(0.03)
+            else:
+                writer.write(payload)
+                await writer.drain()
+        except (ConnectionError, asyncio.IncompleteReadError):
+            pass
         finally:
             writer.close()
             with contextlib.suppress(ConnectionError):
                 await writer.wait_closed()
+            handlers.discard(asyncio.current_task())
 
     server = await asyncio.start_server(handle, "127.0.0.1", 0, ssl=context)
     port = server.sockets[0].getsockname()[1]
@@ -112,6 +138,9 @@ async def tls_fixture(tmp_path, certificate_host="approved.example"):
     finally:
         server.close()
         await server.wait_closed()
+        for handler in handlers.copy():
+            handler.cancel()
+        await asyncio.gather(*handlers, return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -144,8 +173,9 @@ async def test_real_tls_keeps_hostname_verification_on_a_pinned_socket(tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_actual_mcp_sdk_initializes_discovers_and_calls_over_pinned_tls(tmp_path, monkeypatch):
-    async with tls_fixture(tmp_path) as (port, context, delegate, sni, requests):
+@pytest.mark.parametrize("response_mode", [None, "gzip", "deflate", "sse_gzip", "gzip_bomb", "trickle", "pagination"])
+async def test_actual_mcp_sdk_initializes_discovers_and_calls_over_pinned_tls(tmp_path, monkeypatch, response_mode):
+    async with tls_fixture(tmp_path, response_mode=response_mode) as (port, context, delegate, sni, requests):
         monkeypatch.setattr(
             socket,
             "getaddrinfo",
@@ -172,11 +202,27 @@ async def test_actual_mcp_sdk_initializes_discovers_and_calls_over_pinned_tls(tm
             },
             secret="fictional-local-bearer",
         )
+        if response_mode == "pagination":
+            with pytest.raises(Exception, match="max_list_pages"):
+                await connector.discover()
+            methods = [request[2].get("method") for request in requests]
+            assert methods.count("tools/list") == 10
+            assert "tools/call" not in methods
+            return
         discovered = await connector.discover()
         assert discovered[0]["name"] == "read_catalog" and discovered[0]["write"] is False
-        result = await connector.invoke("read_catalog", {})
-        assert json.loads(result["content"][0]["text"]) == {"sku": "SKU-001"}
+        if response_mode == "trickle":
+            monkeypatch.setattr("factory.connectors.MCP_REQUEST_TIMEOUT", 0.5)
+            with pytest.raises(TimeoutError):
+                await connector.invoke("read_catalog", {})
+        elif response_mode == "gzip_bomb":
+            with pytest.raises(Exception, match="decoded budget"):
+                await connector.invoke("read_catalog", {})
+        else:
+            result = await connector.invoke("read_catalog", {})
+            assert json.loads(result["content"][0]["text"]) == {"sku": "SKU-001"}
         methods = [request[2].get("method") for request in requests]
         assert "initialize" in methods and "tools/list" in methods and "tools/call" in methods
+        assert methods.count("tools/call") == 1
         assert delegate.connections and all(name == "approved.example" for name in sni)
         assert all(request[1].get("authorization") == "Bearer fictional-local-bearer" for request in requests)

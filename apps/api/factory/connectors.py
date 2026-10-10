@@ -418,6 +418,9 @@ class EmailConnector(Connector):
         return await asyncio.to_thread(execute)
 
 
+MCP_REQUEST_TIMEOUT = 15
+
+
 class MCPConnector(Connector):
     def server(self):
         from agents.mcp import MCPServerStreamableHttp
@@ -426,16 +429,20 @@ class MCPConnector(Connector):
         return MCPServerStreamableHttp(
             params={
                 "url": url,
+                "timeout": MCP_REQUEST_TIMEOUT,
+                "sse_read_timeout": MCP_REQUEST_TIMEOUT,
                 "headers": {"Authorization": f"Bearer {self.secret}"} if self.secret else {},
                 "httpx_client_factory": lambda **kwargs: pinned_mcp_client(
                     url, self.config.get("allowed_hosts", []), **kwargs
                 ),
             },
-            client_session_timeout_seconds=15,
+            client_session_timeout_seconds=MCP_REQUEST_TIMEOUT,
+            max_list_pages=10,
+            max_retry_attempts=0,
         )
 
     async def discover(self):
-        async with self.server() as server:
+        async with asyncio.timeout(MCP_REQUEST_TIMEOUT), self.server() as server:
             tools = await server.list_tools()
             return [
                 {
@@ -454,7 +461,7 @@ class MCPConnector(Connector):
     async def invoke(self, name, arguments):
         if name not in self.config.get("allowed_tools", []):
             raise ValueError("MCP capability not approved")
-        async with self.server() as server:
+        async with asyncio.timeout(MCP_REQUEST_TIMEOUT), self.server() as server:
             result = await server.call_tool(name, arguments)
             return result.model_dump(mode="json")
 
