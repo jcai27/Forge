@@ -4,9 +4,9 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from factory.config import settings
 from factory.db import now
 from factory.models import AgentVersion, Deployment, Invocation, Membership, RuntimeJob, UsageRecord
+from factory.pricing import cached_tokens, model_name, usage_cost
 from factory.runtime import BudgetExceeded, BudgetHooks
 
 
@@ -131,8 +131,13 @@ class DeploymentBudgetHooks(BudgetHooks):
     async def on_llm_end(self, context, agent, response):
         self.lock()
         reserve = self.pending.reserved_cost
-        actual = response.usage.total_tokens * settings().estimated_token_cost
+        actual = usage_cost(response.usage, model_name(agent))
         self.pending.tokens, self.pending.cost = response.usage.total_tokens, actual
+        self.pending.input_tokens, self.pending.output_tokens = (
+            response.usage.input_tokens,
+            response.usage.output_tokens,
+        )
+        self.pending.cached_tokens = cached_tokens(response.usage)
         self.pending.status, self.pending.reserved_cost = "recorded", 0
         # A late response may resolve an unknown charge after another worker finalized.
         if self.job.reservation == 0:

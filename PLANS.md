@@ -38,6 +38,26 @@ harness at about ten times the builder spend. Research, a sandboxed model-writte
 inert connection draft each worked in directed exercises. The builder works with a real
 model; the harness has not yet shown it is worth its cost.
 
+Build inputs (2026-10-10, docs/INTAKE.md): datasets become split evaluation cases, context
+documents reach the builder only, a build needs a source of truth, custom agents may have no
+tools, and a build stopped at its limits reports a held-out score. Checks: Ruff; 366 SQLite
+tests (6 PG-only skips); 372 PostgreSQL tests; migration 0009 drift-free and reversible on
+both; strict TypeScript; 3 Vitest; all 7 browser journeys with zero HTTP 429s. One live build
+from a task and a public data address ran end to end on OpenAI at 20 rows a side; it proves
+the path, not quality. Next: the same build on the strongest model at 60 rows or more a side
+(docs/PRODUCT.md P3), then the customer approver login (P7).
+
+Real builds (2026-10-10, docs/RUNNING_BUILDS.md): a selection split the builder never reads
+decides what is kept; provider failures are retried and never scored; live trials run in
+parallel; replies are uncapped; usage is priced per model with input, cached and output
+tokens; the final held-out pass is budgeted for; the example pool, confusion summary and
+static check removal are available to the builder; hybrid mode; dataset removal. Checks:
+Ruff; 396 SQLite tests (6 PG-only skips); 402 PostgreSQL tests; migrations 0009 to 0011
+drift-free and reversible on both; strict TypeScript; 3 Vitest; 7 browser journeys with no
+HTTP 429. Live on gpt-5.5 at 60 rows a side before the selection split: first version 85%
+held out, builder's version 83%, so no measured improvement. Next: one clean gpt-5.5 run at
+150/100/100 with the selection split and example pool (docs/PRODUCT.md P3).
+
 Builder work still open, in priority order:
 
 a. Harder benchmark task families, where a first proposal is often wrong, to learn whether

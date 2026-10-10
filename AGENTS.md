@@ -126,6 +126,42 @@ authorization, and the reviewer supplies the expectation. Shadow runs execute in
 evaluation mode and must create no approval and change no business state. The playbook
 and the investigator ledger are tenant-scoped.
 
+Build inputs are documented in docs/INTAKE.md. A build needs a source of truth: cases on
+both the development and held-out side, or a recorded no_data_reason; never start one with
+neither. Datasets are split in code (factory/intake.py), never by a model, and a row already
+in a suite is never imported again in another split. Dataset profiles shown to the builder
+hold development rows only. Schemas derived from data are pinned: no designer may change
+them. Context documents go to builder roles and the investigator's read_context only, never
+to the deployed agent, and their text joins the research outbound screen. Dataset addresses
+use the pinned transport with a new origin-scoped client per hop. A custom agent with no
+connection may have no tools; tool_correctness is graded only when tools were offered. A
+build stopped at its round limit measures its best version on held-out cases and still ends
+BUDGET_EXHAUSTED; that measurement is a report, not a pass. The browser keeps one query
+cache per tab and does not refetch /auth/me after unrelated actions: the browser suite runs
+close to the API request limit, so count requests before adding polling or blanket refreshes.
+
+Real builds are documented in docs/RUNNING_BUILDS.md. Selection cases are scored on every
+pass and never shown to a builder role: only the aggregate unseen_score. Keep a version only
+on a net selection gain beyond its standard error, after its changed selection cases have run
+twice. A provider failure (connection, provider timeout, rate limit, 5xx) is never scored
+as a wrong answer and never fails a build: the trial leaves no result and is rerun, the step
+is retried with growing waits, then the build pauses with resume_state. The failed call
+keeps its reservation; the retry is a new call. Parallel trials each use their own session
+and settle spend under the build row lock; a hook must commit before raising
+BuildInterrupted or BudgetExceeded, because the SDK awaits during cleanup and a row lock
+carried across that await deadlocks every other trial in the process. Nothing may be left
+uncommitted across a provider call in a live evaluation. Paused and waiting time is tracked
+in idle_seconds and is not the build's time. Before a round, keep room for it and for the
+final held-out pass including up-front reservations. BELOW_TARGET is a finished build under
+its target; FAILED means something broke. Replies are uncapped unless OUTPUT_TOKEN_LIMIT is
+set; hooks' max_output_tokens is a reservation allowance, not a limit. Price usage through
+factory/pricing.py only. A builder may change the agent's model only to one in AGENT_MODELS.
+Remove verifiers that reject known development answers before saving a version; never judge
+a verifier against selection or held-out answers. With example_pool the examples are the
+development cases only, and in evaluation a case is never shown its own row. Resolve demo or
+live per agent with mode_for(template), not settings().execution_mode. The browser suite
+cannot run while `next dev` is already running in apps/web.
+
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require
 explicit authorization; secrets never enter model context or browser responses;

@@ -839,3 +839,85 @@ task families are needed, and two builds per arm cannot compare arms.
 
 Checks: Ruff; 328 SQLite tests passed (6 PG-only skips); all 334 PostgreSQL tests passed;
 strict TypeScript; 3 Vitest tests; all 6 browser journeys.
+
+## 2026-10-10: enterprise console and build inputs
+
+The web app was restyled as a dense console: grouped navigation, breadcrumbs, a KPI strip, an
+agents table, a build stage stepper and written-out form labels. The dashboard heading is now
+"Overview".
+
+Build inputs (docs/INTAKE.md). A build takes a task, business context documents and a source
+of truth, and is refused without examples that have correct answers or a recorded statement
+that none are needed. Datasets are uploaded or fetched from a public https address over the
+pinned transport, parsed, cleaned and split in code; the builder sees a profile with
+development rows and never a held-out row. Derived input and output schemas are pinned.
+Context documents go to the architect, test designer and optimizer, and to paged investigator
+tools, and never to the deployed agent. Custom agents may have no tools. A build that runs out
+of rounds measures its best version on the held-out cases and reports the score while still
+ending exhausted. The approval gate now requires development and held-out evidence;
+regression cases are no longer required to exist.
+
+Found while doing this: the browser created a new query cache on every navigation, so each
+section change refetched everything, and every action refetched the signed-in user. With an
+added journey the suite crossed the 500 requests per minute API limit. One cache per tab and
+no identity refetch after unrelated actions brought the seven journeys to 464 requests with
+no HTTP 429. A message raised just before a redirect is now kept for its few seconds across
+the remount.
+
+Live, on OpenAI with `gpt-4.1-mini` as agent and builder: one sentence of task plus the public
+Banking77 test file (3,080 rows, 77 answers) went through the real endpoints and worker loop:
+fetched, split 20 and 20, designed, three rounds (12, 12 and 13 of 20 on development), held-out
+12 of 20 for both the first and the final version, 1.7 minutes, about 67,000 tokens. This
+proves the path works on a real model. It does not show the builder improves an agent: the
+sample is far too small and the round-three gain of one case is within noise. The run showed
+that a tool-less agent's first instructions did not state its task; they now do.
+
+Checks: Ruff; 366 SQLite tests passed (6 PG-only skips); all 372 PostgreSQL tests passed;
+migration 0009 upgrade, drift check, downgrade and re-upgrade on SQLite and PostgreSQL; strict
+TypeScript; 3 Vitest tests; all 7 browser journeys with zero HTTP 429s.
+
+## 2026-10-10: real builds on gpt-5.5, and what they changed
+
+Three live builds of a banking message router from one sentence and the public Banking77 test
+file, `gpt-5.5` as builder and agent.
+
+1. Failed at design: the architect's reply was cut off at a 4,000-token cap. Replies are no
+   longer capped.
+2. 60 rows to build from, 60 held back, 15.6 minutes: 0, 55 then 60 of 60 on the rows the
+   builder read, 51 of 60 (85%) held back. The zero was a check the architect wrote that
+   rejected correct answers.
+3. The same after fixes, 12 minutes, about 4.90 dollars at 5 and 30 dollars per million input
+   and output tokens: first version 50 of 60 read and 51 of 60 held back; the builder's
+   version 57 of 60 read and 50 of 60 held back. The builder did not improve the agent on rows
+   it had not seen. It fitted rules to the rows it could read, was scored on those same rows,
+   and stopped after one round because they met the target.
+
+A fourth run, with a selection split at 150/100/100, was stopped by the owner during its first
+pass and has no result.
+
+What was built in response (docs/RUNNING_BUILDS.md): a selection split the builder is scored
+on and never reads, with a net-gain-beyond-chance rule and a second run of changed cases;
+provider failures retried and never scored, then a pause that resumes; parallel live trials;
+uncapped replies; per-model pricing with input, cached and output tokens; a budget check that
+keeps room for the final held-out pass; idle time excluded from the time limit; early stop of
+a uniformly failing pass; removal of checks that reject known answers, before and after a
+pass; an example pool with similar-example selection; a confusion summary; the builder barred
+from changing the agent's model unless it is listed; a BELOW_TARGET end state; hybrid mode;
+dataset removal; the score required for approval set at creation; spend by role on the build
+page; a resumable command-line runner.
+
+Found by the tests: on PostgreSQL, cancelling a build during a parallel pass deadlocked. A
+hook raised while holding the build row lock, the SDK awaited during cleanup, and every other
+trial waited on the row forever. Hooks now commit before raising.
+
+A small live run on `gpt-4.1-mini` (40/40/40, about 12 cents) was killed on purpose during
+its first builder step and resumed from the kept database to the end: 31 of 40 read and 29 of
+40 unseen for the first version; two later versions reached 37 and 32 of 40 on the rows the
+builder read but 31 and 30 of 40 unseen, and were rejected as within chance; 28 of 40 held
+back. This shows the machinery working on a real model. It does not show the builder adding
+value: that needs the gpt-5.5 run at 150/100/100.
+
+Checks: Ruff; 396 SQLite tests passed (6 PG-only skips); all 402 PostgreSQL tests passed;
+migrations 0009 to 0011 upgrade, drift check, downgrade and re-upgrade on both; strict
+TypeScript; 3 Vitest tests; all 7 browser journeys with zero HTTP 429s.
+

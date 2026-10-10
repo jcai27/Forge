@@ -45,9 +45,27 @@ async def test_factory_transport_does_not_retry_an_uncertain_http_request(db, se
     db.commit()
     record = db.scalar(select(UsageRecord).where(UsageRecord.job_id == job.id))
     assert len(requests) == 1 and requests[0].url.path == "/v1/responses"
-    assert job.state == "FAILED" and job.error == "InternalServerError"
+    # One request, never repeated under the same reservation: its charge is unknown and stays reserved.
     assert record.status == "uncertain" and job.spent == record.reserved_cost > 0
     assert record.cost == record.tokens == 0
+    # A provider-side failure says nothing about the build. It keeps its place and tries again later,
+    # as a new call with its own reservation.
+    assert job.state == "DESIGNING" and job.error is None
+    assert job.checkpoint["provider_failures"] == 1 and job.checkpoint["not_before"]
+    monkeypatch.setattr("factory.workflow.RETRY_DELAYS", (0, 0))
+    job.checkpoint = {**job.checkpoint, "not_before": "2000-01-01T00:00:00+00:00"}
+    await advance(db, job)
+    db.commit()
+    records = list(db.scalars(select(UsageRecord).where(UsageRecord.job_id == job.id)))
+    assert len(requests) == 2 and [row.status for row in records] == ["uncertain", "uncertain"]
+    assert job.spent == pytest.approx(sum(row.reserved_cost for row in records))
+    # After the last wait the build pauses with the reason instead of failing, and can be resumed.
+    await advance(db, job)
+    db.commit()
+    assert len(requests) == 3 and job.state == "PAUSED" and job.error is None
+    assert job.checkpoint["resume_state"] == "DESIGNING"
+    assert "could not be reached" in job.checkpoint["waiting_reason"]
+    assert "provider_failures" not in job.checkpoint and "not_before" not in job.checkpoint
 
 
 @pytest.mark.asyncio
@@ -303,7 +321,7 @@ async def test_optimizer_records_usage_and_receives_only_development_evidence(db
     assert job.state == "OPTIMIZING" and job.error is None, (job.state, job.error)
     assert job.checkpoint["attempts"][-1]["rejected_before_evaluation"] == "UnchangedProposal"
     assert len(calls) == 1 and calls[0]["development_failures"] == evidence
-    assert set(calls[0]) == {"spec", "development_failures", "attempt_history", "passing_examples"}
+    assert set(calls[0]) == {"spec", "development_failures", "attempt_history", "passing_examples", "allowed_models"}
     # A fresh checkpoint has no notebook or contrast examples; nothing else may be added to the payload.
     assert calls[0]["attempt_history"] == [] and calls[0]["passing_examples"] == []
     assert calls[0]["spec"]["requirements"]["required_systems"] == initial.spec["connection_ids"]
@@ -352,6 +370,8 @@ async def test_test_designer_requires_review_then_executes_real_cases_without_du
     org, user, agent, version, suite, _ = seeded
     for case in db.scalars(select(EvaluationCase).where(EvaluationCase.suite_id == suite.id)):
         db.delete(case)
+    # With no cases, a build starts only on a statement that the task can be judged without data.
+    agent.no_data_reason = "Order totals follow from catalog prices, so every expectation is checkable by rule."
     db.commit()
     calls = []
     monkeypatch.setattr(settings(), "execution_mode", "live")
@@ -364,7 +384,8 @@ async def test_test_designer_requires_review_then_executes_real_cases_without_du
     await advance(db, job)
     db.commit()
     assert len(calls) == 1
-    assert set(calls[0]) == {"requirements", "input_schema", "output_schema", "rules", "tools"}
+    assert set(calls[0]) == {"requirements", "input_schema", "output_schema", "rules", "tools", "business_context"}
+    assert calls[0]["business_context"] == []
     assert db.scalar(select(func.count()).select_from(EvaluationCase).where(EvaluationCase.suite_id == suite.id)) == 0
     usage = db.scalar(select(UsageRecord).where(UsageRecord.job_id == job.id))
     assert usage.role == "test_designer" and usage.tokens == 30

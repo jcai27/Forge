@@ -41,6 +41,7 @@ async def main():
                 request="Process restaurant orders with reviewed catalog expectations",
                 template="orders",
                 connection_ids=[connection.id],
+                no_data_reason="Order totals follow from catalog prices, so every expectation is checkable by rule.",
             ),
             Principal(member.user_id, member.org_id, "admin"),
             db,

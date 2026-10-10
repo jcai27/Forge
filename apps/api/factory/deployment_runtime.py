@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from jsonschema import validate
 from sqlalchemy import func, select, update
 
-from factory.config import settings
+from factory.config import mode_for, settings
 from factory.db import SessionLocal, now, uid
 from factory.deployment_accounting import RuntimeInterrupted, recover_pending, usage_totals
 from factory.models import AgentVersion, Deployment, DeploymentTrigger, ExecutionRun, Invocation, Membership, RuntimeJob
@@ -57,16 +57,14 @@ def enqueue(db, deployment_id, actor, input_data, idempotency_key):
     count = db.scalar(select(func.count()).select_from(Invocation).where(Invocation.deployment_id == deployment.id))
     if count >= deployment.policy.get("max_invocations", 1000):
         raise HTTPException(409, "Deployment invocation budget exhausted")
-    reservation = (
-        min(spec.max_cost, deployment.policy.get("max_cost", 1)) if settings().execution_mode == "live" else 0.0
-    )
+    reservation = min(spec.max_cost, deployment.policy.get("max_cost", 1)) if mode_for(spec.template) == "live" else 0.0
     if deployment.spent + deployment.reserved + reservation > deployment.policy.get("lifetime_max_cost", 10):
         raise HTTPException(409, "Deployment lifetime cost budget exhausted")
     deployment.reserved += reservation
     run = ExecutionRun(
         org_id=actor.org_id,
         version_id=version.id,
-        mode=settings().execution_mode,
+        mode=mode_for(spec.template),
         input=redact_tenant(db, deployment.org_id, input_data),
         status="queued",
     )

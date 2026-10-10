@@ -220,6 +220,8 @@ async def test_worker_evaluation_checkpoint_does_not_charge_observed_usage_twice
     from factory.models import EvaluationResult
     from factory.workflow import start_evaluation, worker_tick
 
+    # This test follows one trial through one worker tick.
+    monkeypatch.setattr(settings(), "evaluation_concurrency", 1)
     version, case, job, tool_name = setup_evaluation(db, seeded)
     suite = seeded[4]
     start_evaluation(db, job, version, suite)

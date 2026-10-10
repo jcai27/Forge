@@ -137,8 +137,8 @@ Owner preferences that are settled:
 
 ## 3. What exists today
 
-Branch `builder-harness`, not merged to `main`, not pushed. See `docs/BUILDER.md` for detail
-and `docs/PROGRESS.md` for evidence.
+On `main`. See `docs/BUILDER.md` and `docs/INTAKE.md` for detail and `docs/PROGRESS.md` for
+evidence.
 
 ### Platform (predates the builder work)
 
@@ -168,6 +168,21 @@ and `docs/PROGRESS.md` for evidence.
 | Shadow comparison, release dossier, test case from a real run, tenant playbook | VERIFIED | `factory/release.py` |
 | Benchmark that runs whole builds | VERIFIED | `apps/api/benchmarks/search.py` |
 
+### Build inputs (2026-10-10)
+
+- A build takes a task, business context documents and a source of truth. Without examples
+  that have correct answers, or a recorded statement that the task needs none, a build is
+  refused.
+- A dataset (uploaded, or fetched from a public https address) becomes evaluation cases. The
+  platform splits it; the builder sees the development part and never the held-out part.
+- Context documents are read by the builder only: in its requests and through paged
+  investigator tools.
+- A custom agent may have no tools and work from its input alone.
+- A build that runs out of rounds still reports its best version's held-out score.
+- `benchmarks/task_build.py` runs a whole build from a task and a data address, and resumes.
+- Real-model behaviour is in `docs/RUNNING_BUILDS.md`: three sets of examples, retries,
+  parallel scoring, pricing, budgets and end states.
+
 ### What the evidence says
 
 - With `gpt-5.5` as builder, the factory fixed the benchmark agent (0.75 to 1.00) and passed
@@ -180,46 +195,48 @@ and `docs/PROGRESS.md` for evidence.
 
 ## 4. The gap
 
-Compare section 2 with section 3. The finished product starts from a task and data. Today a
-person must still attach a connection, supply or approve tests one batch at a time from
-scratch, and the factory cannot use provided data as an answer key. Closing that is the work.
+Compare section 2 with section 3. A build now starts from a task, documents and data, and
+reports a held-out score. What is missing: a real build on a strong model at a size that
+means something, examples and context taken from a customer's own systems, and the customer's
+own login.
 
 ## 5. What to build, in priority order
 
 Each item has a definition of done. Do not mark one complete without running its checks.
 
-### P1. Provided data becomes test cases
+### P1. Provided data becomes test cases: done
 
-Problem: if a user's file contains correct answers, the factory cannot turn rows into tests.
-Cases are typed in one at a time or invented by the test designer.
+Built as described in `docs/INTAKE.md`. Two decisions differ from the first plan, both by the
+owner. Data is the source of truth, so its cases count as evidence without a per-batch
+approval; drafted cases with no data behind them still wait for review. And there is no
+regression part by default.
 
-Build: a dataset import. The user uploads a file and names the input column and the
-answer column. The factory samples rows, splits them into development, regression and
-held-out, and an administrator approves the batch once.
+Checked by 38 tests, including a whole build that asserts no held-out row reaches any builder
+request, and one browser journey.
 
-Done when: a labelled CSV produces accepted cases through one audited approval; held-out
-rows never appear in any builder payload, tool reply or example (assert by case identity);
-answer columns are never readable by the agent as reference data unless explicitly allowed.
+### P2. Agents without tools: done
 
-### P2. Agents without tools
+A custom agent with zero tools is created, evaluated and improved, and approved through the
+unchanged quality gate. Tool permission checks are unchanged for agents that have tools.
+Not checked: deploying and invoking such an agent in production.
 
-Problem: `reconstruct_agent` refuses an agent with no tools, and the create form requires a
-connection. A pure read-and-decide agent, such as message triage, cannot be built.
+### P3. One task-plus-data build, end to end: run, result negative so far
 
-Done when: a custom agent with zero tools can be created, evaluated, improved and deployed,
-and existing tool permission checks are unchanged for agents that have tools.
+Run on OpenAI with `gpt-5.5` as builder and agent, from one sentence and the public Banking77
+test file (3,080 rows, 77 queues; the publisher's repository states CC BY 4.0, confirm before
+reuse), 60 rows to build from and 60 held back, 12 minutes, about 4.90 dollars. The first
+version scored 85% on held-back rows and the builder's version 83%. The builder did not
+improve the agent: it fitted the rows it could read. See `docs/PROGRESS.md`.
 
-### P3. One task-plus-data build, end to end
+In response the build now scores every change on rows the builder never reads, and the
+builder has an example pool and a summary of what is confused with what
+(`docs/RUNNING_BUILDS.md`). Whether that makes the builder add value is not yet measured.
 
-This is the acceptance test for the product direction.
-
-Run: one sentence of task plus a labelled public dataset. Proposed: support message triage
-with the Banking77 dataset. Confirm its licence before use.
-
-Done when: starting from only the task and the file, the factory designs the agent, creates
-and gets approval for tests, improves the agent on a live model, and reaches review with a
-dossier. Record every point where a person had to act and how long it took, the held-out
-score, and real token spend. Report honestly if it fails.
+Still to do: one clean `gpt-5.5` run at 150/100/100 with a budget the owner sets, and an
+honest report of first against final held-back score, spend, and every point where a person
+had to act. If the result is again flat, the builder's value on tasks like this has to come
+from business context, tools and connections, and the benchmark should move to a task that
+needs them.
 
 ### P4. Database connections from instructions
 
@@ -276,7 +293,17 @@ the permission recheck at the write boundary accepts the approver role; the appr
 is usable by a non-engineer and explains each action in plain language; every decision is
 audited with who made it.
 
+### P7a. Inputs from the customer's own files and systems
+
+Context documents are text only, and examples come from a file or a public address. Build:
+PDF, Word and spreadsheet intake; examples read from a customer connection (with P4) under
+explicit authorization; a way to replace a dataset.
+
 ### P8. Smaller defects and limits
+
+- The price table holds two models; others are priced at one flat rate per token.
+- Customer rows are stored as test cases unencrypted.
+- The held-back set is counted but does not rotate.
 
 - `rules` accepts keys no tool reads, so a builder can add settings that do nothing. Reject
   or flag them.

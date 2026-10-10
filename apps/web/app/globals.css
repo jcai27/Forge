@@ -314,6 +314,15 @@ tr.rowlink:hover .cell-title { color: var(--accent); }
 .input { border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); padding: 0 11px; height: 36px; width: 100%; color: var(--ink); font-size: 13.5px; box-shadow: var(--shadow); }
 select.input { padding-right: 28px; }
 textarea.input { height: auto; padding: 9px 11px; resize: vertical; min-height: 96px; line-height: 1.55; }
+input[type="file"].input { height: auto; padding: 7px 9px; font-size: 13px; color: var(--muted); }
+input[type="file"].input::file-selector-button { font: inherit; font-weight: 600; font-size: 12.5px; color: var(--ink-2); background: var(--surface-3); border: 1px solid var(--line-strong); border-radius: 5px; padding: 3px 10px; margin-right: 10px; cursor: pointer; }
+.choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; margin-bottom: 8px; background: var(--surface); }
+.choice:hover { border-color: var(--line-strong); }
+.choice.selected { border-color: var(--accent); background: var(--accent-soft); }
+.choice input { margin-top: 3px; accent-color: var(--accent); flex: none; }
+.choice-title { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.choice-help { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+.choice-body { padding: 4px 0 8px 2px; }
 .input::placeholder { color: #98a2b3; }
 .input:hover { border-color: #b9c0cc; }
 .input:focus { outline: 2px solid var(--focus); outline-offset: 0; border-color: var(--accent); }

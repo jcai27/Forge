@@ -57,6 +57,8 @@ class AgentRecord(Owned, Base):
     request: Mapped[str] = mapped_column(Text)
     template: Mapped[str] = mapped_column(String(40))
     best_version_id: Mapped[str | None] = mapped_column(String(36))
+    # Set only when someone has stated that the task can be judged without example data.
+    no_data_reason: Mapped[str] = mapped_column(Text, default="", server_default="")
 
 
 class AgentVersion(Owned, Base):
@@ -103,6 +105,32 @@ class ConnectionProposal(Owned, Base):
     reviewed_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     reviewed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     connection_id: Mapped[str | None] = mapped_column(ForeignKey("integration_connections.id"))
+
+
+class ContextDocument(Owned, Base):
+    """A document about how the customer operates. Read by the builder, never by the deployed agent."""
+
+    __tablename__ = "context_documents"
+    __table_args__ = (UniqueConstraint("agent_id", "name"),)
+    agent_id: Mapped[str] = mapped_column(ForeignKey("agent_specs.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    text: Mapped[str] = mapped_column(Text)
+    chars: Mapped[int] = mapped_column(Integer)
+    content_hash: Mapped[str] = mapped_column(String(64))
+
+
+class Dataset(Owned, Base):
+    """Where a set of evaluation cases came from. The rows themselves live on as cases."""
+
+    __tablename__ = "datasets"
+    agent_id: Mapped[str] = mapped_column(ForeignKey("agent_specs.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    origin: Mapped[str] = mapped_column(String(30), default="upload")
+    source_url: Mapped[str] = mapped_column(Text, default="")
+    content_hash: Mapped[str] = mapped_column(String(64))
+    rows: Mapped[int] = mapped_column(Integer)
+    mapping: Mapped[dict] = mapped_column(JSON)
+    profile: Mapped[dict] = mapped_column(JSON)
 
 
 class DataSource(Owned, Base):
@@ -172,6 +200,8 @@ class EvaluationCase(Owned, Base):
     environment: Mapped[dict] = mapped_column(JSON, default=dict)
     rubric: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     authorized_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # Set when the case came from an attached dataset, so the dataset can be removed with its cases.
+    dataset_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 
 
 class EvaluationRun(Owned, Base):
@@ -254,6 +284,11 @@ class UsageRecord(Owned, Base):
     job_id: Mapped[str | None] = mapped_column(ForeignKey("build_jobs.id"), nullable=True)
     role: Mapped[str] = mapped_column(String(100), default="execution")
     tokens: Mapped[int] = mapped_column(Integer, default=0)
+    # The split of tokens, where the provider reported one. Output includes reasoning.
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Part of input_tokens the provider served from its prompt cache.
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     cost: Mapped[float] = mapped_column(Float, default=0)
     status: Mapped[str] = mapped_column(String(30), default="recorded")
     reserved_cost: Mapped[float] = mapped_column(Float, default=0)

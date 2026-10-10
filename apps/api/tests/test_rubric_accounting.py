@@ -290,6 +290,8 @@ async def test_worker_rubric_accounting_is_once_only_and_preserves_pause(db, see
     from factory.models import EvaluationResult
     from factory.workflow import start_evaluation, worker_tick
 
+    # This test follows one trial through one worker tick.
+    monkeypatch.setattr(settings(), "evaluation_concurrency", 1)
     _, _, agent, version, suite, _ = seeded
     job = new_job(db, agent, Budget())
     start_evaluation(db, job, version, suite)

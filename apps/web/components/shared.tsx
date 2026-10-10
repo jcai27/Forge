@@ -11,13 +11,19 @@ export function useAction() {
   const cache = useQueryClient();
   async function act<T>(path: string, body?: unknown, method?: string): Promise<T | undefined> {
     setPending(true);
-    try {const value = await api<T>(path, body, method); await cache.invalidateQueries(); return value;}
+    try {
+      const value = await api<T>(path, body, method);
+      // Who is signed in changes only through sign-in and membership actions. Refetching it after every
+      // other action spent a fifth of the API request budget for nothing.
+      await cache.invalidateQueries(/^\/(auth|organization)/.test(path) ? undefined : {predicate: query => query.queryKey[0] !== '/auth/me'});
+      return value;
+    }
     catch(error) {toast(error instanceof Error ? error.message : 'Operation failed'); return undefined;}
     finally {setPending(false);}
   }
   return {act, pending, toast};
 }
-const SETTLED = /completed|connected|ready|approved|deployed|passed|verified|promoted/i, STOPPED = /failed|rejected|cancelled|revoked|error/i, WAITING = /approval|paused|budget|attention|setup|pending|proposed/i;
+const SETTLED = /completed|connected|ready|approved|deployed|passed|verified|promoted/i, STOPPED = /failed|rejected|cancelled|revoked|error/i, WAITING = /approval|paused|budget|attention|setup|pending|proposed|below target/i;
 export function tone(value: string) {return /^(not|no|un)[ _]?/i.test(value) ? 'neutral' : STOPPED.test(value) ? 'bad' : WAITING.test(value) ? 'warn' : SETTLED.test(value) ? 'good' : 'neutral';}
 /** Field and event names arrive as snake_case identifiers; show them as words. */
 export function humanize(value: string) {const text = value.replaceAll('_', ' ').trim(); return text ? text[0].toUpperCase() + text.slice(1) : text;}

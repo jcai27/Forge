@@ -25,8 +25,24 @@ class Settings(BaseSettings):
     research_search_header: str = ""
     # Unix socket of the sandbox service that runs builder-written tools. Empty disables them.
     sandbox_socket: str = ""
+    # "demo", "live", or "hybrid": built-in templates on fixtures, custom agents on the real model.
     execution_mode: str = "demo"
+    # Flat fallback, per token, for a model with no entry in model_prices.
     estimated_token_cost: float = 0.000005
+    # Dollars per million tokens as [input, output]; output includes reasoning. Defaults are published
+    # list prices as last checked and may be out of date: override with MODEL_PRICES as JSON.
+    # A third number is the price of input served from the provider's prompt cache.
+    model_prices: dict[str, list[float]] = {"gpt-5.5": [5.0, 30.0, 0.5], "gpt-4.1-mini": [0.4, 1.6, 0.1]}
+    # Models the builder may move an agent to. Empty: the agent stays on the model it was created with.
+    agent_models: list[str] = []
+    # Reasoning effort requested from reasoning models ("low", "medium", "high"). Empty leaves the default.
+    agent_reasoning_effort: str = ""
+    builder_reasoning_effort: str = ""
+    # Live evaluation trials run side by side. One restores the strictly sequential loop.
+    evaluation_concurrency: int = 8
+    # Largest reply to request from a model. Zero leaves it to the model's own maximum: a fixed cap
+    # cuts a reasoning model off mid-answer, and time limits and budgets already bound a call.
+    output_token_limit: int = 0
     worker_lease_seconds: int = 360
     runtime_max_attempts: int = 3
     jwt_secret: str = "local-development-only-change-before-deployment"
@@ -39,6 +55,8 @@ class Settings(BaseSettings):
             raise ValueError("OPENAI_API must be responses or chat_completions")
         if self.openai_structured_output not in ("schema", "prompt"):
             raise ValueError("OPENAI_STRUCTURED_OUTPUT must be schema or prompt")
+        if self.execution_mode not in ("demo", "live", "hybrid"):
+            raise ValueError("EXECUTION_MODE must be demo, live or hybrid")
 
     def validate_production(self):
         if self.environment == "production":
@@ -48,6 +66,16 @@ class Settings(BaseSettings):
                 raise ValueError("Production requires ENCRYPTION_KEY")
             if not self.database_url.startswith("postgresql"):
                 raise ValueError("Production requires PostgreSQL")
+
+
+def mode_for(template):
+    """Whether an agent of this kind runs on fixtures ("demo") or on a real model ("live").
+
+    In hybrid mode the built-in templates keep replaying their fixtures, free and deterministic, while
+    custom agents use the real model. Every run records the mode it actually used.
+    """
+    mode = settings().execution_mode
+    return ("live" if template == "custom" else "demo") if mode == "hybrid" else mode
 
 
 @lru_cache

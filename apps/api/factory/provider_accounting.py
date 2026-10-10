@@ -4,9 +4,9 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from factory.config import settings
 from factory.db import now
 from factory.models import BuildJob, ExecutionRun, UsageRecord
+from factory.pricing import cached_tokens, model_name, usage_cost
 from factory.runtime import BudgetExceeded, BudgetHooks
 
 
@@ -15,8 +15,8 @@ class BuildInterrupted(Exception):
 
 
 class FactoryBudgetHooks(BudgetHooks):
-    def __init__(self, max_cost, db, job, role, max_seconds=120):
-        super().__init__(max_cost, "live", max_output_tokens=4000)
+    def __init__(self, max_cost, db, job, role, max_seconds=120, max_output_tokens=4000):
+        super().__init__(max_cost, "live", max_output_tokens=max_output_tokens)
         self.db, self.job, self.role = db, job, role
         self.owner, self.stage = job.lease_owner, job.state
         self.pending = None
@@ -33,6 +33,9 @@ class FactoryBudgetHooks(BudgetHooks):
 
     def check_active(self):
         if self.job.lease_owner != self.owner or self.job.state != self.stage:
+            # Let go of the build row before unwinding: the SDK awaits while it cleans up, and anything
+            # else waiting on that row in this process would wait forever.
+            self.db.commit()
             raise BuildInterrupted()
 
     async def on_llm_start(self, context, agent, system_prompt, input_items):
@@ -41,6 +44,7 @@ class FactoryBudgetHooks(BudgetHooks):
         self.check_active()
         reserve = self.next_reservation
         if self.job.spent + reserve > self.job.budget["max_cost"]:
+            self.db.commit()
             raise BudgetExceeded("Insufficient build budget for next model call")
         self.pending = UsageRecord(
             org_id=self.job.org_id,
@@ -59,10 +63,15 @@ class FactoryBudgetHooks(BudgetHooks):
     async def on_llm_end(self, context, agent, response):
         # Persist observed usage even when the response exceeds the reservation.
         self.lock()
-        actual = response.usage.total_tokens * settings().estimated_token_cost
+        actual = usage_cost(response.usage, model_name(agent))
         self.job.spent = (self.job.spent - self.pending.reserved_cost) + actual
         self.pending.cost = actual
         self.pending.tokens = response.usage.total_tokens
+        self.pending.input_tokens, self.pending.output_tokens = (
+            response.usage.input_tokens,
+            response.usage.output_tokens,
+        )
+        self.pending.cached_tokens = cached_tokens(response.usage)
         self.pending.reserved_cost = 0
         self.pending.status = "recorded"
         self.db.commit()
@@ -127,6 +136,9 @@ class ReadOnlyRunBudgetHooks(BudgetHooks):
 
     def check_active(self):
         if self.job and (self.job.lease_owner != self.owner or self.job.state != self.stage):
+            # Let go of the rows before unwinding: trials run side by side, the SDK awaits while it
+            # cleans up, and another trial waiting on these rows in this process would wait forever.
+            self.db.commit()
             raise BuildInterrupted()
 
     async def on_llm_start(self, context, agent, system_prompt, input_items):
@@ -135,11 +147,16 @@ class ReadOnlyRunBudgetHooks(BudgetHooks):
         metrics = self.run.metrics
         available = self.ceiling - metrics.get("cost", 0) - metrics.get("reserved_cost", 0)
         self.max_cost = self.cost + max(0, available)
-        await super().on_llm_start(context, agent, system_prompt, input_items)
+        try:
+            await super().on_llm_start(context, agent, system_prompt, input_items)
+        except BudgetExceeded:
+            self.db.commit()
+            raise
         reserve = self.next_reservation
         accounted = metrics.get("build_accounted_cost", 0)
         unaccounted = max(0, metrics.get("cost", 0) - accounted) if self.job else 0
         if self.job and self.job.spent + unaccounted + reserve > self.job.budget["max_cost"]:
+            self.db.commit()
             raise BudgetExceeded("Insufficient build budget for rubric call")
         self.pending = UsageRecord(
             org_id=self.run.org_id,
@@ -150,7 +167,12 @@ class ReadOnlyRunBudgetHooks(BudgetHooks):
             reserved_cost=reserve,
         )
         self.db.add(self.pending)
-        self.run.metrics = {**metrics, "reserved_cost": metrics.get("reserved_cost", 0) + reserve}
+        self.run.metrics = {
+            **metrics,
+            "reserved_cost": metrics.get("reserved_cost", 0) + reserve,
+            # The most one call of this run set aside: what a budget must have free for a call to start.
+            "peak_reservation": max(metrics.get("peak_reservation", 0), reserve),
+        }
         if self.job:
             self.job.spent += unaccounted + reserve
             self.run.metrics = {**self.run.metrics, "build_accounted_cost": accounted + unaccounted}
@@ -160,9 +182,14 @@ class ReadOnlyRunBudgetHooks(BudgetHooks):
 
     async def on_llm_end(self, context, agent, response):
         self.lock()
-        actual = response.usage.total_tokens * settings().estimated_token_cost
+        actual = usage_cost(response.usage, model_name(agent))
         reserve = self.pending.reserved_cost
         self.pending.tokens, self.pending.cost = response.usage.total_tokens, actual
+        self.pending.input_tokens, self.pending.output_tokens = (
+            response.usage.input_tokens,
+            response.usage.output_tokens,
+        )
+        self.pending.cached_tokens = cached_tokens(response.usage)
         self.pending.status, self.pending.reserved_cost = "recorded", 0
         metrics = self.run.metrics
         self.run.metrics = {

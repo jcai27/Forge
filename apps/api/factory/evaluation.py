@@ -11,11 +11,23 @@ from sqlalchemy import select
 
 from factory.connectors import check_connection
 from factory.fixtures import business_snapshot
-from factory.models import DataSource, EvaluationCase, EvaluationResult, EvaluationRun, ExecutionRun, Membership
+from factory.models import (
+    DataSource,
+    EvaluationCase,
+    EvaluationResult,
+    EvaluationRun,
+    EvaluationSuite,
+    ExecutionRun,
+    Membership,
+)
 from factory.runtime import execute
 from factory.schemas import QualityPolicy
 from factory.security import redact, redact_tenant
 from factory.verifiers import get_path
+
+
+class ProviderUnavailable(Exception):
+    """A build trial could not be run because the model provider could not be reached."""
 
 
 def grade(run, case, observation=None):
@@ -141,13 +153,15 @@ def grade(run, case, observation=None):
             "evidence": "Evaluation created no production approval or external dispatch",
         }
     )
-    checks.append(
-        {
-            "category": "tool_correctness",
-            "passed": run.metrics.get("tool_calls", 0) > 0,
-            "evidence": "Registered tool invocation observed",
-        }
-    )
+    # An agent that was given no tools has none to call; the check would fail every one of its cases.
+    if run.metrics.get("tools_offered", 1):
+        checks.append(
+            {
+                "category": "tool_correctness",
+                "passed": run.metrics.get("tool_calls", 0) > 0,
+                "evidence": "Registered tool invocation observed",
+            }
+        )
     checks.append(
         {
             "category": "safety",
@@ -267,6 +281,9 @@ async def evaluate_case(db, evaluation, version, case, trial=0, max_cost=None, m
         max_seconds=max_seconds,
         job=job,
     )
+    if job is not None and run.metrics.get("provider_unavailable"):
+        # Nothing was learned about the agent. Leave no result, so the trial is run again.
+        raise ProviderUnavailable(run.error or "provider unavailable")
     checks, failures = grade(run, case, observation)
     if case.rubric:
         from factory.qualitative import grade_rubric
@@ -309,11 +326,13 @@ def scorecard(db, evaluation):
     critical_failures = 0
     split_counts, split_passed = Counter(), Counter()
     durations, costs, tokens, reservations = [], [], [], []
+    peak_reservation = 0.0
     graded_total, graded_splits = 0.0, Counter()
     trials = {}
     pending_reviews = 0
     regression_outcomes = {}
     case_names = {}
+    selection_cases = set()
     for result in results:
         case = db.get(EvaluationCase, result.case_id)
         case_names[case.id] = case.name
@@ -322,6 +341,8 @@ def scorecard(db, evaluation):
         grade_value = graded_score(result.checks)
         graded_total += grade_value
         graded_splits[case.split] += grade_value
+        if case.split == "selection":
+            selection_cases.add(case.id)
         if case.split == "regression":
             regression_outcomes[f"{case.id}:{result.trial}"] = bool(result.passed)
         trials.setdefault(case.id, []).append(int(result.passed))
@@ -335,6 +356,7 @@ def scorecard(db, evaluation):
         costs.append(run.metrics.get("cost", 0))
         tokens.append(run.metrics.get("tokens", 0))
         reservations.append(run.metrics.get("reserved_cost", 0))
+        peak_reservation = max(peak_reservation, run.metrics.get("peak_reservation", 0))
     p = passed / total if total else 0
     # Wilson interval captures finite fixture uncertainty; never claims general accuracy.
     z, n = 1.96, total or 1
@@ -362,6 +384,7 @@ def scorecard(db, evaluation):
         "cost": sum(costs),
         "tokens": sum(tokens),
         "reserved_cost": sum(reservations),
+        "peak_reservation": peak_reservation,
         "pending_reviews": pending_reviews,
         "regression_outcomes": regression_outcomes,
         "variability": {
@@ -380,10 +403,11 @@ def scorecard(db, evaluation):
             },
         },
         "case_rates": {case_id: [sum(values), len(values)] for case_id, values in trials.items()},
+        "selection_cases": sorted(selection_cases),
         "case_names": case_names,
         "confidence_interval_95": [max(0, center - half), min(1, center + half)],
         "provisional": True,
-        "limitations": "Fixture pass rates measure these authored scenarios only; repeated trials may be correlated. No claim of general business accuracy.",
+        "limitations": "Pass rates describe these test cases only; repeated trials may be correlated. No claim of general business accuracy.",
     }
 
 
@@ -411,7 +435,144 @@ def development_evidence(db, evaluation):
     return redact_tenant(db, evaluation.org_id, evidence)
 
 
-def passing_examples(db, evaluation, limit=3):
+def meets_expectations(case, output):
+    """Whether an output satisfies every expectation of a case. Unknown kinds of expectation count as unmet."""
+    if not case.assertions or not isinstance(output, dict):
+        return False
+    for assertion in case.assertions:
+        if assertion.get("scope", "output") != "output":
+            return False
+        try:
+            actual, op = get_path(output, assertion.get("path", "$")), assertion.get("op", "equals")
+            met = (
+                actual == assertion["value"]
+                if op == "equals"
+                else assertion["value"] in actual
+                if op == "contains"
+                else actual >= assertion["value"]
+                if op == "gte"
+                else actual <= assertion["value"]
+                if op == "lte"
+                else False
+            )
+        except (KeyError, IndexError, TypeError, ValueError):
+            met = False
+        if not met:
+            return False
+    return True
+
+
+def contradicted_verifiers(db, evaluation):
+    """Verifiers that rejected an answer the case's own expectations accept.
+
+    A verifier is a builder's guess at what a sound output looks like; the case is the ground truth.
+    Where an answer meets every expectation of a development case and a verifier still fails it, the
+    verifier is wrong. The answer judged is the one the verifier first saw, before any repair pass.
+    Only development cases are consulted, so nothing held back shapes the agent.
+    """
+    wrong = set()
+    for result in db.scalars(select(EvaluationResult).where(EvaluationResult.evaluation_run_id == evaluation.id)):
+        case = db.get(EvaluationCase, result.case_id)
+        if case.split != "development" or case.rubric or case.source == "human":
+            continue
+        run = db.get(ExecutionRun, result.execution_id)
+        if "unrepaired_failures" in run.metrics:
+            output, failed = run.metrics.get("unrepaired_output"), run.metrics["unrepaired_failures"]
+        else:
+            output, failed = run.output, run.metrics.get("verification_failures", [])
+        if failed and meets_expectations(case, output):
+            wrong.update(failed)
+    return sorted(wrong)
+
+
+def known_answers(db, agent_id, org_id):
+    """Outputs known to be correct: what each development case expects, field by field."""
+    answers = []
+    for case in db.scalars(
+        select(EvaluationCase)
+        .join(EvaluationSuite, EvaluationSuite.id == EvaluationCase.suite_id)
+        .where(
+            EvaluationSuite.agent_id == agent_id,
+            EvaluationCase.org_id == org_id,
+            EvaluationCase.split == "development",
+        )
+    ):
+        expected = {
+            assertion["path"]: assertion["value"]
+            for assertion in case.assertions
+            if assertion.get("op", "equals") == "equals"
+            and assertion.get("scope", "output") == "output"
+            and isinstance(assertion.get("path"), str)
+            and assertion["path"] not in ("$", "")
+            and "." not in assertion["path"]
+        }
+        if expected:
+            answers.append(expected)
+    return answers
+
+
+def verifiers_rejecting(verifiers, answers):
+    """Verifiers that a known-correct answer would fail, found without running anything.
+
+    Only what an answer actually states is judged: a verifier about a field the answers do not
+    mention is left alone, since nothing here can say whether it is right.
+    """
+    from jsonschema import Draft202012Validator
+
+    from factory.verifiers import check
+
+    wrong = []
+    for verifier in verifiers:
+        rejects = False
+        for answer in answers:
+            if verifier.kind in ("required", "one_of", "range") and verifier.path in answer:
+                rejects = check(verifier, answer) is not None
+            elif verifier.kind == "schema" and verifier.path in answer:
+                rejects = check(verifier, answer) is not None
+            elif verifier.kind == "schema" and verifier.path in ("$", ""):
+                properties = (verifier.expected_schema or {}).get("properties") or {}
+                rejects = any(
+                    field in properties and list(Draft202012Validator(properties[field]).iter_errors(value))
+                    for field, value in answer.items()
+                )
+            if rejects:
+                wrong.append(verifier.id)
+                break
+    return wrong
+
+
+def uniformly_failing(db, evaluation, minimum=20):
+    """Whether a pass has failed every trial so far, all in the same way.
+
+    Twenty identical failures in a row are a broken version, not a hard case. The rest of the pass
+    would cost the same again and say nothing new.
+    """
+    results = list(db.scalars(select(EvaluationResult).where(EvaluationResult.evaluation_run_id == evaluation.id)))
+    if len(results) < minimum or any(result.passed for result in results):
+        return False
+    if any(check.get("pending") for result in results for check in result.checks):
+        return False
+    return len({tuple(sorted(result.failures)) for result in results}) == 1
+
+
+def confusions(evidence, limit=20):
+    """What was expected against what was answered, counted, so a builder sees the pattern and not just rows."""
+    counts = Counter()
+    for failure in evidence:
+        for item in failure["failed_checks"]:
+            if item.get("path") and "expected" in item and "actual" in item:
+                try:
+                    counts[(item["path"], json.dumps(item["expected"]), json.dumps(item["actual"]))] += 1
+                except (TypeError, ValueError):
+                    continue
+    return [
+        {"field": path, "expected": json.loads(expected), "answered": json.loads(actual), "times": times}
+        for (path, expected, actual), times in counts.most_common(limit)
+        if times > 1
+    ]
+
+
+def passing_examples(db, evaluation, limit=8):
     """Development-split behaviour that must be preserved; never regression or validation answers."""
     examples, seen = [], set()
     for result in db.scalars(
@@ -473,6 +634,43 @@ def beyond_noise(candidate, baseline):
     return delta > NOISE_Z * error
 
 
+def selection_score(card):
+    """The score a version is judged by during a build.
+
+    When the suite has selection cases, which the builder is scored on and never reads, it is the score
+    on those: a change that only fits the cases the builder studied does not move it. Otherwise it is
+    the overall score, as before.
+    """
+    part = (card.get("splits") or {}).get("selection")
+    return part["score"] if part and part["total"] else card["score"]
+
+
+def selection_flips(candidate, baseline):
+    """How much better and how much worse a candidate does on selection cases than the baseline.
+
+    Each case counts by the change in its pass rate, so a gain that held up when the case was run
+    again counts in full and one that did not counts for half.
+    """
+    gained = lost = 0.0
+    for case_id in set(candidate.get("selection_cases", [])) & set(baseline.get("selection_cases", [])):
+        ours, theirs = candidate["case_rates"].get(case_id), baseline["case_rates"].get(case_id)
+        if not ours or not theirs:
+            continue
+        delta = ours[0] / ours[1] - theirs[0] / theirs[1]
+        gained, lost = gained + max(delta, 0), lost + max(-delta, 0)
+    return gained, lost
+
+
+def changed_selection_cases(candidate, baseline):
+    """Selection cases whose outcome differs from the baseline: the ones worth running a second time."""
+    changed = []
+    for case_id in sorted(set(candidate.get("selection_cases", [])) & set(baseline.get("selection_cases", []))):
+        ours, theirs = candidate["case_rates"].get(case_id), baseline["case_rates"].get(case_id)
+        if ours and theirs and ours[0] / ours[1] != theirs[0] / theirs[1]:
+            changed.append((case_id, ours[1]))
+    return changed
+
+
 def can_promote(candidate, baseline=None, policy=None):
     policy = QualityPolicy.model_validate(policy or {})
     if (
@@ -494,7 +692,7 @@ def can_promote(candidate, baseline=None, policy=None):
         "score", 0
     ):
         return False
-    if candidate["score"] < baseline["score"]:
+    if selection_score(candidate) < selection_score(baseline):
         return False
     if any(
         passed and not candidate.get("regression_outcomes", {}).get(key, False)
@@ -505,19 +703,26 @@ def can_promote(candidate, baseline=None, policy=None):
         if candidate.get("reserved_cost", 0) or baseline.get("reserved_cost", 0):
             return False  # Unknown charges cannot establish a measured cost improvement.
         return (
-            candidate["score"] >= policy.minimum_score
+            selection_score(candidate) >= policy.minimum_score
             and baseline["cost"] - candidate["cost"] > policy.minimum_improvement
         )
     if policy.objective == "latency":
         return (
-            candidate["score"] >= policy.minimum_score
+            selection_score(candidate) >= policy.minimum_score
             and baseline["mean_latency_ms"] - candidate["mean_latency_ms"] > policy.minimum_improvement
         )
+    if candidate.get("selection_cases") and baseline.get("selection_cases"):
+        # Cases the builder never read. A handful of answers changing either way is what chance looks
+        # like, so the net gain must exceed its own standard error: one case better is not enough.
+        gained, lost = selection_flips(candidate, baseline)
+        return selection_score(candidate) - selection_score(
+            baseline
+        ) > policy.minimum_improvement and gained - lost > NOISE_Z * math.sqrt(gained + lost)
     return candidate["score"] - baseline["score"] > policy.minimum_improvement and beyond_noise(candidate, baseline)
 
 
 async def evaluate_suite(
-    db, version, suite, splits=("development", "regression", "validation"), max_cost=5, max_seconds=1800
+    db, version, suite, splits=("development", "selection", "regression", "validation"), max_cost=5, max_seconds=1800
 ):
     evaluation = EvaluationRun(org_id=version.org_id, version_id=version.id, suite_id=suite.id)
     db.add(evaluation)

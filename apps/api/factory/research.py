@@ -298,7 +298,7 @@ async def research(question, screen, hooks=None, max_turns=8, max_seconds=60):
         instructions=instructions,
         tools=gateway.tools(),
         output_type=output_type,
-        model_settings=ModelSettings(max_tokens=2500),
+        model_settings=ModelSettings(max_tokens=settings().output_token_limit or None),
     )
     result = await asyncio.wait_for(
         run_factory_role(

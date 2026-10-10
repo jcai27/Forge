@@ -23,16 +23,27 @@ from sqlalchemy.orm import object_session
 
 from factory import models as m
 from factory.builder import available_tools, design, enforce_spec_scope, infer_template, persist_version
-from factory.config import settings
+from factory.config import mode_for, settings
 from factory.connectors import FileConnector, check_connection, discover_connection
 from factory.db import get_db, now
 from factory.fixtures import fictional_data, seed_business, seed_suite
+from factory.intake import (
+    IntakeError,
+    add_document,
+    attach_dataset,
+    fetch_dataset,
+    parse_records,
+    remove_dataset,
+    truth_source,
+)
 from factory.memberships import router as membership_router
 from factory.proposals import ProposalError, approve_proposal, create_proposal, openapi_to_config
 from factory.release import dossier, feedback_candidates, shadow_run
 from factory.runtime import emit, resolve_approval
 from factory.schemas import (
+    AddDocument,
     AgentSpec,
+    AttachDataset,
     Budget,
     CreateAgent,
     CreateCase,
@@ -362,14 +373,18 @@ async def create_agent(body: CreateAgent, actor=ACTOR, db=DB):
         name="New agent",
         request=body.request,
         template=body.template or infer_template(body.request),
+        no_data_reason=body.no_data_reason or "",
     )
     db.add(agent)
     db.flush()
     spec = await design(db, agent, body.connection_ids, model_backed=False)
+    if body.minimum_score is not None:
+        # The owner's decision about what is good enough; no builder role can change it.
+        spec.quality_policy.minimum_score = body.minimum_score
     agent.name = spec.name
     version = persist_version(db, agent, spec)
     suite = seed_suite(db, agent)
-    audit(db, actor, "agent_created", agent.id)
+    audit(db, actor, "agent_created", agent.id, {"no_data_stated": bool(agent.no_data_reason)})
     db.commit()
     return {**serialize(agent), "version": serialize(version), "suite_id": suite.id}
 
@@ -382,6 +397,8 @@ def agent_detail(agent_id: str, actor=ACTOR, db=DB):
     )
     return {
         **serialize(agent),
+        "truth_source": truth_source(db, agent),
+        "held_out_uses": held_out_uses(db, agent),
         "latest_version": serialize(latest) if latest else None,
         "builds": collection(db, m.BuildJob, actor, predicates=(m.BuildJob.agent_id == agent.id,))["items"],
     }
@@ -413,6 +430,144 @@ def edit_spec(agent_id: str, body: AgentSpec, actor=ACTOR, db=DB):
     return serialize(version)
 
 
+NO_TRUTH_SOURCE = (
+    "A build needs something to be judged against. Attach examples with correct answers, "
+    "or state why this task can be checked without data."
+)
+
+
+def active_build(db, agent):
+    return db.scalar(select(m.BuildJob).where(m.BuildJob.agent_id == agent.id, m.BuildJob.state.not_in(TERMINAL)))
+
+
+@app.get("/agents/{agent_id}/datasets")
+def datasets(agent_id: str, offset: int = OFFSET, limit: int = LIMIT, actor=ACTOR, db=DB):
+    owned(db, m.AgentRecord, agent_id, actor)
+    return collection(db, m.Dataset, actor, offset, limit, (m.Dataset.agent_id == agent_id,))
+
+
+@app.post("/agents/{agent_id}/datasets", status_code=201)
+async def add_dataset(agent_id: str, body: AttachDataset, actor=ACTOR, db=DB):
+    require_write(actor)
+    agent = owned(db, m.AgentRecord, agent_id, actor)
+    if active_build(db, agent):
+        raise HTTPException(409, "Data cannot change while a build is running; cancel it or wait for it to finish")
+    try:
+        text = body.content if body.url is None else await fetch_dataset(body.url)
+        records = parse_records(text, body.format)
+        dataset, version = attach_dataset(
+            db,
+            agent,
+            body.name,
+            records,
+            mapping=body.mapping.model_dump() if body.mapping else None,
+            sizes={
+                "development": body.development,
+                "selection": body.development if body.selection is None else body.selection,
+                "regression": body.regression,
+                "validation": body.validation,
+            },
+            origin="upload" if body.url is None else "url",
+            source_url=body.url or "",
+        )
+    except IntakeError as error:
+        db.rollback()
+        raise HTTPException(422, str(error)) from None
+    except (TimeoutError, OSError):
+        db.rollback()
+        raise HTTPException(422, "The dataset address could not be reached") from None
+    audit(db, actor, "dataset_attached", dataset.id, {"rows": dataset.rows, "splits": dataset.profile["splits"]})
+    db.commit()
+    return {**serialize(dataset), "version": serialize(version)}
+
+
+@app.delete("/datasets/{dataset_id}")
+def delete_dataset(dataset_id: str, actor=ACTOR, db=DB):
+    require_admin(actor)
+    dataset = owned(db, m.Dataset, dataset_id, actor)
+    agent = owned(db, m.AgentRecord, dataset.agent_id, actor)
+    if active_build(db, agent):
+        raise HTTPException(409, "Data cannot change while a build is running; cancel it or wait for it to finish")
+    removed = remove_dataset(db, agent, dataset)
+    audit(db, actor, "dataset_removed", dataset_id, removed)
+    db.commit()
+    return removed
+
+
+def held_out_uses(db, agent):
+    """How many times this agent's held-out cases have been scored. Each look makes them a little less held out."""
+    return db.scalar(
+        select(func.count(func.distinct(m.EvaluationResult.evaluation_run_id)))
+        .join(m.EvaluationCase, m.EvaluationCase.id == m.EvaluationResult.case_id)
+        .join(m.EvaluationSuite, m.EvaluationSuite.id == m.EvaluationCase.suite_id)
+        .where(
+            m.EvaluationSuite.agent_id == agent.id,
+            m.EvaluationCase.org_id == agent.org_id,
+            m.EvaluationCase.split == "validation",
+        )
+    )
+
+
+def usage_by_role(records):
+    roles = {}
+    for record in records:
+        row = roles.setdefault(
+            record.role,
+            {"calls": 0, "input_tokens": 0, "cached_tokens": 0, "output_tokens": 0, "cost": 0.0, "unresolved": 0.0},
+        )
+        row["calls"] += 1
+        row["input_tokens"] += record.input_tokens
+        row["cached_tokens"] += record.cached_tokens
+        row["output_tokens"] += record.output_tokens
+        row["cost"] += record.cost
+        row["unresolved"] += record.reserved_cost
+    return roles
+
+
+def document_summary(document):
+    data = serialize(document)
+    text = data.pop("text")
+    return {**data, "excerpt": text[:600]}
+
+
+@app.get("/agents/{agent_id}/context")
+def context_documents(agent_id: str, offset: int = OFFSET, limit: int = LIMIT, actor=ACTOR, db=DB):
+    owned(db, m.AgentRecord, agent_id, actor)
+    query = select(m.ContextDocument).where(
+        m.ContextDocument.org_id == actor.org_id, m.ContextDocument.agent_id == agent_id
+    )
+    total = db.scalar(select(func.count()).select_from(query.subquery()))
+    rows = db.scalars(query.order_by(m.ContextDocument.created_at, m.ContextDocument.id).offset(offset).limit(limit))
+    return {"items": [document_summary(row) for row in rows], "total": total, "offset": offset, "limit": limit}
+
+
+@app.post("/agents/{agent_id}/context", status_code=201)
+def add_context_document(agent_id: str, body: AddDocument, actor=ACTOR, db=DB):
+    require_write(actor)
+    agent = owned(db, m.AgentRecord, agent_id, actor)
+    try:
+        document = add_document(db, agent, body.name, body.text)
+    except IntakeError as error:
+        raise HTTPException(422, str(error)) from None
+    audit(db, actor, "context_document_added", document.id, {"characters": document.chars})
+    db.commit()
+    return document_summary(document)
+
+
+@app.get("/context/{document_id}")
+def context_document(document_id: str, actor=ACTOR, db=DB):
+    return serialize(owned(db, m.ContextDocument, document_id, actor))
+
+
+@app.delete("/context/{document_id}", status_code=204)
+def remove_context_document(document_id: str, actor=ACTOR, db=DB):
+    require_write(actor)
+    document = owned(db, m.ContextDocument, document_id, actor)
+    audit(db, actor, "context_document_removed", document.id)
+    db.delete(document)
+    db.commit()
+
+
 @app.get("/versions/compare")
 def compare(left: str, right: str, actor=ACTOR, db=DB):
     a, b = owned(db, m.AgentVersion, left, actor), owned(db, m.AgentVersion, right, actor)
@@ -437,6 +592,16 @@ def compare(left: str, right: str, actor=ACTOR, db=DB):
 def start_build(agent_id: str, body: Budget, actor=ACTOR, db=DB):
     require_write(actor)
     agent = owned(db, m.AgentRecord, agent_id, actor)
+    if truth_source(db, agent) is None:
+        raise HTTPException(422, NO_TRUTH_SOURCE)
+    latest = db.scalar(
+        select(m.AgentVersion).where(m.AgentVersion.agent_id == agent.id).order_by(m.AgentVersion.number.desc())
+    )
+    if mode_for(agent.template) != "live" and latest and not latest.spec.get("tools"):
+        # Demo mode replays fixture tools. Every case of an agent without tools would fail unrun.
+        raise HTTPException(
+            422, "This agent works from the request alone, which needs a live model. This workspace is in demo mode."
+        )
     job = new_job(db, agent, body)
     audit(db, actor, "build_started", job.id)
     db.commit()
@@ -452,6 +617,7 @@ def build(job_id: str, actor=ACTOR, db=DB):
     return {
         **serialize(job),
         "factory_observed_cost": sum(record.cost for record in usage),
+        "usage_by_role": usage_by_role(usage),
         "factory_reserved_cost": sum(record.reserved_cost for record in usage),
         "iterations": collection(db, m.BuildIteration, actor, predicates=(m.BuildIteration.job_id == job.id,))["items"],
     }
@@ -1158,8 +1324,10 @@ def quality_gate(db, version):
     policy = AgentSpec.model_validate(version.spec).quality_policy
     suites = list(db.scalars(select(m.EvaluationSuite).where(m.EvaluationSuite.agent_id == version.agent_id)))
     cases = list(db.scalars(select(m.EvaluationCase).where(m.EvaluationCase.suite_id.in_([s.id for s in suites]))))
-    if not cases or not {"development", "regression", "validation"}.issubset({c.split for c in cases}):
-        raise HTTPException(409, "Separate development, regression and validation evidence is required")
+    # Regression cases are the ones that must never break again; a suite drawn from sampled data may
+    # have none yet. What can never be missing is evidence the builder did not see.
+    if not cases or not {"development", "validation"}.issubset({c.split for c in cases}):
+        raise HTTPException(409, "Separate development and held-out validation evidence is required")
     completed = select(m.EvaluationRun.id).where(
         m.EvaluationRun.version_id == version.id, m.EvaluationRun.status == "completed"
     )

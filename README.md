@@ -87,6 +87,11 @@ the model for factory roles. Docker Compose starts the sandbox and sets `SANDBOX
 `bash scripts/test-sandbox.sh` to prove the sandbox image's isolation. None of the builder
 has been run against a real model.
 
+What a build is given (the task, business context documents and example data with correct
+answers) is described in [docs/INTAKE.md](docs/INTAKE.md). A build is refused without something
+to judge it against. How a build behaves on a real model (what is scored,
+retries, parallel scoring, pricing and budgets) is in [docs/RUNNING_BUILDS.md](docs/RUNNING_BUILDS.md).
+
 Credential filtering and retired-ciphertext handling are described in
 [docs/SECRET_BOUNDARIES.md](docs/SECRET_BOUNDARIES.md).
 

@@ -1,5 +1,5 @@
 'use client';
-import {useEffect, useState} from 'react';
+import {useCallback, useEffect, useState} from 'react';
 import Link from 'next/link';
 import {usePathname} from 'next/navigation';
 import {QueryClient, QueryClientProvider, useQueryClient} from '@tanstack/react-query';
@@ -12,15 +12,35 @@ import {Dashboard, NewAgent} from './workspace-pages';
 import {AgentWorkspace} from './agent-pages';
 import {Integrations, Approvals, RunDetail, SettingsPage} from './operations-pages';
 
-export function FactoryApp() {const [client] = useState(() => new QueryClient({defaultOptions: {queries: {retry: 1, staleTime: 1000}}})); return <QueryClientProvider client={client}><Session/></QueryClientProvider>;}
+// One cache for the life of the tab. Moving between sections can remount this component, and a cache
+// created inside it was thrown away each time, so every navigation fetched everything again.
+let browserClient: QueryClient | undefined;
+function queryClient() {
+  const make = () => {
+    const client = new QueryClient({defaultOptions: {queries: {retry: 1, staleTime: 1000}}});
+    // Who is signed in changes through sign-in and membership actions, which refresh it themselves.
+    client.setQueryDefaults(['/auth/me'], {staleTime: 60_000});
+    return client;
+  };
+  if (typeof window === 'undefined') return make();
+  return browserClient ??= make();
+}
+export function FactoryApp() {const [client] = useState(queryClient); return <QueryClientProvider client={client}><Session/></QueryClientProvider>;}
+const TOAST_KEY = 'factory-toast', TOAST_MS = 6000;
 function Session() {
   const cache=useQueryClient();
   const [ready, setReady] = useState(false), [authenticated, setAuthenticated] = useState(false), [toast, setToast] = useState('');
   const cachePath = usePathname();
-  useEffect(() => {setAuthenticated(!!localStorage.getItem('factory-token')); setReady(true);}, []);
-  useEffect(() => {if (!toast) return; const timer = setTimeout(() => setToast(''), 6000); return () => clearTimeout(timer);}, [toast]);
+  // Moving between sections can remount this component. A message raised just before such a move is kept
+  // for its few seconds in session storage, so the reason for a redirect is still on screen after it.
+  const show = useCallback((message: string) => {setToast(message); try {if (message) sessionStorage.setItem(TOAST_KEY, JSON.stringify({message, at:Date.now()})); else sessionStorage.removeItem(TOAST_KEY);} catch {}}, []);
+  useEffect(() => {
+    setAuthenticated(!!localStorage.getItem('factory-token')); setReady(true);
+    try {const kept = JSON.parse(sessionStorage.getItem(TOAST_KEY) ?? 'null') as {message: string; at: number} | null; if (kept && Date.now() - kept.at < TOAST_MS) setToast(kept.message);} catch {}
+  }, []);
+  useEffect(() => {if (!toast) return; const timer = setTimeout(() => show(''), TOAST_MS); return () => clearTimeout(timer);}, [toast, show]);
   if (!ready) return <Loading/>;
-  return <ToastContext.Provider value={setToast}>{authenticated ? <Workspace path={cachePath} logout={() => {localStorage.removeItem('factory-token');cache.clear();setAuthenticated(false);}}/> : <Login onLogin={() => {cache.clear();setAuthenticated(true);}}/>} {toast && <div className="toast" role="alert">{toast}</div>}</ToastContext.Provider>;
+  return <ToastContext.Provider value={show}>{authenticated ? <Workspace path={cachePath} logout={() => {localStorage.removeItem('factory-token');cache.clear();setAuthenticated(false);}}/> : <Login onLogin={() => {cache.clear();setAuthenticated(true);}}/>} {toast && <div className="toast" role="alert">{toast}</div>}</ToastContext.Provider>;
 }
 function Login({onLogin}: {onLogin: () => void}) {
   const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [organization, setOrganization] = useState(''), [register, setRegister] = useState(false), [error, setError] = useState(''), [pending, setPending] = useState(false);
@@ -63,7 +83,7 @@ function Workspace({path, logout}: {path: string; logout: () => void}) {
   const parts = path.split('/').filter(Boolean);
   const agentId = parts[0] === 'agents' && parts[1] && parts[1] !== 'new' ? parts[1] : '';
   const agent = useResource<Agent>(`/agents/${agentId}`, !!agentId), metrics = useResource<Metrics>('/metrics', false); // reads what the overview already fetched; a request of its own here exceeds the API request budget
-  const waiting = metrics.data?.pending_approvals ?? 0, live = me.data?.execution_mode === 'live';
+  const waiting = metrics.data?.pending_approvals ?? 0, mode = me.data?.execution_mode ?? 'demo', live = mode === 'live';
   const groups = [
     {label:'Build', items:[{href:'/dashboard', label:'Overview', icon:LayoutDashboard, active:parts.length === 0 || parts[0] === 'dashboard' || !!agentId || parts[0] === 'runs'}, {href:'/agents/new', label:'Create agent', icon:Plus, active:path === '/agents/new'}]},
     {label:'Operate', items:[{href:'/approvals', label:'Approvals', icon:ShieldCheck, active:parts[0] === 'approvals', count:waiting}, {href:'/integrations', label:'Integrations', icon:Plug, active:parts[0] === 'integrations'}]},
@@ -94,7 +114,7 @@ function Workspace({path, logout}: {path: string; logout: () => void}) {
       <header className="topbar">
         <nav className="breadcrumbs" aria-label="Breadcrumb"><span className="root">{organization}</span>{trail.map((crumb, index) => <span key={index} style={{display:'contents'}}><span className={index ? 'sep' : 'sep root'}>/</span>{crumb.href ? <Link href={crumb.href}>{crumb.label}</Link> : <span className="here">{crumb.label}</span>}</span>)}</nav>
         <div className="topbar-right">
-          <span className={`env ${live ? 'live' : ''}`} title={live ? `Agents run on ${me.data?.model}` : 'Deterministic tool dispatch. No model calls and no model charges.'}>{live ? 'Live model runtime' : 'Demo mode'}</span>
+          <span className={`env ${live ? 'live' : ''}`} title={live ? `Agents run on ${me.data?.model}` : mode === 'hybrid' ? `Built-in templates replay fixtures at no charge. Custom agents run on ${me.data?.model}.` : 'Deterministic tool dispatch. No model calls and no model charges.'}>{live ? 'Live model runtime' : mode === 'hybrid' ? 'Hybrid: demo templates, live custom agents' : 'Demo mode'}</span>
           <span className="userchip"><span className="avatar light">{initials(email)}</span><span className="who">{email}</span></span>
           <Button variant="ghost" className="icon" aria-label="Sign out" title="Sign out" onClick={logout}><LogOut size={15}/></Button>
         </div>

@@ -138,13 +138,18 @@ class AgentSpec(StrictModel):
     )
     guardrails: dict = Field(default_factory=lambda: {"require_approval": True, "deny_production_evaluation": True})
     max_turns: int = Field(default=12, ge=1, le=50)
-    timeout_seconds: int = Field(default=60, ge=1, le=300)
+    # Per request. A reasoning model can think for more than a minute on a hard input.
+    timeout_seconds: int = Field(default=180, ge=1, le=900)
     max_cost: float = Field(default=1, ge=0, le=100)
     requirements: BusinessRequirements | None = None
     quality_policy: QualityPolicy = Field(default_factory=QualityPolicy)
     design_metrics: dict = Field(default_factory=dict)
     # Builder-authored bundle contents. The runtime acts on every one of these.
-    examples: list[Example] = Field(default_factory=list, max_length=8)
+    examples: list[Example] = Field(default_factory=list, max_length=600)
+    # With more examples than this, each request is shown only the ones most like it.
+    examples_shown: int = Field(default=8, ge=0, le=20)
+    # When set, the development cases themselves serve as examples, copied in when a version is saved.
+    example_pool: bool = False
     verifiers: list[Verifier] = Field(default_factory=list, max_length=20)
     tool_notes: dict[str, str] = Field(default_factory=dict)
     generated_tools: list[GeneratedTool] = Field(default_factory=list, max_length=6)
@@ -174,7 +179,9 @@ class SpecPatch(StrictModel):
     rules: dict | None = None
     output_schema: dict | None = None
     model: str | None = Field(default=None, min_length=1, max_length=200)
-    examples: list[Example] | None = Field(default=None, max_length=8)
+    examples: list[Example] | None = Field(default=None, max_length=40)
+    examples_shown: int | None = Field(default=None, ge=0, le=20)
+    example_pool: bool | None = None
     verifiers: list[Verifier] | None = Field(default=None, max_length=20)
     tool_notes: dict[str, str] | None = None
     generated_tools: list[GeneratedTool] | None = Field(default=None, max_length=6)
@@ -192,8 +199,10 @@ class SpecPatch(StrictModel):
 
 class Budget(StrictModel):
     max_iterations: int = Field(default=10, ge=1, le=100)
-    max_cost: float = Field(default=5, ge=0, le=1000)
-    max_seconds: int = Field(default=1800, ge=1, le=86400)
+    # A pass over a few hundred real examples on a large model costs dollars and takes minutes; the
+    # defaults leave room for several rounds and the final held-out measurement.
+    max_cost: float = Field(default=25, ge=0, le=1000)
+    max_seconds: int = Field(default=14400, ge=1, le=86400)
     target_score: float = Field(default=0.95, ge=0, le=1)
     stagnation_limit: int = Field(default=3, ge=1, le=20)
     # Proposals generated per round. One reproduces the original single-candidate loop.
@@ -232,6 +241,41 @@ class CreateAgent(StrictModel):
     request: str = Field(min_length=10, max_length=10000)
     connection_ids: list[str] = Field(default_factory=list)
     template: Literal["orders", "quotes", "hiring", "custom"] | None = None
+    # A statement that correct answers can be checked without example data, and why.
+    no_data_reason: str | None = Field(default=None, min_length=20, max_length=2000)
+    # The score a version must reach on held-out cases to be approved. Defaults to the policy's 0.95.
+    minimum_score: float | None = Field(default=None, ge=0, le=1)
+
+
+class DatasetMapping(StrictModel):
+    """Agent field name to dataset column, for the request and for the correct answer."""
+
+    input: dict[str, str] = Field(min_length=1, max_length=20)
+    expected: dict[str, str] = Field(min_length=1, max_length=20)
+
+
+class AttachDataset(StrictModel):
+    name: str = Field(min_length=1, max_length=120)
+    content: str | None = Field(default=None, min_length=1, max_length=5_500_000)
+    url: str | None = Field(default=None, min_length=9, max_length=2000)
+    format: Literal["csv", "tsv", "json", "jsonl"] | None = None
+    mapping: DatasetMapping | None = None
+    development: int = Field(default=60, ge=1, le=2000)
+    # Rows each change is scored on but the builder never reads. Defaults to as many as it does read.
+    selection: int | None = Field(default=None, ge=0, le=2000)
+    regression: int = Field(default=0, ge=0, le=2000)
+    validation: int = Field(default=60, ge=1, le=2000)
+
+    @model_validator(mode="after")
+    def one_source(self):
+        if (self.content is None) == (self.url is None):
+            raise ValueError("Send the dataset content or its address, not both")
+        return self
+
+
+class AddDocument(StrictModel):
+    name: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=200_000)
 
 
 class CreateConnection(StrictModel):
@@ -287,7 +331,7 @@ class HumanReview(StrictModel):
 
 class CreateCase(StrictModel):
     name: str = Field(min_length=1, max_length=200)
-    split: Literal["development", "regression", "validation"]
+    split: Literal["development", "selection", "regression", "validation"]
     source: Literal["synthetic", "replay", "human", "live_read_only"] = "synthetic"
     input: dict
     assertions: list[dict]
