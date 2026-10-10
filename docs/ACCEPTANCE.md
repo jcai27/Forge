@@ -10,7 +10,7 @@ AGENT_FACTORY_SPEC.md. The goal stays active until remaining feasible work is do
 | All 25 required relational entities | Frozen migration with FK/index/unique constraints; PG/SQLite migration checks | Composite tenant FK/DB enforcement audit |
 | Auth and organization/RBAC boundaries | Authenticated APIs, membership checks, tenant negative tests, editor/admin roles | Membership invitation/add flow; pagination audit |
 | Immutable structured specs/runtime | Version creation/edit API, pinned tool contracts, SDK reconstruction | Live provider calls unavailable without key; multi-tool custom SDK provider-contract test passes; actual provider responses unavailable |
-| Generic connectors | REST/Postgres/file/webhook/email/MCP adapters and contract tests | Real PostgreSQL discovery/read/denied-write test passed; local MCP HTTP test remains; external credentials unavailable |
+| Generic connectors | REST/Postgres/file/webhook/email/MCP adapters and contract tests; actual local TLS MCP SDK initialization/discovery/call | Real PostgreSQL discovery/read/denied-write test passed; MCP streaming/result bounds and external credentials remain |
 | Data discovery and least privilege | Integration test/discovery, typed registered tools, allowed tables/hosts, revocation | Resource-specific approval UX and contracts audit |
 | Natural-language builder | Template inference, versioned baseline, live architect SDK role | Structured requirements and background architecture/usage verified; general reviewed Test Designer verified; broader arbitrary connector workflow journeys remain |
 | Safe evaluation | Independent assertions, fresh fixture state, JSON schemas, dev/regression/validation splits | Replay/read-only grants, isolated state/schema/sequence checks and human review pass; rubric availability/budget tested, actual provider grades unavailable |
@@ -24,7 +24,7 @@ AGENT_FACTORY_SPEC.md. The goal stays active until remaining feasible work is do
 | Deployment runtime | Approved version pinning, invocation/idempotency, approval completion, logs, pause and rollback | Schedules, signed webhooks, lifetime budgets and durable queue tested; production runtime audit remains |
 | Production side effects | Default approval, permission recheck, dispatch intent, no automatic ambiguous retry | Administrator reconciliation receipts and concurrent stock/duplicate-request approvals verified; transport hardening remains |
 | DX/documents | README, env sample, migrations, scripts, OpenAPI, engineering memory | Seed CLI/API examples beyond demo bootstrap and final runbook |
-| Security governance | Encrypted secrets, JWT/membership/RBAC, audit, Redis rate limiter, approval boundaries, schema validation | Concurrent approvals/idempotency passed on PG; SSRF/DNS transport hardening and security/header audit remain |
+| Security governance | Encrypted secrets, JWT/membership/RBAC, audit, Redis rate limiter, approval boundaries, schema validation; REST/MCP connection-time public-IP pinning and verified TLS identity | Concurrent approvals/idempotency passed on PG; other connector transport bounds and full security/header audit remain |
 
 Numbered tests 1–7 and 9 have backend behavioral coverage. Test 8 has real process kill/restart
 coverage for builds and invocations. Test 10 has a passing full browser
@@ -72,3 +72,14 @@ compression, body closure and HTTP-phase deadlines. Read-only 429 retries are bo
 write methods dispatch once. DNS rebinding/pinning and other connector transport paths
 remain unverified/incomplete. Final checks: 74 SQLite tests (4 PG-only skips), 78 PG
 tests, Ruff/TypeScript/Vitest, both browser journeys, migration drift and rebuilt Compose.
+
+
+2026-10-09: REST/MCP new connections resolve within the deadline, validate every DNS
+answer and connect to a numeric public IP with the original verified TLS/HTTP hostname.
+Private/metadata/transition/scoped answers and mixed public/private DNS reject before
+socket dispatch. Exact-origin, proxy, DNS-cancellation and native body-error boundaries
+pass. Actual installed MCP SDK initialization/discovery/call passes through an owned
+local TLS fixture; wrong-host certificates reject before HTTP dispatch. External live
+credentials and MCP stream/result-size bounds remain unavailable/incomplete respectively.
+Final checks: 92 SQLite tests (4 PG-only skips), 96 PostgreSQL tests, Ruff/TypeScript,
+2 Vitest tests, both browser journeys, migration drift and rebuilt Compose services pass.

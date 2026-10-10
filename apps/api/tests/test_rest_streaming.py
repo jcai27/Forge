@@ -29,7 +29,10 @@ class TrackedStream(httpx.AsyncByteStream):
 def connector(monkeypatch, handler, method="GET"):
     monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **kw: [(2, 1, 6, "", ("93.184.216.34", 443))])
     client = httpx.AsyncClient
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setattr(
+        "factory.connectors.pinned_client",
+        lambda url, hosts, **kwargs: client(transport=httpx.MockTransport(handler), **kwargs),
+    )
     return RESTConnector(
         {
             "base_url": "https://approved.example",

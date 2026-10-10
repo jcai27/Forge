@@ -38,6 +38,12 @@ Preserve historical filtering when removing or rotating active credentials.
 REST response handling must bound wire and decoded bytes during streaming, including
 compressed bodies. Keep total HTTP deadlines and close discarded streams. Never retry
 HTTP write methods automatically; uncertain results go through reconciliation.
+REST/MCP egress uses origin-scoped pinned transports: validate every DNS result, connect
+to numeric public IPs and preserve original HTTP/TLS identity. Do not replace this with
+preflight DNS followed by an ordinary client connection, enable environment proxies or
+redirects, or permit private/transition destinations. MCP 2 requires native httpx2
+transport/stream types and snake_case SDK attributes. Loopback remapping and custom
+test certificates are owned-test-fixture dependencies, never user configuration.
 
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require

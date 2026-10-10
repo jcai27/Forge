@@ -16,8 +16,13 @@ Retired ciphertext is kept only for historical filtering; see SECRET_BOUNDARIES.
   2 MB wire/decoded limits, including capped gzip/deflate decompression. Oversized length
   headers reject before a body read; oversized streams stop early. Unsupported, truncated
   or trailing compressed payloads reject. The HTTP request/retry/body phase has a 15-second
-  total deadline. DNS validation/pinning and other connector transport paths still require
-  hardening; enforce host/network egress policy at deployment as well.
+  total deadline, including DNS resolution. Each new connection resolves within its
+  deadline, checks every address and passes a validated numeric public IP to the socket.
+  HTTP Host and verified TLS identity retain the approved hostname. Private, loopback,
+  metadata, scoped and IPv6 transition destinations reject before socket dispatch.
+  Connections are restricted to the configured origin; environment proxies and redirects
+  are disabled. Deployment network egress policy and other connector paths still require
+  independent enforcement and audit.
 - PostgreSQL: store a DSN as secret, set `schema` and a `tables` allowlist. Use a dedicated
   read-only database role. The adapter enforces read-only transactions, statement timeout,
   identifier quoting and bounded results; it exposes no arbitrary SQL execution.
@@ -36,8 +41,12 @@ Retired ciphertext is kept only for historical filtering; see SECRET_BOUNDARIES.
 - MCP: configure streamable HTTP `url`, `allowed_hosts`, `allowed_tools`, `read_tools`.
   Store bearer token as secret. Discovery uses the installed SDK MCP client and builds
   typed tool definitions from actual server schemas. Unclassified tools are writes by
-  default and require approval. Contract tests use a test server adapter; no external
-  server credentials have been supplied.
+  default and require approval. The MCP 2 client uses a compatible native httpx2 transport
+  with the same public-IP pinning, origin restriction and verified TLS identity as REST.
+  Tests initialize, discover and call a tool through an owned local TLS server, with a
+  test-only socket delegate; production never allows that loopback mapping. Wrong-host
+  certificates reject before an HTTP request. MCP streaming/result-size bounds still
+  require further hardening. No external server credentials have been supplied.
 
 Versions pin tool contracts and connection configuration fingerprints. Changes require
 new immutable candidate configuration and evaluation rather than silently changing a

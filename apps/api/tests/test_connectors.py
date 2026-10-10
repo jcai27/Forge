@@ -54,7 +54,8 @@ async def test_rest_connector_invokes_real_http_contract_with_mock_transport(mon
 
     original = httpx.AsyncClient
     monkeypatch.setattr(
-        httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs)
+        "factory.connectors.pinned_client",
+        lambda url, hosts, **kwargs: original(transport=httpx.MockTransport(handler), **kwargs),
     )
     connector = RESTConnector(
         {
@@ -105,7 +106,7 @@ async def test_email_explicit_mock_and_mcp_adapter(monkeypatch):
             pass
 
         async def list_tools(self):
-            return [SimpleNamespace(name="read_catalog", inputSchema={"type": "object"}, description="Read")]
+            return [SimpleNamespace(name="read_catalog", input_schema={"type": "object"}, description="Read")]
 
         async def call_tool(self, name, arguments):
             return SimpleNamespace(model_dump=lambda **kw: {"content": [{"type": "text", "text": "data"}]})

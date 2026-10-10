@@ -3,7 +3,6 @@
 import asyncio
 import csv
 import io
-import ipaddress
 import json
 import math
 import socket
@@ -14,25 +13,21 @@ from copy import deepcopy
 from email.message import EmailMessage
 from urllib.parse import urlparse
 
-import httpx
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from factory.http_transport import pinned_client, pinned_mcp_client, public_addresses, validate_url
 from factory.models import Connection, DataSource, ToolDefinition
 from factory.security import decrypt, redact_tenant
 
 
 def safe_url(url, allowed_hosts):
+    validate_url(url, allowed_hosts)
     parsed = urlparse(url)
-    if parsed.scheme not in ("https", "http") or parsed.username or parsed.password:
-        raise ValueError("Only credential-free HTTP(S) URLs are supported")
-    if parsed.hostname not in allowed_hosts:
-        raise ValueError("Host is not explicitly authorized")
     addresses = socket.getaddrinfo(
         parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM
     )
-    if not addresses or any(not ipaddress.ip_address(address[4][0]).is_global for address in addresses):
-        raise ValueError("Private, loopback and metadata network destinations are forbidden")
+    public_addresses(addresses)
     return url
 
 
@@ -166,7 +161,7 @@ class RESTConnector(Connector):
         ]
 
     async def request(self, operation, arguments):
-        base = safe_url(self.config["base_url"], self.config.get("allowed_hosts", []))
+        base = validate_url(self.config["base_url"], self.config.get("allowed_hosts", []))
         path = operation["path"]
         if not path.startswith("/") or path.startswith("//") or ".." in path or "?" in path or "#" in path:
             raise ValueError("Operation path must be static and relative")
@@ -176,7 +171,10 @@ class RESTConnector(Connector):
             headers["Authorization"] = f"Bearer {self.secret}"
         method = operation.get("method", "GET").upper()
         attempts = 3 if method in ("GET", "HEAD") else 1
-        async with asyncio.timeout(REST_REQUEST_TIMEOUT), httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+        async with (
+            asyncio.timeout(REST_REQUEST_TIMEOUT),
+            pinned_client(base, self.config.get("allowed_hosts", []), timeout=15) as client,
+        ):
             for attempt in range(attempts):
                 async with client.stream(
                     method,
@@ -424,9 +422,15 @@ class MCPConnector(Connector):
     def server(self):
         from agents.mcp import MCPServerStreamableHttp
 
-        url = safe_url(self.config["url"], self.config.get("allowed_hosts", []))
+        url = validate_url(self.config["url"], self.config.get("allowed_hosts", []))
         return MCPServerStreamableHttp(
-            params={"url": url, "headers": {"Authorization": f"Bearer {self.secret}"} if self.secret else {}},
+            params={
+                "url": url,
+                "headers": {"Authorization": f"Bearer {self.secret}"} if self.secret else {},
+                "httpx_client_factory": lambda **kwargs: pinned_mcp_client(
+                    url, self.config.get("allowed_hosts", []), **kwargs
+                ),
+            },
             client_session_timeout_seconds=15,
         )
 
@@ -436,7 +440,7 @@ class MCPConnector(Connector):
             return [
                 {
                     "name": t.name,
-                    "schema": t.inputSchema,
+                    "schema": t.input_schema,
                     "description": t.description,
                     "write": t.name not in self.config.get("read_tools", []),
                 }

@@ -2,7 +2,8 @@
 
 Authoritative scope: docs/AGENT_FACTORY_SPEC.md. The complete goal remains active.
 See docs/ACCEPTANCE.md for requirement-level evidence and gaps; chronological evidence
-is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 streamed REST response bounds and write retry safety.
+is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 REST/MCP public-IP connection
+pinning, preserved TLS identity and actual local MCP SDK transport execution.
 
 Verified working slices:
 
@@ -20,7 +21,7 @@ Verified working slices:
 9. Orders/quotes/administrative hiring share runtime, factory, tools and assertions.
 10. Real worker kill/recovery, tenant/RBAC/secret tests and PG concurrency tests.
 
-Latest checks: Ruff; 74 SQLite tests passed (4 PG-only skips); 78 PG tests passed;
+Latest checks: Ruff; 92 SQLite tests passed (4 PG-only skips); 96 PG tests passed;
 strict TypeScript; 2 Vitest tests; two browser journeys; Alembic drift checks on both
 DBs; populated migration upgrade/downgrade; optimized images and Compose health.
 These prove working slices, not complete phases or the whole product specification.
@@ -36,11 +37,12 @@ Next work, in priority order:
    retries and preserve pause/cancel/lease ownership. Billing reconciliation remains
    unavailable; unknown charges are conservatively retained. Verify broader contracts
    without inventing metrics.
-3. Broader private-field minimization, DNS/SSRF pinning and non-REST transport bounds,
+3. Broader private-field minimization, MCP stream/result and email/Postgres transport bounds,
    safe deployment users/settings and tenant/relational enforcement audit.
 4. Membership/invitation management, collection pagination, mobile/accessibility checks,
    template browser journeys and controlled manual editing/redirect usability.
-5. Seed/API runbook, local MCP transport test and full requirement-by-requirement audit.
+5. Seed/API runbook and full requirement-by-requirement audit. Actual local TLS MCP
+   initialization/discovery/call now passes; external provider credentials remain absent.
 
 External dependencies: no OPENAI_API_KEY or real provider credentials/app registrations
 are configured. Actual OpenAI model/rubric responses and external integrations remain

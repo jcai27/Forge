@@ -304,3 +304,39 @@ Remaining: DNS rebinding-safe connection pinning and other transport bounds; gen
 private-field minimization and production/security audit; durable evaluation/rubric/
 deployment provider accounting; broader workflows/proposal review and remaining UX.
 The full goal stays active.
+
+
+2026-10-09 HTTP connection-pinning milestone: REST and MCP now use an origin-scoped
+HTTP Core network backend. Resolution occurs asynchronously inside the connection
+deadline; every DNS answer must be a public, non-transition, unscoped address. The socket
+receives a numeric IP, preventing a second hostname resolution from changing the
+destination. HTTP Host and verified TLS SNI/certificate identity retain the original
+approved hostname. Cross-origin requests, SNI overrides, environment proxies, redirects
+and Unix sockets cannot bypass the transport. Safe connection fallback selects only
+already-validated IPs and does not retransmit an HTTP request. A timed-out resolver may
+finish its OS thread later but cannot open a socket after cancellation.
+
+The installed MCP 2 SDK needs native httpx2 transport/stream classes and snake_case
+tool attributes; real SDK discovery exposed and verified the previous attribute bug.
+Dependencies now declare the tested HTTP Core/MCP/httpx2 APIs. Both HTTPX clients map
+body-phase failures to their native errors and retain stream closure.
+
+Behavioral tests exercise rebinding between preflight/connect, numeric socket addresses,
+mixed public/private DNS rejection, private/metadata/transition/scoped destinations,
+DNS cancellation, exact origins, proxy disablement, native MCP transport and body errors.
+An owned local TLS server verifies actual handshake/hostname rejection and actual MCP
+SDK initialization, tool discovery and invocation with a fictional bearer token. Its
+loopback socket mapping and test trust root are injected fixture dependencies only;
+production configuration exposes neither. These are network/SDK contracts, not live
+OpenAI or external-provider execution. No production writes were performed.
+
+Final checks: 92 SQLite tests passed (4 PG-only skips), all 96 PostgreSQL tests passed;
+Ruff, strict TypeScript, 2 Vitest tests and both complete browser journeys pass. Both
+database migration drift checks pass. Optimized Docker images rebuild; API/worker/web/
+PG/Redis startup and API health/dashboard HTTP checks pass. Three final mixed-DNS/body
+tests were added after the first full run, then both complete backend suites reran.
+
+Remaining: MCP stream/result-size bounds, email/Postgres transport limits, broader
+private-field minimization and production/security audit; durable evaluation/rubric/
+deployment provider accounting; broader workflows/proposal review and remaining UX.
+The complete goal stays active.
