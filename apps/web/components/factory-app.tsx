@@ -2,7 +2,7 @@
 import {useEffect, useState} from 'react';
 import Link from 'next/link';
 import {usePathname} from 'next/navigation';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {QueryClient, QueryClientProvider, useQueryClient} from '@tanstack/react-query';
 import {Boxes, LayoutDashboard, Bot, Plug, ShieldCheck, Settings, Plus, LogOut} from 'lucide-react';
 import type {Me} from '../../../packages/contracts/src';
 import {api, useResource} from '@/lib/api';
@@ -14,12 +14,13 @@ import {Integrations, Approvals, RunDetail, SettingsPage} from './operations-pag
 
 export function FactoryApp() {const [client] = useState(() => new QueryClient({defaultOptions: {queries: {retry: 1, staleTime: 1000}}})); return <QueryClientProvider client={client}><Session/></QueryClientProvider>;}
 function Session() {
+  const cache=useQueryClient();
   const [ready, setReady] = useState(false), [authenticated, setAuthenticated] = useState(false), [toast, setToast] = useState('');
   const cachePath = usePathname();
   useEffect(() => {setAuthenticated(!!localStorage.getItem('factory-token')); setReady(true);}, []);
   useEffect(() => {if (!toast) return; const timer = setTimeout(() => setToast(''), 6000); return () => clearTimeout(timer);}, [toast]);
   if (!ready) return <Loading/>;
-  return <ToastContext.Provider value={setToast}>{authenticated ? <Workspace path={cachePath} logout={() => {localStorage.removeItem('factory-token'); setAuthenticated(false);}}/> : <Login onLogin={() => setAuthenticated(true)}/>} {toast && <div className="toast" role="alert">{toast}</div>}</ToastContext.Provider>;
+  return <ToastContext.Provider value={setToast}>{authenticated ? <Workspace path={cachePath} logout={() => {localStorage.removeItem('factory-token');cache.clear();setAuthenticated(false);}}/> : <Login onLogin={() => {cache.clear();setAuthenticated(true);}}/>} {toast && <div className="toast" role="alert">{toast}</div>}</ToastContext.Provider>;
 }
 function Login({onLogin}: {onLogin: () => void}) {
   const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [organization, setOrganization] = useState(''), [register, setRegister] = useState(false), [error, setError] = useState(''), [pending, setPending] = useState(false);

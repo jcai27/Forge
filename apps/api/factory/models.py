@@ -32,6 +32,18 @@ class Membership(Identity, Base):
     role: Mapped[str] = mapped_column(String(30), default="admin")
 
 
+class OrganizationInvitation(Owned, Base):
+    __tablename__ = "organization_invitations"
+    email: Mapped[str] = mapped_column(String(320))
+    role: Mapped[str] = mapped_column(String(30))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    expires_at: Mapped[object] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    accepted_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+
+
 class Project(Owned, Base):
     __tablename__ = "projects"
     name: Mapped[str] = mapped_column(String(200))

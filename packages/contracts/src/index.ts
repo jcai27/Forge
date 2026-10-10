@@ -19,5 +19,8 @@ export interface Deployment {spent: number; reserved: number; id: string; agent_
 export interface Run {id: string; version_id: string; mode: string; status: string; input: Json; output: Json; metrics: Record<string, Json>; error: string | null; created_at: string; events?: EventRecord[]}
 export interface EventRecord {id: string; kind: string; payload: Record<string, Json>; created_at: string}
 export interface Approval {id: string; run_id: string; action: Json; status: string; created_at: string}
-export interface Me {user: {email: string}; organization: {name: string}; role: string; execution_mode: string; model: string}
+export type Role = 'admin' | 'editor' | 'viewer';
+export interface Member {id: string; org_id: string; user_id: string; email: string; role: Role; created_at: string}
+export interface Invitation {id: string; email: string; role: Role; status: 'pending' | 'accepted' | 'revoked' | 'expired'; expires_at: string; created_at: string}
+export interface Me {user: {id: string; email: string}; organization: {id: string; name: string}; memberships: {org_id: string; role: Role; organization_name: string}[]; role: string; execution_mode: string; model: string}
 export interface Metrics {reserved_cost: number; agents: number; deployed: number; pending_approvals: number; runs: number; failure_rate: number; cost: number; mean_latency_ms: number; execution_mode: string; evaluations: Evaluation[]}

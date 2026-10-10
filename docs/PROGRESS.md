@@ -561,3 +561,48 @@ Remaining: broader custom connector workflow journeys; deployment concurrency/bu
 contracts; email/Postgres transport/private-field hardening; memberships/pagination/
 mobile/accessibility, templates B/C browser evidence and full requirement-level audit.
 Actual OpenAI/provider credentials remain absent. The complete platform goal stays active.
+
+
+2026-10-09 workspace access milestone verified: administrators can create/revoke
+email-bound invitations, change member roles and remove membership from Settings.
+Membership and invitation collections have server/UI pagination. Recipients can register
+or sign in, accept the one-time code and switch between authorized workspaces. Acceptance
+returns a session for the joined workspace; removal/downgrade affects already-issued
+sessions because every request resolves current membership. Workspace switching reloads
+the application, and sign-out/sign-in clears cached query data across accounts.
+
+Invitation codes have 256-bit randomness, are returned once for private delivery and
+are stored only as SHA-256 hashes. Raw codes/hashes are omitted from lists and audits;
+no automatic email or external write was performed. Acceptance requires a matching
+signed-in email, pending/unexpired grant and a still-authorized inviting administrator.
+Replacement invitations revoke old grants. Existing memberships cannot be upgraded by
+an invitation. Self-admin demotion/removal is rejected. PostgreSQL organization locks
+serialize administration/acceptance, followed by a fresh actor-role check. Concurrency
+tests prove single invitation consumption and one remaining authorized administrator
+under competing demotions. The account-registration flow does not claim independent
+email verification; private code possession is the invitation grant authority.
+
+Migration 0007 adds organization_invitations without changing existing membership or
+business/evaluation history. SQLite and PostgreSQL upgrade/drift checks and populated
+migration upgrade/downgrade tests pass. OpenAPI and shared TypeScript contracts include
+membership/invitation/switching requests. Browser HTTP 204 handling now supports successful
+removal without a JSON parsing error. Invitation expiry responses explicitly retain UTC.
+
+Eleven new backend cases cover hash-only storage, one-time/email-bound consumption,
+expired/revoked/replaced/inviter-demoted grants, existing-role protection, tenant/admin
+boundaries, pagination, session revocation and switching; two run only on PostgreSQL for
+actual row-lock concurrency. A fourth browser journey signs up a teammate, accepts a
+reviewed role, switches both workspaces, downgrades/removes membership, verifies the old
+token is denied and signs into the surviving workspace with cleared cached data.
+
+Final full checks: 168 SQLite tests passed (6 PG-only skips); all 174 PostgreSQL tests
+passed; Ruff, strict TypeScript, 2 Vitest tests and all four browser journeys pass with
+zero HTTP 429s. Scoped membership checks pass again after UTC/non-admin assertions.
+Optimized Docker images rebuild; API/worker/web/PG/Redis start, API health reports
+labeled demo mode and Settings returns HTTP 200. Access/engineering/acceptance documents
+and the roadmap record the implemented behavior and remaining gaps.
+
+Remaining: broader arbitrary connector workflow and deployment concurrency/budget
+contracts; email/Postgres transport/private-field hardening; broader collection pagination,
+mobile/accessibility, templates B/C browser coverage, runbook and full acceptance audit.
+External model/provider credentials remain absent. The complete platform goal stays active.

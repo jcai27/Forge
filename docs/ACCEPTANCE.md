@@ -8,7 +8,7 @@ AGENT_FACTORY_SPEC.md. The goal stays active until remaining feasible work is do
 | --- | --- | --- |
 | Monorepo/default stack | FastAPI, SQLAlchemy, Alembic, SDK, Next App Router, TS, Tailwind, shadcn-style primitives, TanStack, React Flow, Recharts, Redis, Compose | API/worker/web/PG/Redis Compose startup verified; production runbook audit remains |
 | All 25 required relational entities | Frozen migration with FK/index/unique constraints; PG/SQLite migration checks | Composite tenant FK/DB enforcement audit |
-| Auth and organization/RBAC boundaries | Authenticated APIs, membership checks, tenant negative tests, editor/admin roles | Membership invitation/add flow; pagination audit |
+| Auth and organization/RBAC boundaries | Authenticated APIs, membership checks, tenant negative tests, editor/admin roles | Invitation/role/removal/switching flows and PostgreSQL concurrent claims/demotions verified; broader pagination/auth audit remains |
 | Immutable structured specs/runtime | Version creation/edit API, pinned tool contracts, SDK reconstruction | Live provider calls unavailable without key; multi-tool custom SDK provider-contract test passes; actual provider responses unavailable |
 | Generic connectors | REST/Postgres/file/webhook/email/MCP adapters and contract tests; actual local TLS MCP SDK initialization/discovery/call with bounded JSON/SSE, compression, pagination and deadline tests | Real PostgreSQL discovery/read/denied-write test passed; email/Postgres transport bounds and external credentials remain |
 | Data discovery and least privilege | Integration test/discovery, typed registered tools, allowed tables/hosts, revocation | Resource-specific approval UX and contracts audit |
@@ -158,3 +158,18 @@ last full suite is 159 SQLite tests (4 PG-only skips) and 163 PostgreSQL tests.
 All public production invocation routes enter the durable queue; direct execute is an
 internal helper with no standalone endpoint. Broader connector, concurrency, UX and
 full acceptance work remains, and actual external providers are still unverified.
+
+
+2026-10-09: Settings now supports one-time email-bound invitations, revocation, role
+changes, membership removal and switching authorized workspaces. Invitations store hashes
+only, expire and cannot elevate existing memberships. Current inviter authority and
+recipient identity are checked; tenant/admin/self-protection boundaries pass. PostgreSQL
+concurrent claims create one membership and competing admin demotions retain one admin.
+Removed/downgraded memberships affect existing tokens; switching and authentication
+changes clear cached workspace data. The fourth browser journey verifies these behaviors
+through actual UI/API operations with no external writes. Private delivery is manual;
+independent email verification and automatic invitation email are not claimed.
+Migration 0007, populated migration tests and both DB drift checks pass. Final full
+checks: 168 SQLite tests (6 PG-only skips), 174 PostgreSQL tests, Ruff, strict TypeScript,
+2 Vitest tests, all 4 browser journeys without HTTP 429s, optimized Compose rebuild/
+startup/API health/Settings HTTP. Broader pagination/auth/security/UX acceptance remains.

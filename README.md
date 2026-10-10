@@ -130,3 +130,9 @@ deployment has per-invocation, lifetime cost and invocation-count limits. Pausin
 deployment blocks queued invocations and pending business approvals. Uncertain external
 writes require an administrator to verify and record a provider receipt in Approvals;
 the platform never retries an ambiguous side effect automatically.
+
+
+Workspace membership, invitation acceptance, role changes, removal and workspace switching
+are available in Settings. See [ACCESS.md](docs/ACCESS.md) for permission rules and API
+contracts. Invitation codes are returned once for private delivery; email is not sent
+automatically. Removed or downgraded memberships affect already-issued sessions.

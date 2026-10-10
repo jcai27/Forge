@@ -27,6 +27,7 @@ from factory.config import settings
 from factory.connectors import FileConnector, check_connection, discover_connection
 from factory.db import get_db, now
 from factory.fixtures import fictional_data, seed_business, seed_suite
+from factory.memberships import router as membership_router
 from factory.runtime import emit, resolve_approval
 from factory.schemas import (
     AgentSpec,
@@ -79,6 +80,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Agent Factory", version="0.1.0", lifespan=lifespan)
+app.include_router(membership_router)
 
 
 @app.exception_handler(HTTPException)
@@ -210,7 +212,7 @@ app.add_middleware(
 def serialize(row, org_id=None):
     result = {}
     for column in row.__table__.columns:
-        if column.name in ("password_hash", "encrypted_secret", "lease_owner", "lease_until"):
+        if column.name in ("password_hash", "encrypted_secret", "token_hash", "lease_owner", "lease_until"):
             continue
         value = getattr(row, column.name)
         if hasattr(value, "isoformat"):
@@ -287,7 +289,9 @@ def me(actor=ACTOR, db=DB):
         "user": serialize(db.get(m.User, actor.user_id), actor.org_id),
         "organization": serialize(db.get(m.Organization, actor.org_id)),
         "role": actor.role,
-        "memberships": [serialize(row) for row in memberships],
+        "memberships": [
+            {**serialize(row), "organization_name": db.get(m.Organization, row.org_id).name} for row in memberships
+        ],
         "execution_mode": settings().execution_mode,
         "model": settings().openai_model,
     }
@@ -322,29 +326,6 @@ async def demo(db=DB):
         "token": token_for(user.id, member.org_id),
         "organization": serialize(db.get(m.Organization, member.org_id)),
     }
-
-
-@app.get("/organizations/members")
-def members(actor=ACTOR, db=DB):
-    return {
-        "items": [serialize(row) for row in db.scalars(select(m.Membership).where(m.Membership.org_id == actor.org_id))]
-    }
-
-
-class MemberUpdate(BaseModel):
-    role: Literal["admin", "editor", "viewer"]
-
-
-@app.patch("/organizations/members/{member_id}")
-def update_member(member_id: str, body: MemberUpdate, actor=ACTOR, db=DB):
-    require_admin(actor)
-    member = owned(db, m.Membership, member_id, actor)
-    if member.user_id == actor.user_id and body.role != "admin":
-        raise HTTPException(409, "Cannot demote your own administrator membership")
-    member.role = body.role
-    audit(db, actor, "membership_role_changed", member.id, {"role": body.role})
-    db.commit()
-    return serialize(member)
 
 
 @app.get("/projects")

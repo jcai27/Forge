@@ -4,6 +4,7 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000
 export function token() { return typeof window === 'undefined' ? '' : localStorage.getItem('factory-token') ?? ''; }
 export async function api<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
   const response = await fetch(API_URL + path, {method, headers: {'Content-Type': 'application/json', Authorization: `Bearer ${token()}`}, ...(body === undefined ? {} : {body: JSON.stringify(body)})});
+  if(response.status===204)return undefined as T;
   const data = await response.json();
   if (!response.ok) throw new Error(data.error?.message ?? `Request failed (${response.status})`);
   return data as T;

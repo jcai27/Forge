@@ -9,6 +9,12 @@ Commands: bash scripts/dev.sh (local API/worker/web); bash scripts/test.sh
 Docker: docker compose up --build. Local infrastructure uses isolated project
 agent-factory and ports 55432/56379. Tests can use TEST_DATABASE_URL with fresh schemas.
 Consult README.md for exact setup and docs/PROGRESS.md for evidence and remaining work.
+Workspace access is documented in docs/ACCESS.md. Invitations store only token hashes;
+return the code once, never expose hashes or record raw codes in audits. Acceptance must
+match the signed-in email, require a current inviting administrator and a pending grant,
+and never upgrade an existing membership. Serialize administration/acceptance on the
+organization in PostgreSQL, then recheck the actor's current role. Preserve self-admin
+access and existing-token revocation; clear browser caches on authentication changes.
 Worker leases and queued invocations are database-backed. Recovery tests kill real
 processes; PostgreSQL-only tests verify concurrent approvals and invocation idempotency.
 DEV_API_PORT/DEV_WEB_PORT allow isolated local startup alongside Compose.
