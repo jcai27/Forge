@@ -695,6 +695,58 @@
         }
       }
     },
+    "/builds/{job_id}/redirect": {
+      "post": {
+        "summary": "Redirect Build",
+        "operationId": "redirect_build_builds__job_id__redirect_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedirectBuild"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/builds/{job_id}/{action}": {
       "post": {
         "summary": "Control Build",
@@ -3525,6 +3577,31 @@
           "receipt"
         ],
         "title": "Reconciliation"
+      },
+      "RedirectBuild": {
+        "properties": {
+          "expected_version_id": {
+            "type": "string",
+            "title": "Expected Version Id"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 10,
+            "title": "Reason"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/AgentSpec"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version_id",
+          "reason",
+          "spec"
+        ],
+        "title": "RedirectBuild"
       },
       "Register": {
         "properties": {

@@ -51,15 +51,18 @@ async def test_factory_transport_does_not_retry_an_uncertain_http_request(db, se
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("action", ["pause", "cancel", "provider_error", "lease_transfer"])
+@pytest.mark.parametrize("action", ["pause", "cancel", "provider_error", "lease_transfer", "redirect"])
 async def test_factory_dispatch_preserves_user_control_and_uncertain_usage(db, seeded, monkeypatch, action):
     from datetime import timedelta
 
+    from factory.api import redirect_build
     from factory.db import now
     from factory.models import BuildJob
+    from factory.schemas import RedirectBuild
+    from factory.security import Principal
     from factory.workflow import control, worker_tick
 
-    _, _, agent, *_ = seeded
+    org, user, agent, original, *_ = seeded
     job = new_job(db, agent, Budget())
     job.state = "DESIGNING"
     db.commit()
@@ -76,6 +79,20 @@ async def test_factory_dispatch_preserves_user_control_and_uncertain_usage(db, s
                     transferred.lease_owner = "another-worker"
                     transferred.lease_until = now() + timedelta(seconds=60)
                     other.commit()
+                elif action == "redirect":
+                    changed = AgentSpec.model_validate(original.spec)
+                    changed.purpose = "Revised restaurant orders with customer alias support"
+                    changed.rules["resolve_aliases"] = True
+                    redirect_build(
+                        job.id,
+                        RedirectBuild(
+                            expected_version_id=original.id,
+                            reason="Use the newly clarified customer alias requirements",
+                            spec=changed,
+                        ),
+                        Principal(user.id, org.id, "admin"),
+                        other,
+                    )
                 elif action != "provider_error":
                     control(other, other.get(BuildJob, job.id), action)
                     other.commit()
@@ -89,13 +106,20 @@ async def test_factory_dispatch_preserves_user_control_and_uncertain_usage(db, s
     await worker_tick(sessions)
     db.expire_all()
     record = db.scalar(select(UsageRecord).where(UsageRecord.job_id == job.id))
-    assert db.scalar(select(func.count()).select_from(AgentVersion).where(AgentVersion.agent_id == agent.id)) == 1
+    assert db.scalar(select(func.count()).select_from(AgentVersion).where(AgentVersion.agent_id == agent.id)) == (
+        2 if action == "redirect" else 1
+    )
     if action == "provider_error":
         assert job.state == "FAILED" and record.status == "uncertain"
         assert job.spent == record.reserved_cost > 0
         assert record.cost == record.tokens == 0
     elif action == "lease_transfer":
         assert job.state == "DESIGNING" and job.lease_owner == "another-worker"
+        assert record.status == "recorded" and record.tokens == 30
+    elif action == "redirect":
+        assert job.state == "BUILDING" and job.lease_owner is None
+        assert job.checkpoint["version_id"] != original.id
+        assert db.get(AgentVersion, job.checkpoint["version_id"]).spec["rules"]["resolve_aliases"] is True
         assert record.status == "recorded" and record.tokens == 30
     else:
         assert job.state == ("PAUSED" if action == "pause" else "CANCELLED")

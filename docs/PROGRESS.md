@@ -205,3 +205,38 @@ Remaining: durable evaluation/rubric/deployment provider accounting with safe ap
 transactions and billing reconciliation; broader custom connector workflow evidence
 and build redirection; secret/private-data and DNS/streaming hardening; memberships,
 pagination, mobile/accessibility; full acceptance audit. The complete goal stays active.
+
+
+2026-10-09 immutable build redirection milestone verified: the build page can save a
+revised configuration with a reason and expected current version. The server creates
+an immutable version, invalidates the prior worker lease and restarts evaluation.
+Historical evaluations/iterations remain; old scorecards and pending proposals are not
+reused for the revised objective. Global elapsed time, cost, iteration count and budgets
+are retained; an exhausted iteration budget rejects redirection. Tenant ownership,
+writer/admin policy boundaries, capability scope and mandatory guards are enforced.
+Version creators serialize numbering on the tenant-owned agent row.
+
+Behavioral tests exercise a real failed baseline, redirection, fresh passing evaluation
+and held-out readiness while preserving old evidence/configuration. Repeated stale
+requests, terminal builds, exhausted iterations, viewers, foreign tenants and removed
+guards are rejected. An SDK contract request that returns after redirection records its
+observed usage but cannot overwrite the new checkpoint or create another stale version.
+The UI identifies the current candidate and filters progress to its current evaluation.
+
+Browser verification caught an old false-positive locator matching a static READY stage
+label; both journeys now wait on the actual accessible Build status indicator. The
+stricter flow also exposed /auth/me consuming credential-attempt quotas and protection
+responses lacking CORS headers. Profile reads now use the normal API limit; login,
+registration and demo credential limits stay unchanged. CORS wraps rate protection;
+429/503 responses retain security headers. A test verifies repeated profile reads do
+not exhaust credential attempts and a real 429 response remains browser-readable.
+
+Final checks: bash scripts/test.sh passes (Ruff, 60 SQLite tests and 4 PG-only skips,
+strict TypeScript, 2 Vitest tests, both full browser journeys); all 64 PostgreSQL tests
+pass. Migration drift checks pass on both databases. Optimized Docker images build;
+rebuilt API/worker/web/PG/Redis health, dashboard and redirect route checks pass.
+No live OpenAI credentials or production writes were used. The full goal stays active.
+
+Next: general custom connector workflow/proposal-review browser evidence; durable
+provider accounting for evaluation/rubric/deployment; secret/private-data and transport
+hardening; memberships, pagination/mobile/accessibility and final acceptance audit.

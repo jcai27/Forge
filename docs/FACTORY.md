@@ -82,3 +82,15 @@ Generated proposals cannot grant live access or imported-data visibility. Accept
 This imports cases atomically, audits the reviewer and resumes the same build. Repeated
 acceptance returns a conflict. Assertions then grade actual executions; accepting a
 proposal never changes a scorecard or authorizes production side effects.
+
+
+In-progress builds can be redirected through the build page or
+`POST /builds/{id}/redirect` with `{expected_version_id, reason, spec}`. The expected
+candidate guards against stale edits. The change creates a new immutable version,
+invalidates the previous worker lease and starts fresh evaluation. Prior evaluations
+and iterations remain in history; old scorecards/proposals are not reused for the new
+objective. Spending, start time, iteration count and budget limits are retained, and
+redirection is rejected once no evaluation iterations remain. Tenant/RBAC, approved
+capability scope, mandatory guards and administrator-only policy changes still apply.
+Review authored scenario expectations after changing requirements. Redirection does
+not modify a deployed version or authorize business writes.

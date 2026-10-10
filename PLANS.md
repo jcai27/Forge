@@ -2,7 +2,7 @@
 
 Authoritative scope: docs/AGENT_FACTORY_SPEC.md. The complete goal remains active.
 See docs/ACCEPTANCE.md for requirement-level evidence and gaps; chronological evidence
-is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 durable factory provider reservations.
+is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 immutable build redirection and browser readiness.
 
 Verified working slices:
 
@@ -20,14 +20,14 @@ Verified working slices:
 9. Orders/quotes/administrative hiring share runtime, factory, tools and assertions.
 10. Real worker kill/recovery, tenant/RBAC/secret tests and PG concurrency tests.
 
-Latest checks: Ruff; 56 SQLite tests passed (4 PG-only skips); 60 PG tests passed;
-strict TypeScript; 2 Vitest tests; complete browser flow; Alembic drift checks on both
+Latest checks: Ruff; 60 SQLite tests passed (4 PG-only skips); 64 PG tests passed;
+strict TypeScript; 2 Vitest tests; two browser journeys; Alembic drift checks on both
 DBs; populated migration upgrade/downgrade; optimized images and Compose health.
 These prove working slices, not complete phases or the whole product specification.
 
 Next work, in priority order:
 
-1. Broader custom-workflow evidence and build redirection. Background Test Designer
+1. Broader custom-workflow evidence and reviewed proposal browser interaction. Background Test Designer
    proposals now require administrator correction/acceptance; verify more connector
    workflows and keep hidden answers outside optimizer context.
 2. Extend durable provider reservations to evaluation/rubric/deployment model calls

@@ -117,6 +117,106 @@ def test_usage_reports_observed_cost_separately_from_unknown_reservations(client
 
 
 @pytest.mark.asyncio
+async def test_redirect_retests_new_version_without_resetting_history_or_budgets(client, seeded, db):
+    from copy import deepcopy
+
+    from factory.models import BuildIteration, BuildJob, EvaluationRun
+
+    _, _, agent, initial, *_ = seeded
+    created = client.post(f"/agents/{agent.id}/builds", json={}).json()
+    job = db.get(BuildJob, created["id"])
+    for _ in range(100):
+        await advance(db, job)
+        db.commit()
+        if job.iteration == 1:
+            break
+    assert job.state == "OPTIMIZING" and job.checkpoint["best_scorecard"]["score"] < 0.95
+    old_checkpoint = deepcopy(job.checkpoint)
+    old_budget, old_spent, old_created = dict(job.budget), job.spent, job.created_at
+    assert client.post(f"/builds/{job.id}/pause", json={}).status_code == 200
+    spec = deepcopy(initial.spec)
+    spec["rules"].update(resolve_aliases=True, fuzzy_match=True)
+    spec["purpose"] = "Process restaurant orders with customer aliases and conservative fuzzy SKU matching"
+    spec["requirements"]["objective"] = spec["purpose"]
+    body = {
+        "expected_version_id": initial.id,
+        "reason": "Resolve catalog aliases before preparing restaurant orders",
+        "spec": spec,
+    }
+    unsafe = deepcopy(body)
+    unsafe["spec"]["guardrails"]["require_approval"] = False
+    assert client.post(f"/builds/{job.id}/redirect", json=unsafe).status_code == 403
+    redirected = client.post(f"/builds/{job.id}/redirect", json=body)
+    assert redirected.status_code == 201, redirected.text
+    revised_id = redirected.json()["version"]["id"]
+    assert client.post(f"/builds/{job.id}/redirect", json=body).status_code == 409
+    db.expire_all()
+    assert job.iteration == 1 and job.spent == old_spent and job.budget == old_budget and job.created_at == old_created
+    assert job.state == "BUILDING" and job.checkpoint["version_id"] == revised_id
+    assert "best_scorecard" not in job.checkpoint and "evaluation_id" not in job.checkpoint
+    assert db.get(EvaluationRun, old_checkpoint["evaluation_id"]).status == "completed"
+    assert db.scalar(select(BuildIteration).where(BuildIteration.job_id == job.id)).version_id == initial.id
+    assert db.get(AgentVersion, initial.id).spec["rules"]["resolve_aliases"] is False
+    for _ in range(100):
+        await advance(db, job)
+        db.commit()
+        if job.state in TERMINAL:
+            break
+    assert job.state == "READY_FOR_REVIEW" and job.iteration == 2
+    assert job.checkpoint["best_version_id"] == revised_id
+    assert job.checkpoint["validation_scorecard"]["score"] == 1
+    body["expected_version_id"] = revised_id
+    assert client.post(f"/builds/{job.id}/redirect", json=body).status_code == 409
+    # A build at its limit cannot obtain another iteration through redirection.
+    job.state = "PAUSED"
+    job.budget = {**job.budget, "max_iterations": job.iteration}
+    db.commit()
+    exhausted = client.post(f"/builds/{job.id}/redirect", json=body)
+    assert exhausted.status_code == 409 and "iterations remain" in exhausted.text
+
+
+def test_redirect_requires_tenant_ownership_and_writer_role(client, seeded, db):
+    from factory.schemas import Budget
+    from factory.workflow import new_job
+
+    org, user, agent, initial, *_ = seeded
+    job = new_job(db, agent, Budget())
+    db.commit()
+    body = {
+        "expected_version_id": initial.id,
+        "reason": "Update requirements for this current build",
+        "spec": initial.spec,
+    }
+    member = db.scalar(select(Membership).where(Membership.user_id == user.id, Membership.org_id == org.id))
+    member.role = "viewer"
+    db.commit()
+    assert client.post(f"/builds/{job.id}/redirect", json=body).status_code == 403
+    other = Organization(name="Other redirect tenant")
+    db.add(other)
+    db.flush()
+    db.add(Membership(org_id=other.id, user_id=user.id, role="admin"))
+    db.commit()
+    client.headers["Authorization"] = "Bearer " + token_for(user.id, other.id)
+    assert client.post(f"/builds/{job.id}/redirect", json=body).status_code == 404
+
+
+def test_profile_reads_do_not_exhaust_credential_limits_and_errors_keep_cors(client):
+    from factory.config import settings
+
+    origin = settings().cors_origins[0]
+    for _ in range(35):
+        assert client.get("/auth/me", headers={"Origin": origin}).status_code == 200
+    for _ in range(30):
+        assert client.post("/auth/demo", headers={"Origin": origin}).status_code == 200
+    limited = client.post("/auth/demo", headers={"Origin": origin})
+    assert limited.status_code == 429
+    assert limited.headers["Access-Control-Allow-Origin"] == origin
+    assert limited.headers["Retry-After"] == "60"
+    assert limited.headers["X-Content-Type-Options"] == "nosniff"
+    assert limited.headers["Cache-Control"] == "no-store"
+
+
+@pytest.mark.asyncio
 async def test_approval_deployment_invocation_rollback(client, seeded, db):
     org, user, agent, initial, suite, connection = seeded
     assert client.post(f"/versions/{initial.id}/approve").status_code == 409

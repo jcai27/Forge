@@ -72,6 +72,12 @@ class Budget(StrictModel):
     stagnation_limit: int = Field(default=3, ge=1, le=20)
 
 
+class RedirectBuild(StrictModel):
+    expected_version_id: str
+    reason: str = Field(min_length=10, max_length=4000)
+    spec: AgentSpec
+
+
 class Register(StrictModel):
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=10, max_length=200)

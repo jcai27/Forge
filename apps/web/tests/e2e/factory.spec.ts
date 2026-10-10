@@ -12,7 +12,7 @@ test('create a project, build and improve an agent, deploy and approve a real fi
  await page.getByRole('button',{name:'Create and start build'}).click();
  await expect(page).toHaveURL(/\/agents\/[^/]+\/build/);
  const agentId=page.url().split('/agents/')[1].split('/')[0];
- await expect(page.getByText('ready for review',{exact:true}).first()).toBeVisible({timeout:60000});
+ await expect(page.getByRole('status',{name:'Build status'})).toHaveText('ready for review',{timeout:60000});
  await expect(page.getByText('Iteration 3',{exact:true})).toBeVisible();
  await expect(page.getByText(/Customer alias red toms/).first()).toBeVisible();
  await page.getByRole('link',{name:'Evaluations',exact:true}).click();

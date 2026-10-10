@@ -24,6 +24,9 @@ observed responses settle them, unresolved calls retain uncertain reservations i
 build budget. Do not count reserved_cost as observed token usage or billing. Preserve
 pause/cancel and lease ownership when committing results after provider I/O.
 Read PLANS.md's current priorities rather than older progress snapshots.
+Build redirection requires a fresh immutable version/evaluation and retains global
+time/cost/iteration limits. Never reuse previous scorecards for a revised objective or
+allow a stale returning worker to overwrite the redirected checkpoint.
 Generated test proposals are not evidence: keep them outside evaluation_cases until
 administrator correction/acceptance. No proposed plan can grant live/imported access.
 

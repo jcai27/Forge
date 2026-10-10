@@ -39,6 +39,7 @@ from factory.schemas import (
     Invoke,
     Login,
     Reconciliation,
+    RedirectBuild,
     Register,
     TestDesign,
     TriggerUpdate,
@@ -56,7 +57,7 @@ from factory.security import (
     require_write,
     token_for,
 )
-from factory.workflow import control, new_job
+from factory.workflow import TERMINAL, control, new_job
 
 
 @asynccontextmanager
@@ -76,13 +77,6 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Agent Factory", version="0.1.0", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings().cors_origins,
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
-    allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
-)
 
 
 @app.exception_handler(HTTPException)
@@ -159,7 +153,7 @@ async def rate_limit(request, call_next):
     if request.url.path == "/health":
         return await call_next(request)
     identity = request.client.host if request.client else "unknown"
-    scope = "auth" if request.url.path.startswith("/auth/") else "api"
+    scope = "auth" if request.url.path in {"/auth/login", "/auth/register", "/auth/demo"} else "api"
     limit = 30 if scope == "auth" else 500
     bucket = f"{scope}:{identity}:{int(time.time() / 60)}"
     allowed = True
@@ -178,6 +172,7 @@ async def rate_limit(request, call_next):
                 content={
                     "error": {"code": "rate_limit_unavailable", "message": "Request protection temporarily unavailable"}
                 },
+                headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
             )
         finally:
             await client.aclose()
@@ -192,12 +187,22 @@ async def rate_limit(request, call_next):
         return JSONResponse(
             status_code=429,
             content={"error": {"code": "rate_limited", "message": "Request limit exceeded"}},
-            headers={"Retry-After": "60"},
+            headers={"Retry-After": "60", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
         )
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+# CORS wraps rate protection so denied requests remain readable by approved browsers.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings().cors_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
+)
 
 
 def serialize(row):
@@ -462,6 +467,53 @@ def build(job_id: str, actor=ACTOR, db=DB):
         "factory_reserved_cost": sum(record.reserved_cost for record in usage),
         "iterations": collection(db, m.BuildIteration, actor, predicates=(m.BuildIteration.job_id == job.id,))["items"],
     }
+
+
+@app.post("/builds/{job_id}/redirect", status_code=201)
+def redirect_build(job_id: str, body: RedirectBuild, actor=ACTOR, db=DB):
+    require_write(actor)
+    job = db.scalar(
+        select(m.BuildJob).where(m.BuildJob.id == job_id, m.BuildJob.org_id == actor.org_id).with_for_update()
+    )
+    if not job:
+        raise HTTPException(404, "Build not found")
+    if job.state in TERMINAL:
+        raise HTTPException(409, "Redirect requires an in-progress build")
+    if job.iteration >= job.budget["max_iterations"]:
+        raise HTTPException(409, "No evaluation iterations remain in this build budget")
+    if job.checkpoint["version_id"] != body.expected_version_id:
+        raise HTTPException(409, "Build candidate changed; refresh before redirecting")
+    previous = owned(db, m.AgentVersion, body.expected_version_id, actor)
+    previous_spec = AgentSpec.model_validate(previous.spec)
+    if body.spec.quality_policy != previous_spec.quality_policy:
+        require_admin(actor)
+    body.spec.design_metrics = previous_spec.design_metrics
+    enforce_spec_scope(body.spec, previous_spec, allow_policy_change=True)
+    available_tools(db, actor.org_id, body.spec.connection_ids)
+    Draft202012Validator.check_schema(body.spec.input_schema)
+    Draft202012Validator.check_schema(body.spec.output_schema)
+    agent = owned(db, m.AgentRecord, job.agent_id, actor)
+    revised = persist_version(db, agent, body.spec, "User build redirection: " + body.reason)
+    agent.request, agent.name = body.spec.purpose, body.spec.name
+    history = [
+        *job.checkpoint.get("redirections", []),
+        {
+            "from_version_id": previous.id,
+            "version_id": revised.id,
+            "reason": body.reason,
+            "actor_id": actor.user_id,
+            "at": now().isoformat(),
+        },
+    ]
+    # Fresh evidence is required. Retain global iteration/cost/time budgets and all
+    # historical evaluations, but do not compare a new objective to old scorecards.
+    job.checkpoint = {"version_id": revised.id, "stagnation": 0, "redirections": history}
+    job.state, job.error = "BUILDING", None
+    job.lease_owner, job.lease_until = None, None
+    emit(db, actor.org_id, "build_redirected", history[-1], job_id=job.id)
+    audit(db, actor, "build_redirected", job.id, history[-1])
+    db.commit()
+    return {"build": serialize(job), "version": serialize(revised)}
 
 
 @app.post("/builds/{job_id}/{action}")

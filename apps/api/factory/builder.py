@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 
 from factory.config import settings
 from factory.connectors import check_connection
-from factory.models import AgentTool, AgentVersion, Connection, ToolDefinition
+from factory.models import AgentRecord, AgentTool, AgentVersion, Connection, ToolDefinition
 from factory.schemas import AgentSpec, BusinessRequirements, TestDesign
 from factory.security import redact
 
@@ -222,6 +222,10 @@ def enforce_spec_scope(candidate, previous, allow_policy_change=False):
 
 
 def persist_version(db, agent, spec, hypothesis="Initial candidate"):
+    # All version creators serialize numbering on the same tenant-owned agent row.
+    db.scalar(
+        select(AgentRecord).where(AgentRecord.id == agent.id, AgentRecord.org_id == agent.org_id).with_for_update()
+    )
     spec = spec.model_copy(deep=True)
     spec.tool_contracts = {
         tool_id: db.get(ToolDefinition, tool_id).definition

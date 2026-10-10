@@ -75,7 +75,7 @@ runs in the background worker, and factory role usage contributes to the same co
 ledger as execution. Factory roles retain interrupted-request cost reservations
 against build budgets; `/usage` and metrics distinguish them from observed token-cost
 estimates. See [docs/FACTORY.md](docs/FACTORY.md) for promotion objectives,
-editable thresholds and current limitations.
+editable thresholds, in-progress build redirection and current limitations.
 
 ## Verification
 

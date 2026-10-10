@@ -20,7 +20,7 @@ AGENT_FACTORY_SPEC.md. The goal stays active until remaining feasible work is do
 | Trace/usage safety | Redacted secrets, external response trace summaries, audited actions | Mapped imports select declared fields and state evidence is summarized; broader raw output minimization and adversarial audit remain |
 | Template A data/edge cases | 100 products, multiple customers, aliases, prices, inventory, history, 36 cases | Fractional cents and duplicate requests verified; broader parsing/unit policy checks remain |
 | Templates B/C | Shared factory/runtime, independent suites, approved quote/hiring writes tested | Browser tests for both templates and scheduling constraints |
-| Frontend pages/design | All required paths, actual controls, charts, workflow, responsive CSS; browser journey passed; screenshot inspected | Mobile and accessibility checks; list pagination; budget and redirect editing UX; human review browser flow passes |
+| Frontend pages/design | All required paths, actual controls, charts, workflow, responsive CSS; browser journey passed; screenshot inspected | Mobile and accessibility checks; list pagination; budget editing UX; in-progress immutable redirection browser flow now passes; human review browser flow passes |
 | Deployment runtime | Approved version pinning, invocation/idempotency, approval completion, logs, pause and rollback | Schedules, signed webhooks, lifetime budgets and durable queue tested; production runtime audit remains |
 | Production side effects | Default approval, permission recheck, dispatch intent, no automatic ambiguous retry | Administrator reconciliation receipts and concurrent stock/duplicate-request approvals verified; transport hardening remains |
 | DX/documents | README, env sample, migrations, scripts, OpenAPI, engineering memory | Seed CLI/API examples beyond demo bootstrap and final runbook |
@@ -47,3 +47,13 @@ Usage API/metrics distinguish observed estimates and reservations with tenant fi
 Final checks: 56 SQLite tests (4 PG-only skips), 60 PostgreSQL tests, TypeScript,
 Vitest/Playwright, migrations and rebuilt Compose services pass. Equivalent durable
 accounting for evaluation/rubric/deployment model calls remains incomplete.
+
+
+2026-10-09: in-progress redirection creates an immutable candidate and reruns actual
+independent/held-out evaluation, retains global budgets/history and rejects stale,
+unauthorized or exhausted-budget requests. Returning SDK role responses cannot overwrite
+the redirected checkpoint. Both browser journeys now wait on actual build status;
+a static stage label is not readiness evidence. Auth profile reads no longer exhaust
+credential quotas, and rate protection errors preserve CORS/security headers.
+Final checks: 60 SQLite tests (4 PG-only skips), 64 PostgreSQL tests, strict TypeScript,
+2 Vitest tests, 2 complete browser journeys, migrations and rebuilt Compose pass.
