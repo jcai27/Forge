@@ -101,12 +101,22 @@ REJECTED_PROPOSAL = (
     TimeoutError,
 )
 
-STRATEGIES = [
-    "Make the smallest change to the instructions that fixes the most common development failure.",
-    "Add or revise worked examples and tool usage notes that would prevent the observed failures.",
-    "Add deterministic verifiers that catch the observed wrong outputs, and adjust a rule where one explains them.",
-    "Propose a different explanation for the failures than earlier attempts did, and act on that.",
-]
+
+def round_strategy(candidates):
+    """What to ask of the next proposal in a multi-candidate round.
+
+    The first proposal is the model's own best judgment, with no steer. Measured with a capable model,
+    prescribing a mechanism per proposal (instructions, examples, verifiers) pushed it away from the fix
+    it would have chosen and into changes that regressed. Later proposals are asked only to differ from
+    what the round already holds, so the round explores without being told how.
+    """
+    if not candidates:
+        return None
+    tried = "; ".join(item["hypothesis"][:200] for item in candidates[-4:])
+    return (
+        "Other proposals in this round already cover the following, so propose a genuinely different "
+        f"change, and only if you believe it could be better: {tried}"
+    )
 
 
 def record_attempt(checkpoint, attempt):
@@ -473,7 +483,6 @@ async def advance(db, job):
         # Never pass regression/validation answer records into optimizer context.
         round_ = dict(checkpoint.get("round") or {"parent_id": version.id, "candidates": [], "discarded": 0})
         candidates = [dict(item) for item in round_["candidates"]]
-        index = len(candidates) + round_["discarded"]
         spec = AgentSpec.model_validate(version.spec)
         live = settings().execution_mode == "live"
         researching = live and bool(budget.investigator_turns) and settings().research_enabled
@@ -517,7 +526,7 @@ async def advance(db, job):
                 secret_values=known_secret_values(db, job.org_id),
                 tools=investigation.tools() if investigation else None,
                 max_turns=budget.investigator_turns + 2,
-                strategy=STRATEGIES[index % len(STRATEGIES)] if budget.candidates_per_round > 1 else None,
+                strategy=round_strategy(candidates) if budget.candidates_per_round > 1 else None,
                 hooks=FactoryBudgetHooks(max(0, budget.max_cost - job.spent), db, job, "optimizer", max_seconds=seconds)
                 if live
                 else None,

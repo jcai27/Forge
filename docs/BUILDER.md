@@ -229,133 +229,107 @@ more as suites grow. Every successful build passed all held-out cases.
 What this does not show: anything about model quality. The proposer is random by design. All
 arms already branch from the best version, so the benefit of that fix is not in this table.
 
-**Live mode** compares the one-shot optimizer with the tool-using harness on the same task
-using a real provider. Both arms start from the same authored baseline, so only the optimizer
-differs. It refuses to run without `EXECUTION_MODE=live` and a key.
+**Live mode** runs the real optimizer through the configured provider. Arms: the one-shot
+optimizer, the one-shot optimizer with three times the iterations (so builder spend is
+comparable to three proposals a round), and the tool-using harness with three screened
+candidates. All arms start from the same authored baseline. `--isolate-builder` executes the
+agent under test deterministically, so the builder is the only model in the loop and every
+score change is caused by its patch. It refuses to run without `EXECUTION_MODE=live` and a key.
 
-### Live results with the only real model available here
+```sh
+cd apps/api
+set -a; source ../../.env; set +a
+EXECUTION_MODE=live BUILDER_MODEL=gpt-5.5 .venv/bin/python -m benchmarks.search --live --isolate-builder --seeds 2
+```
 
-No OpenAI key is configured. A local `llama3.2:3b` under Ollama was the only real model on
-this machine, reached through its OpenAI-compatible endpoint (`OPENAI_BASE_URL`,
-`OPENAI_API=chat_completions`, `OPENAI_STRUCTURED_OUTPUT=prompt`). All runs 2026-10-10.
+### Live results
 
-**As the deployed agent.** The same baseline version scored 0.57 to 0.79 across eight builds,
-about 20 points of run-to-run variation, and seven of eight baselines had a critical failure.
-That noise would hide anything a builder did, so the builder runs below use
-`--isolate-builder`: the agent executes deterministically and the only model in the loop is
-the builder. The baseline is then a stable 0.75.
+Measured 2026-10-10 on the OpenAI API with `gpt-5.5` as the builder, `--isolate-builder`,
+iteration cap 5, two builds per arm. Cost is the factory's token estimate at
+`ESTIMATED_TOKEN_COST`, not an invoice.
 
-**As the builder**, with an 8,192-token context. Two rounds were run. The first, nine builds
-per arm, produced almost nothing usable: one improvement by the harness, none by the one-shot
-optimizer, and over a hundred replies rejected as invalid. Reading those replies led to the
-prompt and parsing fixes listed below (defects 7 to 9). On twenty and then thirty optimizer
-replies to the same evidence, valid replies went from 6 of 20 to 17 of 30 and replies
-containing a change that actually fixes a defect from 0 of 20 to 7 of 30.
+| Arm | Reached target, all held-out passing | Evaluation trials | Estimated builder cost |
+| --- | --- | --- | --- |
+| One-shot optimizer | 2 of 2 | 64 | 0.02 |
+| One-shot optimizer, 3x attempts | 2 of 2 | 64 | 0.02 |
+| Harness, as first built | 0 of 2 | 182 | 0.90 |
+| Harness, after the round-strategy fix | 2 of 2 | 79 | 0.19 |
 
-The second round, after those fixes, eight builds per arm, iteration cap 5:
+What happened: a capable model given the evidence and left to its own judgment fixes this
+agent in one proposal. The harness as first built did worse, because it told each proposal
+of a round which mechanism to use (instructions, then examples, then verifiers). That pushed
+the model off the fix it would have chosen: instruction-only changes did nothing and were
+pruned, and requested verifiers such as "lines are required" failed correct outputs for cases
+that legitimately have no lines, so those candidates regressed. The round now leaves the first
+proposal unsteered and asks later ones only to differ from what the round already holds
+(`round_strategy` in `workflow.py`). With that, the harness reaches the target in both builds.
 
-| Arm | Improved the agent | Reached target, held-out all passing | Mean best score | Candidates pruned by screening | Estimated builder cost |
-| --- | --- | --- | --- | --- | --- |
-| One-shot optimizer | 0 of 8 | 0 of 8 | 0.75 (the baseline) | none, it has no screen | 0.11 |
-| Harness (investigate, 3 screened) | 6 of 8 | 2 of 8 | 0.87 | 13 | 0.39 |
+What this establishes: the builder works with a capable real model. Model-written patches
+were parsed, scope-checked, screened, evaluated, promoted on measured evidence and validated
+on held-out cases. A further complete harness build with research enabled also reached the
+target with every held-out case passing; the builder read nine development cases, two tool
+contracts and the attempt history, and all seven model calls were reserved and settled.
 
-The one-shot arm fully evaluated 13 candidates and promoted none: three scored 0.00 with 15
-critical failures and five were identical to their parent. The harness arm fully evaluated 16
-and promoted 6, after screening removed 13 cheaply.
+What it does not establish: that the harness is worth its cost. On this task it is not: the
+one-shot optimizer gets the same result with fewer trials at about a tenth of the builder
+spend. This task has one obvious fix, so it cannot show whether investigation and screening
+pay off on harder problems where a first proposal is often wrong. That needs harder task
+families, and two builds per arm is far too few to compare arms in any case.
 
-What this establishes: with a real model as the builder, the harness improved the agent in
-most builds and the one-shot optimizer in none (6 of 8 against 0 of 8; a one-sided Fisher
-exact test gives p of about 0.004). Model-written patches were parsed, scope-checked,
-screened, evaluated, promoted on measured evidence and validated on held-out cases with no
-scripted provider in the loop.
-
-That comparison had the same iteration cap but not the same spend: the harness asks for three
-proposals a round and cost about 3.5 times as much in builder tokens. A third round gave the
-one-shot optimizer three times the iterations instead, so builder spend was about equal.
-Six builds per arm, run after defects 10 and 11 were fixed:
-
-| Arm | Improved the agent | Reached target | Mean best score | Evaluation trials | Estimated builder cost |
-| --- | --- | --- | --- | --- | --- |
-| One-shot optimizer, 3x attempts | 2 of 6 | 0 of 6 | 0.79 | 163 | 0.34 |
-| Harness (investigate, 3 screened) | 5 of 6 | 1 of 6 | 0.87 | 105 | 0.37 |
-
-At equal spend the one-shot optimizer does sometimes improve the agent, so much of the gap in
-the second round was simply more attempts. The harness is still ahead on every measure and
-used about a third fewer evaluation trials, because screening discards weak candidates before
-they cost a full evaluation. But 5 of 6 against 2 of 6 is not statistically distinguishable
-(one-sided Fisher exact p of about 0.12), so this is a direction, not a result.
-
-How far to trust all of this: one weak model, one task family, six to eight builds per arm,
-and an agent held deterministic, so nothing here speaks to noisy agents. A capable model and
-more task families are still needed, and none is available on this machine.
-
-**The newer capabilities, each driven directly by the real model:**
+**The newer capabilities, each driven directly by the model in directed exercises:**
 
 | Capability | Result | What was checked |
 | --- | --- | --- |
-| Open-web research | 2 of 4 runs | The model called `fetch` on https://example.com through the pinned transport over the real internet and reported the page's stated purpose correctly. A question containing customer data was refused before any model or network call. |
-| Generated tool | 2 of 20 directed attempts | The model's code passed the static policy, was pinned by hash in a persisted version, and returned the right answer from a sandbox run. The sandbox here was the host-run service, not the container. |
-| Connection draft | 0 of 10 directed attempts | The model never completed a `propose_connection` call; with five tools and a long context it stalled or timed out. This remains unproven with a real model. |
+| Open-web research | 3 of 3 runs | The model called `fetch` on https://example.com through the pinned transport over the real internet and reported the page's stated purpose correctly. A question containing customer data was refused before any model or network call. |
+| Generated tool | 4 of 4 attempts | The model's code passed the static policy, was pinned by hash in a persisted version, and returned the right answer from a sandbox run. The sandbox here was the host-run service, not the container. |
+| Connection draft | 4 of 4 attempts | The model called `propose_connection` with a valid https host and operation. A draft was stored as `proposed`; no connection was created. |
 
-Running a real model exposed defects that scripted providers could not. All are fixed and
+In the complete build above research and connection drafting were available and the model
+used neither, which is correct for a task that needs no outside information or new system.
+No full build has yet needed them.
+
+Running real models exposed defects that scripted providers could not. All are fixed and
 covered by `tests/test_live_provider.py`:
 
-1. Tools were shown to the model under opaque names (`t_<uuid>`), so it had to choose from
-   descriptions alone and chose wrongly. Tools are now named `<name>__<id>`.
-2. A template agent stops on its first tool call, yet it was offered every tool, so one wrong
-   choice ended the run. It is now offered only its preparation tool. The local model went
-   from zero correct runs in three to three in three.
-3. The preparation tool's schema said only that `input` is an object, and the model sent
-   junk. The model is now shown the agent's own input schema.
-4. The factory could only reach api.openai.com. `OPENAI_BASE_URL` and `OPENAI_API` now select
-   an OpenAI-compatible endpoint, and every live call goes through the configured client.
-5. This server rejected the larger output schemas ("failed to parse grammar").
-   `OPENAI_STRUCTURED_OUTPUT=prompt` puts the schema in the instructions instead.
-6. A proposal that timed out, or that carried a malformed JSON Schema, failed the whole build.
+1. Tools were shown to the model under opaque names (`t_<uuid>`). They are now `<name>__<id>`.
+2. A template agent stops on its first tool call yet was offered every tool, so one wrong
+   choice ended the run. It is now offered only its preparation tool.
+3. The preparation tool's schema said only that `input` is an object. The model is now shown
+   the agent's own input schema.
+4. An empty `OPENAI_BASE_URL=` line in `.env`, once exported by `scripts/dev.sh` or Docker
+   Compose, blanked the OpenAI SDK's base URL and every live request failed to connect. The
+   client is now always given an explicit base URL.
+5. A proposal that timed out, or that carried a malformed JSON Schema, failed the whole build.
    Both are now rejected attempts.
-7. A reply that was partly valid was discarded whole. `parse_patch` now unwraps a wrapper
-   object, treats empty placeholders as "no change", keeps each field that validates on its
-   own and records what it dropped. A reply naming a field outside the patch is still refused.
-8. A second JSON object or commentary after a valid patch made the whole reply unparseable.
-   Only the first complete object is read.
-9. In prompt mode the optimizer was sent the patch's full JSON Schema, several thousand
-   characters of nested definitions. It now gets a short field guide; the reply is validated
-   against the real schema as before. Research notes may be plain text in prompt mode.
-10. A per-proposal strategy travelled only as one key in a large JSON input and was ignored.
-    It is now also stated in the instructions.
-11. A proposal identical to its already-evaluated parent was fully evaluated again. It is now
-    a rejected attempt. This was fixed after the second benchmark round, so that round still
-    includes those wasted evaluations in the one-shot arm.
+6. A reply that was partly valid was discarded whole. `parse_patch` keeps each field that
+   validates on its own, reads only the first complete JSON object, records what it dropped,
+   and still refuses a reply naming a field outside the patch.
+7. A proposal identical to its already-evaluated parent was fully evaluated again. It is now a
+   rejected attempt.
+8. A per-proposal strategy travelled only as one key in a large JSON input. It is now also
+   stated in the instructions.
+9. Prescribing a mechanism per proposal made a capable model worse, as described above.
+10. Models key tool notes by tool name; the factory expected the tool id and refused the
+    proposal. A name now resolves to its id when exactly one tool of the version has it.
 
-One operational finding is not a code defect: Ollama's default context window is 4,096
-tokens and the optimizer's request is about 3,500 before tools and history, so the model was
-answering a truncated prompt and every reply was unusable until the window was raised. With a
-local server, create a model alias with a larger window:
+`OPENAI_BASE_URL`, `OPENAI_API` and `OPENAI_STRUCTURED_OUTPUT` allow an OpenAI-compatible
+endpoint. They are inactive when empty, which is the default, and all results here are from
+the OpenAI API.
 
-```sh
-printf 'FROM llama3.2:3b\nPARAMETER num_ctx 8192\n' > Modelfile && ollama create llama3.2-8k -f Modelfile
-cd apps/api
-EXECUTION_MODE=live OPENAI_API_KEY=local OPENAI_BASE_URL=http://127.0.0.1:11434/v1 \
-  OPENAI_API=chat_completions OPENAI_STRUCTURED_OUTPUT=prompt OPENAI_MODEL=llama3.2-8k \
-  .venv/bin/python -m benchmarks.search --live --isolate-builder --seeds 6 --max-iterations 4
-```
-
-To run it with a capable model:
-
-```sh
-cd apps/api
-EXECUTION_MODE=live OPENAI_API_KEY=... .venv/bin/python -m benchmarks.search --live --seeds 3
-```
+One observation is not yet addressed: the model added keys to `rules` that no tool reads
+(for example a `normalization_hints` table). `rules` accepts any key, so such additions are
+harmless but have no effect, and a reviewer could mistake them for behaviour.
 
 ## What is not verified or not built
 
-- The real-model evidence comes from one weak local model, one task family and six to eight
-  builds per arm (see Benchmark). At equal builder spend the harness leads the one-shot
-  optimizer but not by a statistically distinguishable margin. A capable model, more builds
-  and workflows over custom connectors and a mock vendor API with messy documentation are
-  still needed before the size of the builder's benefit can be stated.
-- Connection drafts have never been produced by a real model. Research and generated tools
-  have, a few times each, in directed exercises rather than inside a full build.
+- The live evidence is one model (`gpt-5.5`), one task family with one obvious fix, and two
+  builds per arm (see Benchmark). It shows the builder works; it does not show the harness is
+  worth its extra cost, and on this task it is not. Harder task families, workflows over
+  custom connectors and a mock vendor API with messy documentation are still needed.
+- Research and connection drafting have worked in directed exercises but no full build has
+  yet needed them. Generated tools have been written and run by a model, in the host-run
+  sandbox service, but not invoked by a deployed agent on a live model.
+- `rules` accepts keys no tool reads, so a builder can add settings that do nothing.
 - The search endpoint integration is exercised against a local transport only.
 - Trials still run one at a time; there is no parallel evaluator pool.
 - There is no rerun-to-confirm promotion step and no rotating held-out set, so repeated

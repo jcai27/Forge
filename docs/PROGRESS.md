@@ -801,75 +801,41 @@ Checks: Ruff including apps/api/benchmarks; 314 SQLite tests passed (6 PG-only s
 320 PostgreSQL tests passed; strict TypeScript; 3 Vitest tests; all 6 browser journeys pass,
 three consecutive runs; 36 sandbox isolation checks.
 
-## 2026-10-10: First real-model runs (local llama3.2:3b)
+## 2026-10-10: Real-model runs on the OpenAI API
 
-A local `llama3.2:3b` under Ollama was found on this machine and used through its
-OpenAI-compatible endpoint. It is the only real model available: no OpenAI key is configured
-and 1.5 GB of free disk rules out a larger local model.
+An earlier set of runs used a local model that happened to be installed on the development
+machine. Those runs are withdrawn: a local model is not wanted for this project, and loading
+it beside the Compose stack filled the host disk and hung Docker Desktop. The stack was
+restored without rebuilding and the development database verified (schema at 0007, public
+tables empty, no test schemas left behind). The code fixes those runs led to are kept and are
+listed in docs/BUILDER.md; the numbers are not, and every result below is from the OpenAI API
+with `gpt-5.5` as the builder.
 
-Results, two runs of two builds per benchmark arm: as the deployed agent the same baseline
-version scored 0.57 to 0.79 across eight builds, and seven of eight baselines had a critical
-failure. As the builder, every reply in both the one-shot and harness arms was an invalid
-patch and was rejected, so no candidate was evaluated and the comparison of the two arms is
-empty. The pipeline itself ran end to end with a real model: provider calls, reservations
-and settlement, real execution inside evaluation, and rejection of malformed output.
+Benchmark, builder isolated (agent executed deterministically), two builds per arm: the
+one-shot optimizer reached the target with every held-out case passing in 2 of 2 builds, 64
+trials, estimated builder cost 0.02. The harness as first built reached it in 0 of 2, with
+182 trials and estimated cost 0.90. Cause: each proposal of a round was told which mechanism
+to use, which pushed a capable model off the fix it would have chosen and into verifiers
+that failed correct outputs. The round now leaves the first proposal unsteered and asks later
+ones only to differ from the round so far. After that the harness reached the target in 2 of
+2 builds, 79 trials, estimated cost 0.19. A further complete harness build with research
+enabled reached the target; the builder read nine development cases, two tool contracts and
+the attempt history, and all seven model calls were reserved and settled.
 
-Defects exposed only by a real model, all fixed and covered by tests/test_live_provider.py:
-opaque tool names; template agents offered tools they must never call; an input schema that
-told the model nothing; no support for a custom provider endpoint; no fallback for servers
-that cannot compile large output schemas; and a proposal timeout failing the whole build.
-After the first three fixes the local model drove the order agent correctly in three of
-three runs, from zero of three.
+Directed exercises with the same model: research fetched https://example.com over the real
+internet through the pinned transport and reported it correctly in 3 of 3 runs, with a
+question containing customer data refused before any call; a model-written tool passed the
+code policy, was pinned by hash and ran correctly in the host-run sandbox service in 4 of 4
+attempts; a valid inert connection draft was produced in 4 of 4, with no connection created.
 
-A later set of runs isolated the builder (`--isolate-builder`: the agent executes
-deterministically, baseline a stable 0.75) and raised the model's context window from
-Ollama's default 4,096 tokens to 8,192, since the optimizer's request was being truncated.
-Across nine builds per arm the harness improved the agent once, from 0.75 to 1.00 with every
-held-out case passing, and the one-shot optimizer never did. At least 79 and exactly 29
-replies respectively were rejected as invalid. That one build is a model-written patch parsed, scope-checked,
-screened, evaluated, promoted and validated with no scripted provider in the loop.
+Further fixes from these runs: an empty `OPENAI_BASE_URL` once exported blanked the SDK's
+base URL and broke every live call; tool notes keyed by tool name now resolve to the tool id
+when unambiguous.
 
-Further fixes from these runs: partly valid replies are now salvaged field by field
-(`parse_patch`), with locked fields still refused and dropped fields recorded in the
-hypothesis; and a malformed JSON Schema in a patch is a dropped field, not a failed build.
+What this establishes: the builder works with a capable real model, end to end. What it does
+not: that the harness is worth its cost. On this task it is not; the one-shot optimizer gets
+the same result at about a tenth of the builder spend. The task has one obvious fix, so harder
+task families are needed, and two builds per arm cannot compare arms.
 
-That first round was not a measurable difference. Reading the rejected replies led to more
-fixes: only the first complete JSON object is read; in prompt mode the optimizer gets a short
-field guide instead of the patch's full JSON Schema; research notes may be plain text; and a
-per-proposal strategy is stated in the instructions. On the same evidence valid optimizer
-replies went from 6 of 20 to 17 of 30, and replies with a change that fixes a defect from
-0 of 20 to 7 of 30.
-
-Second round, eight builds per arm: the harness improved the agent in 6 of 8 builds and
-reached the target with every held-out case passing in 2; the one-shot optimizer improved
-it in 0 of 8. Mean best score 0.87 against 0.75. Screening pruned 13 candidates in the harness
-arm, while the one-shot arm spent full evaluations on three candidates that scored 0.00 and
-five identical to their parent. Caveats: one weak model, one task family, equal iteration cap
-but about 3.5 times the builder spend for the harness, and a deterministic agent.
-
-Third round at equal builder spend, six builds per arm, the one-shot optimizer given three
-times the iterations: it improved the agent in 2 of 6 builds, the harness in 5 of 6; mean best
-0.79 against 0.87; 163 against 105 evaluation trials. So part of the earlier gap was simply
-more attempts. The harness still leads and uses about a third fewer trials, but 5 of 6
-against 2 of 6 is not statistically distinguishable (one-sided Fisher exact p about 0.12).
-
-Directed exercises with the real model: research fetched https://example.com over the real
-internet through the pinned transport and reported it correctly in 2 of 4 runs; a model-
-written tool passed the code policy, was pinned and ran correctly in the host-run sandbox in
-2 of 20 attempts; no connection draft was produced in 10 attempts.
-
-A proposal identical to its parent is now a rejected attempt instead of a full re-evaluation.
-
-Incident: the local model held in memory pushed the machine into swap and, with a production
-web build present, filled the host disk during a test run. Docker Desktop's VM hung at that
-moment and the development Compose stack went down. Recovery: the model aliases and the build
-output were removed, Docker Desktop was restarted, and the existing containers were started
-again without rebuilding. The repository was verified intact (git fsck, no truncated files,
-all Python compiles, full suite passing). The development database was verified: schema at
-0007, public tables empty at 904 kB total, so no data was lost, and no test schemas were left
-behind. Lesson for future runs on this machine: check free disk before loading a local model
-or building images, and do not run them together.
-
-Checks after these changes: Ruff; 326 SQLite tests passed (6 PG-only skips); all 332
-PostgreSQL tests passed; strict TypeScript; 3 Vitest tests; all 6 browser journeys.
-
+Checks: Ruff; 328 SQLite tests passed (6 PG-only skips); all 334 PostgreSQL tests passed;
+strict TypeScript; 3 Vitest tests; all 6 browser journeys.

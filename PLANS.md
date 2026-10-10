@@ -29,32 +29,29 @@ upgrade/drift checks on both DBs; populated migration upgrade/downgrade; optimiz
 and Compose startup/health. These prove working slices, not complete phases or the
 whole product specification.
 
-Builder checks (2026-10-10): Ruff; 326 SQLite tests (6 PG-only skips); 332 PostgreSQL tests;
+Builder checks (2026-10-10): Ruff; 328 SQLite tests (6 PG-only skips); 334 PostgreSQL tests;
 migration 0008 drift-free on both; 36 sandbox isolation checks; containerized worker-to-
-sandbox end-to-end; strict TypeScript; 3 Vitest; production web build; all 6 browser journeys.
-Search benchmark with a simulated proposer, 30 builds per arm: history raises target-reached
-from 67% to 100% and cuts trials by about a quarter; screening cuts full evaluations by 30%.
-Real-model runs used a local llama3.2:3b, the only model available, and exposed eleven
-defects, now fixed. With the builder isolated, eight builds per arm: the harness improved
-the agent in 6 of 8 builds (2 reached the target with held-out passing) and the one-shot
-optimizer in 0 of 8. At equal builder spend, six builds per arm: 5 of 6 against 2 of 6, with
-a third fewer evaluation trials, which is a direction but not statistically distinguishable.
-Caveats: one weak model, one task family.
-Research and a generated tool were each driven by the real model a few times; a connection
-draft never was.
+sandbox end-to-end; strict TypeScript; 3 Vitest; all 6 browser journeys.
+Live results on the OpenAI API with gpt-5.5 as builder, two builds per arm: the one-shot
+optimizer and the harness both reach the target with held-out passing in 2 of 2 builds, the
+harness at about ten times the builder spend. Research, a sandboxed model-written tool and an
+inert connection draft each worked in directed exercises. The builder works with a real
+model; the harness has not yet shown it is worth its cost.
 
 Builder work still open, in priority order:
 
-a. Repeat the live benchmark with a capable model and more builds per arm
-   (`python -m benchmarks.search --live --isolate-builder`). It needs an API key or a larger local model through
-   `OPENAI_BASE_URL`. Add workflows over custom connectors and a mock vendor API with messy
-   documentation, and get a connection draft out of a real model.
-b. Parallel trial execution, rerun-to-confirm promotion and a rotating held-out set.
-c. Path parameters in the REST connector and non-REST proposals.
-d. Reviewed third-party packages for generated tools; a hardened sandbox runtime for
+a. Harder benchmark task families, where a first proposal is often wrong, to learn whether
+   investigation and screening pay for themselves. Include workflows over custom connectors
+   and a mock vendor API with messy documentation, and more builds per arm.
+b. Reject or flag `rules` keys that no tool reads, so a builder cannot add settings that do
+   nothing.
+c. Parallel trial execution, rerun-to-confirm promotion and a rotating held-out set.
+d. Path parameters in the REST connector and non-REST proposals.
+e. Reviewed third-party packages for generated tools; a hardened sandbox runtime for
    production (gVisor, Firecracker or managed).
-e. The build timeline lags about two seconds behind a finished build before "Load more"
+f. The build timeline lags about two seconds behind a finished build before "Load more"
    appears. Tests now wait for it; consider refreshing the timeline when the build completes.
+Do not use local models on this project; use the hosted key in `.env`.
 
 Next work, in priority order:
 

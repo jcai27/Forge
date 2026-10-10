@@ -333,8 +333,11 @@ async def test_round_screens_candidates_and_fully_evaluates_only_survivors(db, s
     # All three proposals of the round came from the same best parent.
     assert len(calls) == 3
     assert all(c["parent"].rules == AgentSpec.model_validate(initial.spec).rules for c in calls)
-    assert [c["strategy"] for c in calls] == [calls[0]["strategy"], calls[1]["strategy"], calls[2]["strategy"]]
-    assert len({c["strategy"] for c in calls}) == 3, "each proposal gets a different strategy"
+    # The first proposal is the model's own judgment. Later ones are asked only to differ from the round so far.
+    assert calls[0]["strategy"] is None
+    assert "Bypass stock" in calls[1]["strategy"] and "Resolve aliases" not in calls[1]["strategy"]
+    assert "Bypass stock" in calls[2]["strategy"] and "Resolve aliases" in calls[2]["strategy"]
+    assert "instructions" not in calls[2]["strategy"] and "verifier" not in calls[2]["strategy"]
     screens = list(db.scalars(select(EvaluationRun).where(EvaluationRun.status == "screen")))
     assert len(screens) == 3
     development = {c.id for c in cases_by_split(db, suite)["development"]}

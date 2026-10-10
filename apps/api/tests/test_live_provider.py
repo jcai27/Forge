@@ -239,3 +239,23 @@ async def test_an_empty_base_url_setting_means_the_openai_api_even_if_exported(m
     monkeypatch.setattr(settings(), "openai_base_url", "http://127.0.0.1:11434/v1")
     await builder.run_factory_role(object(), "input")
     assert seen["base_url"].rstrip("/") == "http://127.0.0.1:11434/v1"
+
+
+def test_tool_notes_keyed_by_tool_name_resolve_to_the_tool_id_when_unambiguous():
+    from factory.builder import apply_patch
+
+    spec = AgentSpec(
+        name="n",
+        purpose="p",
+        template="custom",
+        instructions="base",
+        tools=["id-1", "id-2", "id-3"],
+        connection_ids=["c1"],
+        tool_contracts={"id-1": {"name": "read_records"}, "id-2": {"name": "send"}, "id-3": {"name": "send"}},
+    )
+    patched = apply_patch(
+        spec, SpecPatch(tool_notes={"read_records": "plural names", "id-2": "by id", "send": "ambiguous"})
+    )
+    assert patched.tool_notes == {"id-1": "plural names", "id-2": "by id", "send": "ambiguous"}
+    # The ambiguous and unknown keys are not guessed; persisting such a version is still refused.
+    assert set(patched.tool_notes) - set(spec.tools) == {"send"}

@@ -496,7 +496,15 @@ def apply_patch(spec, patch):
     if patch.rules is not None:
         data["rules"] = {**data["rules"], **patch.rules}
     if patch.tool_notes is not None:
-        data["tool_notes"] = patch.tool_notes
+        # A model sees tools by name and naturally keys notes that way. Resolve a name to its id when
+        # exactly one tool of this version has it; anything else is left for the scope check to refuse.
+        by_name = {}
+        for tool_id, contract in spec.tool_contracts.items():
+            by_name.setdefault(contract.get("name"), []).append(tool_id)
+        data["tool_notes"] = {
+            (by_name[key][0] if key not in spec.tools and len(by_name.get(key, [])) == 1 else key): note
+            for key, note in patch.tool_notes.items()
+        }
     for field in ("examples", "verifiers", "generated_tools"):
         value = getattr(patch, field)
         if value is not None:
