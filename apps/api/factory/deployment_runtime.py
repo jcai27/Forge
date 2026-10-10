@@ -8,6 +8,7 @@ from sqlalchemy import func, select, update
 
 from factory.config import settings
 from factory.db import SessionLocal, now, uid
+from factory.deployment_accounting import RuntimeInterrupted, recover_pending, usage_totals
 from factory.models import AgentVersion, Deployment, DeploymentTrigger, ExecutionRun, Invocation, Membership, RuntimeJob
 from factory.runtime import emit, execute
 from factory.schemas import AgentSpec
@@ -111,6 +112,7 @@ async def execute_job(db, job_id):
     invocation = db.get(Invocation, job.invocation_id)
     run = db.get(ExecutionRun, invocation.run_id)
     deployment = db.scalar(select(Deployment).where(Deployment.id == invocation.deployment_id).with_for_update())
+    recover_pending(db, run)
     try:
         actor = actor_for(db, job.org_id, job.actor_id)
         if deployment.org_id != job.org_id or not deployment.active:
@@ -125,17 +127,43 @@ async def execute_job(db, job_id):
             job.state = "COMPLETED"
         else:
             await execute(
-                db, version, run.input, mode=run.mode, run=run, max_cost=job.reservation if run.mode == "live" else None
+                db,
+                version,
+                run.input,
+                mode=run.mode,
+                run=run,
+                max_cost=job.reservation if run.mode == "live" else None,
+                runtime_job=job,
             )
             job.state = "FAILED" if run.status == "failed" else "COMPLETED"
         audit(db, actor, "deployment_invoked", run.id)
+    except RuntimeInterrupted:
+        db.rollback()
+        job = db.scalar(
+            select(RuntimeJob)
+            .where(RuntimeJob.id == job_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if job.lease_owner != owner:
+            db.rollback()
+            return None
+        invocation = db.get(Invocation, job.invocation_id)
+        run = db.get(ExecutionRun, invocation.run_id)
+        deployment = db.scalar(select(Deployment).where(Deployment.id == invocation.deployment_id).with_for_update())
+        run.status, run.error = "failed", "RuntimeInterrupted"
+        job.state, job.error = "FAILED", "RuntimeInterrupted"
+        emit(db, job.org_id, "invocation_failed", {"error_type": "RuntimeInterrupted"}, run_id=run.id)
     except (PermissionError, ValueError) as error:
         run.status = "failed"
         run.error = type(error).__name__
         job.state = "FAILED"
         job.error = type(error).__name__
         emit(db, job.org_id, "invocation_failed", {"error_type": type(error).__name__}, run_id=run.id)
-    deployment.reserved = max(0, deployment.reserved - job.reservation)
+    totals = usage_totals(db, run.id)
+    if totals["deployment_accounted"]:
+        run.metrics = {**run.metrics, **totals}
+    deployment.reserved = max(0, deployment.reserved - job.reservation) + run.metrics.get("reserved_cost", 0)
     deployment.spent += run.metrics.get("cost", 0)
     job.reservation = 0
     job.lease_owner = None

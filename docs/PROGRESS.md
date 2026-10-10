@@ -485,3 +485,39 @@ retained inside queue reservations, atomic final settlement and interruption rec
 broader custom workflows/proposal browser review; email/Postgres transport and private
 field hardening; membership/pagination/mobile/accessibility; full acceptance audit.
 The complete goal stays active.
+
+
+2026-10-09 queued deployment accounting milestone verified: live deployment execution
+persists a run-owned deployment_agent UsageRecord before every model dispatch. Calls
+reserve within the existing whole-invocation allocation; observed tokens settle to
+configured cost estimates while provider failures/termination retain unknown charges.
+Recovery marks abandoned pending calls uncertain and counts historical usage/reservations
+against the invocation ceiling. Queue completion releases unused allocation while retaining
+unknown charges in Deployment.reserved. Hidden SDK HTTP retries are disabled.
+
+Model/tool checkpoints recheck tenant/invocation associations, current membership,
+approved pinned version, active deployment and lease owner. Returning revoked workers
+retain observed charges and cannot dispatch further tools or publish approvals. The final
+checkpoint checks updated cost/lifetime limits; final result, staged connector/fixture
+approvals and queue settlement commit together under queue/deployment locks. Fixture
+approval IDs are allocated without an early attachment to the session.
+
+Late responses after a successor has completed settle their retained reservation into
+observed deployment spending without overwriting the successor result or creating another
+approval. Ten new behavioral tests cover separate-session pre-dispatch visibility,
+pause/membership revocation/version unapproval/budget reduction, lease transfer, provider
+failure, actual SDK HTTP failure without retries, real process kill/recovery and a nested
+successor followed by the stale model response. Models/transports are explicitly local
+provider contracts, not live OpenAI or external production execution. No scores were
+invented and no production side effect was executed.
+
+Final checks: 159 SQLite tests passed (4 PG-only skips), all 163 PostgreSQL tests passed;
+Ruff, strict TypeScript, 2 Vitest tests and both browser journeys pass. SQLite/PostgreSQL
+Alembic checks show no drift. Optimized Docker images rebuild; API/worker/web/PG/Redis
+start, API reports healthy labeled demo mode and dashboard returns HTTP 200.
+
+Remaining: standalone production/preview accounting and authorization checkpoints;
+broader multi-turn connector and residual-budget/concurrent-policy audit; custom workflows
+and proposal browser review; email/Postgres transport/private-field hardening;
+memberships/pagination/mobile/accessibility and complete requirement-level audit.
+External credentials remain absent. The complete platform goal stays active.

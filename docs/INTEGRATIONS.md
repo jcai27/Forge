@@ -87,3 +87,11 @@ webhook trigger in Deployments and POST `{input, idempotency_key}` to
 The signing secret is encrypted and never returned. Schedules use a configured interval
 and input; missed slots coalesce after downtime. Both enqueue durable invocations,
 recheck authorization, respect deployment limits and retain normal approval gates.
+
+
+Queued live deployment calls persist per-model reservations before dispatch. Unknown
+provider charges remain reserved against lifetime limits after failure/recovery. Model
+and tool checkpoints recheck authorization and worker ownership. Successful result and
+staged approvals commit with queue settlement; failed/stale executions cannot publish
+approvals. Costs are configured estimates from reported tokens, not provider invoices.
+Standalone production/preview calls outside this queue still need equivalent accounting.

@@ -2,8 +2,8 @@
 
 Authoritative scope: docs/AGENT_FACTORY_SPEC.md. The complete goal remains active.
 See docs/ACCEPTANCE.md for requirement-level evidence and gaps; chronological evidence
-is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 staged production approval requests
-and decision-checkpoint guards, preparing safe durable deployment accounting.
+is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 durable queued-deployment model reservations,
+interruption recovery, authorization controls and late-response settlement.
 
 Verified working slices:
 
@@ -21,7 +21,7 @@ Verified working slices:
 9. Orders/quotes/administrative hiring share runtime, factory, tools and assertions.
 10. Real worker kill/recovery, tenant/RBAC/secret tests and PG concurrency tests.
 
-Latest checks: Ruff; 149 SQLite tests passed (4 PG-only skips); 153 PG tests passed;
+Latest checks: Ruff; 159 SQLite tests passed (4 PG-only skips); 163 PG tests passed;
 strict TypeScript; 2 Vitest tests; two browser journeys; Alembic drift checks on both
 DBs; populated migration upgrade/downgrade; optimized images and Compose health.
 These prove working slices, not complete phases or the whole product specification.
@@ -31,15 +31,14 @@ Next work, in priority order:
 1. Broader custom-workflow evidence and reviewed proposal browser interaction. Background Test Designer
    proposals now require administrator correction/acceptance; verify more connector
    workflows and keep hidden answers outside optimizer context.
-2. Extend durable provider reservations to deployment/production model calls
-   while preserving transactional tool/approval safety. Connector writes now stage approvals
-   until validated final output; add deployment ledger/lease/authorization checkpoints,
-   retained unknown charges within queue reservations and atomic final settlement.
-   Architecture/designer/optimizer
-   and evaluation/rubric calls retain unknown charges across real process termination, disable
-   hidden HTTP retries and preserve pause/cancel/lease ownership. Billing reconciliation remains
-   unavailable; unknown charges are conservatively retained. Verify broader contracts
-   without inventing metrics.
+2. Extend durable provider reservations and authorization checkpoints to standalone
+   production/preview calls outside the deployment queue. Queued deployments now persist
+   per-model ledgers inside their queue allocation, retain unknown charges through recovery,
+   disable hidden HTTP retries and commit validated results/approvals with final settlement.
+   Real worker termination and stale responses after successor completion are verified.
+   Broaden multi-turn connector contracts, residual-budget rejection and concurrent policy/
+   authorization audits. Architecture/designer/optimizer/evaluation/rubric accounting is
+   durable; billing reconciliation remains unavailable and unknown charges stay reserved.
 3. Broader private-field minimization and email/Postgres transport bounds,
    safe deployment users/settings and tenant/relational enforcement audit.
 4. Membership/invitation management, collection pagination, mobile/accessibility checks,

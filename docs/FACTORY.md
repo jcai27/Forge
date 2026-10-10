@@ -36,17 +36,26 @@ manual retries. Paused/cancelled/redirected builds and transferred leases surviv
 returning grader. Live evaluated-agent calls now use evaluation_agent reservations,
 observed settlement and model/tool control checks. Their isolated/read-only tools permit
 durable checkpoints without committing production state. Killed executions become
-failed/uncertain on recovery and fresh attempts remain budget-bound. Deployment/production
-model calls still require their own transaction design; these hooks cannot execute them.
+failed/uncertain on recovery and fresh attempts remain budget-bound. Deployment calls
+use separate production hooks; read-only evaluation hooks cannot execute them.
 
 `GET /usage` exposes tenant-owned paginated ledger entries. Metrics report observed
 cost estimates and outstanding reservations separately; build details expose
 `factory_observed_cost` and `factory_reserved_cost`. The build page labels unresolved
 reservations. Provider billing reconciliation is not yet available, so unknown charges
-are conservatively retained. Evaluation/rubric/deployment model calls still use the
-in-memory pre-call guard and require equivalent durable accounting; this milestone
-covers architecture, test design and optimization only. Fixture evaluation and
-invocation transaction recovery is separately verified.
+are conservatively retained. Queued live deployment calls now persist run-owned
+`deployment_agent` reservations before each dispatch. Observed usage settles independently
+of result validity; unknown charges survive worker termination and remain reserved against
+the deployment lifetime budget after the queue allocation is released. Recovery includes
+previous usage/reservations in the invocation ceiling. Hidden HTTP retries are disabled.
+
+Deployment model/tool checkpoints recheck membership, approved pinned version, active
+configuration and worker ownership. Connector and fixture approvals stay staged until
+validated final output; the final result, approvals and queue allocation settlement commit
+together. Returning stale workers retain reported usage but cannot publish their result.
+A late response after successor completion converts the retained unknown reservation to
+observed usage without duplicating approvals. Standalone production/preview calls outside
+the deployment queue still need durable accounting and authorization checkpoints.
 
 Each immutable AgentSpec carries a `quality_policy`:
 

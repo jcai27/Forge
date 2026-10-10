@@ -29,8 +29,13 @@ of grade validity. build_accounted_cost prevents charging observed run costs twi
 Manual grading rechecks the pending result after I/O; competing calls retain both charges
 but publish one grade. Include reservations in budget ceilings, never in observed cost
 or tokens; unknown charges cannot prove a cost improvement. Do not reuse grading hooks
-for production tool transactions: deployment/production durable accounting still needs
-its own transaction design. Live evaluated-agent calls now use evaluation_agent ledgers
+for production tool transactions. Queued deployment execution uses its own durable
+deployment_agent ledger: reserve inside the queue allocation before dispatch, retain
+unknown charges on interruption, and settle observed costs once. Model/tool checkpoints
+recheck current membership, pinned approved version, deployment and lease ownership.
+Keep final approvals/result/queue settlement in one transaction. A late stale response
+may settle usage but cannot publish another result. Standalone production/preview
+execution still needs durable accounting; do not silently reuse evaluation hooks. Live evaluated-agent calls now use evaluation_agent ledgers
 and control checks at model/tool boundaries. Recover abandoned calls as uncertain and
 mark their orphaned execution failed; rerun only within the remaining build budget.
 Production connector write requests stay staged in ExecutionContext until final output

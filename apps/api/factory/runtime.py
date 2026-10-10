@@ -249,9 +249,12 @@ async def execute(
     observation=None,
     max_seconds=None,
     job=None,
+    runtime_job=None,
 ):
     if job is not None and not evaluation:
         raise ValueError("Build accounting requires isolated evaluation execution")
+    if runtime_job is not None and evaluation:
+        raise ValueError("Deployment accounting cannot execute evaluation")
     spec = AgentSpec.model_validate(version.spec)
     validate(input_data, spec.input_schema)
     mode = mode or settings().execution_mode
@@ -269,8 +272,13 @@ async def execute(
     started = time.monotonic()
     ceiling = min(spec.max_cost, max_cost) if max_cost is not None else spec.max_cost
     timeout = min(spec.timeout_seconds, max_seconds) if max_seconds is not None else spec.timeout_seconds
-    durable = evaluation and mode == "live"
-    if durable:
+    production_accounting = runtime_job is not None and mode == "live"
+    durable = (evaluation and mode == "live") or production_accounting
+    if production_accounting:
+        from factory.deployment_accounting import DeploymentBudgetHooks
+
+        budget_hooks = DeploymentBudgetHooks(ceiling, db, run, runtime_job, timeout)
+    elif durable:
         from factory.provider_accounting import EvaluationBudgetHooks
 
         budget_hooks = EvaluationBudgetHooks(ceiling, db, run, job, timeout)
@@ -324,6 +332,8 @@ async def execute(
         tokens = result.context_wrapper.usage.total_tokens
         # Configurable billing estimates; no invented token usage in demo mode.
         cost = tokens * settings().estimated_token_cost if mode == "live" else 0.0
+        if production_accounting:
+            tokens, cost = budget_hooks.accounted_tokens, budget_hooks.accounted_cost
         if cost > spec.max_cost:
             raise ValueError("Execution cost budget exceeded")
         if evaluation and input_data.get("approve_in_test"):
@@ -350,6 +360,7 @@ async def execute(
                 run.status = "preview"
             else:
                 approval = Approval(
+                    id=uid(),
                     org_id=version.org_id,
                     run_id=run.id,
                     action={
@@ -359,8 +370,7 @@ async def execute(
                         "output": run.output,
                     },
                 )
-                db.add(approval)
-                db.flush()
+                context.staged_approvals.append(approval)
                 context.pending.append(approval.id)
                 run.status = "waiting_for_approval"
         elif output.get("flags"):
@@ -402,8 +412,8 @@ async def execute(
         run.metrics = {
             **(run.metrics if durable else {}),
             "duration_ms": round((time.monotonic() - started) * 1000, 3),
-            "tokens": budget_hooks.tokens,
-            "cost": budget_hooks.cost,
+            "tokens": budget_hooks.accounted_tokens if production_accounting else budget_hooks.tokens,
+            "cost": budget_hooks.accounted_cost if production_accounting else budget_hooks.cost,
             "tool_calls": len(context.tool_calls),
             "tool_sequence": [call["name"] for call in context.tool_calls],
             "state_changes": 0,
@@ -422,7 +432,10 @@ async def execute(
             run.metrics = {**run.metrics, "duration_ms": elapsed, "execution_duration_ms": elapsed}
             if run.status == "running":
                 run.status, run.error = "failed", "InterruptedExecution"
-            budget_hooks.finish(0)
+            if production_accounting:
+                budget_hooks.finish()
+            else:
+                budget_hooks.finish(0)
     if evaluation and observation is not None:
         observation.update(state=deepcopy(isolated), tool_calls=deepcopy(context.tool_calls))
     db.flush()

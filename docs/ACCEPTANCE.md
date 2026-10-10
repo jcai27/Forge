@@ -14,9 +14,9 @@ AGENT_FACTORY_SPEC.md. The goal stays active until remaining feasible work is do
 | Data discovery and least privilege | Integration test/discovery, typed registered tools, allowed tables/hosts, revocation | Resource-specific approval UX and contracts audit |
 | Natural-language builder | Template inference, versioned baseline, live architect SDK role | Structured requirements and background architecture/usage verified; general reviewed Test Designer verified; broader arbitrary connector workflow journeys remain |
 | Safe evaluation | Independent assertions, fresh fixture state, JSON schemas, dev/regression/validation splits | Replay/read-only grants, isolated state/schema/sequence checks and human review pass; rubric availability/budget tested, actual provider grades unavailable |
-| Autonomous loop | Measured failed baseline → hypothesis → new version → retest → compare → promote; persisted per-case checkpoints | Real process kill/recovery passes for builds and invocations; repeated-trial variability implemented; factory/evaluation/rubric reservations and control boundaries verified; production runtime model accounting remains |
+| Autonomous loop | Measured failed baseline → hypothesis → new version → retest → compare → promote; persisted per-case checkpoints | Real process kill/recovery passes for builds and invocations; repeated-trial variability implemented; factory/evaluation/rubric reservations and control boundaries verified; queued deployment ledger/recovery verified; standalone production accounting remains |
 | Regression protection | Critical stock bypass candidate rejected; competing stock approvals serialize correctly | Higher-score critical regression and equal aggregate regression hiding an individual failure are both rejected |
-| Budgets and stopping | Iterations/cost/time/stagnation, cancel/pause/resume, pre-call runtime token reservation; durable evaluation/rubric reservations and settlement | Durable architecture/designer/optimizer/evaluation/rubric reservations verified; production runtime durable provider accounting and broader resource audit remain |
+| Budgets and stopping | Iterations/cost/time/stagnation, cancel/pause/resume, pre-call runtime token reservation; durable evaluation/rubric reservations and settlement | Durable architecture/designer/optimizer/evaluation/rubric reservations verified; queued deployment reservations/settlement verified; standalone production accounting and broader resource audit remain |
 | Trace/usage safety | Redacted secrets, external response trace summaries, audited actions | Mapped imports select declared fields and state evidence is summarized; broader raw output minimization and adversarial audit remain |
 | Template A data/edge cases | 100 products, multiple customers, aliases, prices, inventory, history, 36 cases | Fractional cents and duplicate requests verified; broader parsing/unit policy checks remain |
 | Templates B/C | Shared factory/runtime, independent suites, approved quote/hiring writes tested | Browser tests for both templates and scheduling constraints |
@@ -128,3 +128,17 @@ failed runs cannot dispatch, and stale requests can be rejected safely. Durable 
 accounting remains incomplete; staging establishes its approval transaction prerequisite.
 Final checks: 149 SQLite tests (4 PG-only skips), 153 PostgreSQL tests, Ruff/TypeScript,
 Vitest, both browser journeys, migration drift and rebuilt Compose health pass.
+
+
+2026-10-09: queued deployment calls now persist per-model reservations before dispatch,
+retain unknown charges through real process termination/recovery, settle observed usage
+once and disable hidden HTTP retries. Authorization/lease checks stop returning revoked
+workers before tool dispatch. Final results/approvals commit with queue settlement;
+late responses after successor completion retain usage without republishing approvals.
+Pause, membership revocation, version unapproval, budget reduction, lease transfer,
+provider errors and actual HTTP failure contracts pass. These are local SDK fixtures,
+not live provider responses. Standalone production/preview accounting, broader multi-turn
+connector/concurrent-policy coverage and the remaining full acceptance audit are open.
+Final checks: 159 SQLite tests (4 PG-only skips), 163 PostgreSQL tests, Ruff/TypeScript,
+2 Vitest tests, both browser journeys, both migration drift checks and rebuilt Compose
+startup/API health/dashboard HTTP checks pass.
