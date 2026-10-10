@@ -136,7 +136,7 @@ def test_a_malformed_json_schema_in_a_patch_is_a_dropped_field_not_a_crash():
 
 
 def test_patch_parsing_reads_the_first_complete_object_and_prompt_mode_uses_the_field_guide(monkeypatch):
-    from factory.builder import OPTIMIZER_INSTRUCTIONS, PATCH_GUIDE, parse_patch
+    from factory.builder import PATCH_GUIDE, optimizer_prompt, parse_patch
 
     # Seen from a real model: a second object, or commentary, after a valid patch.
     patch, dropped = parse_patch('{"hypothesis": "h", "rules": {"margin": 0.3}}, \n{"instructions": "another object"}')
@@ -145,7 +145,11 @@ def test_patch_parsing_reads_the_first_complete_object_and_prompt_mode_uses_the_
     assert patch.rules == {"margin": 0.3}
 
     monkeypatch.setattr(settings(), "openai_structured_output", "prompt")
-    instructions, output_type = structured_output(SpecPatch, OPTIMIZER_INSTRUCTIONS, guide=PATCH_GUIDE)
+    instructions, output_type = structured_output(
+        SpecPatch,
+        optimizer_prompt(AgentSpec(name="n", purpose="p", template="custom", instructions="i")),
+        guide=PATCH_GUIDE,
+    )
     assert output_type is None and instructions.endswith(PATCH_GUIDE)
     assert "$defs" not in instructions, "the field guide replaces the JSON Schema"
     # The guide may only describe fields the patch really has, and must not hint at the benchmark's answer.
@@ -214,7 +218,7 @@ async def test_a_proposal_strategy_is_stated_in_the_instructions(monkeypatch):
     monkeypatch.setattr("factory.builder.Agent", lambda **kwargs: Agent(**{**kwargs, "model": provider.model}))
     candidate, _ = await optimize(spec, [{"case": "x"}], strategy="Add a verifier for the total.")
     assert candidate.rules["margin"] == 0.3
-    assert "For this proposal: Add a verifier for the total." in provider.seen["instructions"]
+    assert "For this proposal\nAdd a verifier for the total." in provider.seen["instructions"]
     await optimize(spec, [{"case": "x"}])
     assert "For this proposal" not in provider.seen["instructions"]
 
@@ -259,3 +263,36 @@ def test_tool_notes_keyed_by_tool_name_resolve_to_the_tool_id_when_unambiguous()
     assert patched.tool_notes == {"id-1": "plural names", "id-2": "by id", "send": "ambiguous"}
     # The ambiguous and unknown keys are not guessed; persisting such a version is still refused.
     assert set(patched.tool_notes) - set(spec.tools) == {"send"}
+
+
+def test_builder_instructions_describe_options_without_recommending_one_and_fit_the_agent(monkeypatch):
+    from factory.builder import architect_prompt, optimizer_prompt
+
+    plain = AgentSpec(name="n", purpose="p", template="custom", instructions="i")
+    tooled = AgentSpec(name="n", purpose="p", template="custom", instructions="i", tools=["t1"], connection_ids=["c1"])
+    monkeypatch.setattr(settings(), "sandbox_socket", "")
+    direct, with_tools = optimizer_prompt(plain), optimizer_prompt(tooled, has_context=True, investigating=True)
+    # How a revision is judged comes before what can be changed, and several changes may travel together.
+    assert (
+        direct.index("How a revision is judged") < direct.index("What you can change") < direct.index("What to return")
+    )
+    assert "one change or several that belong together" in direct and "kept or rejected as a whole" in direct
+    assert "unseen" in direct and "example_pool" in direct and "allowed_models" in direct
+    # Tool, document and code guidance appears only where the agent has those things.
+    for phrase in ("tool_notes", "read_context", "tool contracts", "business_context"):
+        assert phrase not in direct and phrase in with_tools
+    assert "generated_tools" not in direct and "generated_tools" not in with_tools
+    monkeypatch.setattr(settings(), "sandbox_socket", "/run/sandbox.sock")
+    assert "generated_tools" in optimizer_prompt(plain)
+
+    classifier = architect_prompt(has_tools=False, has_data=True, has_context=False)
+    assert "approval" not in classifier and "tools" not in classifier and "business_context" not in classifier
+    assert "example_pool" in classifier and "input_schema" in classifier
+    operator = architect_prompt(has_tools=True, has_data=False, has_context=True)
+    assert "waits for a person's approval" in operator and "business_context" in operator
+    assert "example_pool" not in operator, "the pool is made of data rows"
+    # Facts about the system, not advice: no text tells a role which option to choose.
+    for text in (direct, with_tools, classifier, operator):
+        lowered = text.lower()
+        for steer in ("prefer ", "usually", "tends to", "you should", "recommend", "leave empty", "set it to"):
+            assert steer not in lowered, steer

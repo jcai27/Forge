@@ -158,7 +158,10 @@ set; hooks' max_output_tokens is a reservation allowance, not a limit. Price usa
 factory/pricing.py only. A builder may change the agent's model only to one in AGENT_MODELS.
 Remove verifiers that reject known development answers before saving a version; never judge
 a verifier against selection or held-out answers. With example_pool the examples are the
-development cases only, and in evaluation a case is never shown its own row. Resolve demo or
+development cases only, and in evaluation a case is never shown its own row. The builder's instructions (architect_prompt, optimizer_prompt) state how work
+is judged and what each option does and costs. They never recommend an option: advice
+written from one task's result would be applied to every task. Include tool, document and
+code sections only when the agent has those. Resolve demo or
 live per agent with mode_for(template), not settings().execution_mode. The browser suite
 cannot run while `next dev` is already running in apps/web.
 

@@ -31,6 +31,15 @@ counts them, and the build page says so after the third.
 - `confusions`: counts of what was expected against what was answered across the failures.
 - The model can be changed only to one listed in `AGENT_MODELS`. Empty means it cannot.
 
+## What the builder is told
+
+`architect_prompt` and `optimizer_prompt` in `factory/builder.py`. Both are short labelled
+sections: what the role is given, how its work is judged, what each option does and costs,
+what to return, and what is not its to change. They state facts and do not recommend an
+approach. Sections about tools, documents, investigation and code appear only when the agent
+has them. A revision may hold one change or several that belong together; it is kept or
+rejected as a whole, and the instructions say so.
+
 ## Checks that reject correct answers
 
 A builder-written check is a guess; the cases are the truth. Before a version is saved, a
