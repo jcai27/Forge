@@ -14,9 +14,9 @@ AGENT_FACTORY_SPEC.md. The goal stays active until remaining feasible work is do
 | Data discovery and least privilege | Integration test/discovery, typed registered tools, allowed tables/hosts, revocation | Resource-specific approval UX and contracts audit |
 | Natural-language builder | Template inference, versioned baseline, live architect SDK role | Structured requirements and background architecture/usage verified; general reviewed Test Designer verified; broader arbitrary connector workflow journeys remain |
 | Safe evaluation | Independent assertions, fresh fixture state, JSON schemas, dev/regression/validation splits | Replay/read-only grants, isolated state/schema/sequence checks and human review pass; rubric availability/budget tested, actual provider grades unavailable |
-| Autonomous loop | Measured failed baseline → hypothesis → new version → retest → compare → promote; persisted per-case checkpoints | Real process kill/recovery passes for builds and invocations; repeated-trial variability implemented; Factory role crash reservations and lease/control boundaries are verified; evaluation/rubric/runtime model accounting remains |
+| Autonomous loop | Measured failed baseline → hypothesis → new version → retest → compare → promote; persisted per-case checkpoints | Real process kill/recovery passes for builds and invocations; repeated-trial variability implemented; factory role/rubric crash reservations and lease/control boundaries verified; main evaluation/runtime model accounting remains |
 | Regression protection | Critical stock bypass candidate rejected; competing stock approvals serialize correctly | Higher-score critical regression and equal aggregate regression hiding an individual failure are both rejected |
-| Budgets and stopping | Iterations/cost/time/stagnation, cancel/pause/resume, pre-call runtime token reservation | Durable architecture/designer/optimizer reservations verified; evaluation/rubric/runtime durable provider accounting and broader resource audit remain |
+| Budgets and stopping | Iterations/cost/time/stagnation, cancel/pause/resume, pre-call runtime token reservation; durable rubric reservations/settlement/retries | Durable architecture/designer/optimizer/rubric reservations verified; main evaluation/runtime durable provider accounting and broader resource audit remain |
 | Trace/usage safety | Redacted secrets, external response trace summaries, audited actions | Mapped imports select declared fields and state evidence is summarized; broader raw output minimization and adversarial audit remain |
 | Template A data/edge cases | 100 products, multiple customers, aliases, prices, inventory, history, 36 cases | Fractional cents and duplicate requests verified; broader parsing/unit policy checks remain |
 | Templates B/C | Shared factory/runtime, independent suites, approved quote/hiring writes tested | Browser tests for both templates and scheduling constraints |
@@ -95,3 +95,14 @@ the wider security/runtime audit remain incomplete. Full checks: 112 SQLite test
 (4 PG-only skips), 116 PostgreSQL tests, Ruff/TypeScript/Vitest and both browser journeys,
 migration drift and rebuilt Compose pass. The final iterator scope adjustment also
 passes all 23 focused MCP tests and is present in rebuilt API/worker images.
+
+
+2026-10-09: read-only rubric grading commits reservations before SDK dispatch and
+retains unknown charges across a real process kill. Observed settlement, worker control/
+lease/redirection, once-only checkpoint/manual-retry charging, and interleaved-result
+publication pass on SQLite and PostgreSQL. Deterministic failures remain failed;
+unknown charges remain separate and cannot establish cost savings. Main evaluated-agent
+and deployment model calls still need equivalent durable transaction/accounting work.
+Final checks: 128 SQLite tests (4 PG-only skips), 132 PostgreSQL tests, Ruff/TypeScript,
+Vitest, both browser journeys, migration drift and rebuilt Compose health pass. Actual
+OpenAI grading remains unverified without credentials; fixtures exercise SDK contracts.

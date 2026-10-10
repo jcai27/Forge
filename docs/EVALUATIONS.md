@@ -111,11 +111,23 @@ Qualitative grading is optional and requires an explicit rubric:
 }
 ```
 
-The independent SDK grader has no business tools, records criterion scores/evidence,
-and charges observed token estimates to the case and build budgets. Its judgment is
+The independent SDK grader has no business tools and records criterion scores/evidence.
+Before dispatch it commits a pending UsageRecord linked to the execution and, when build
+funded, the build job. Its reservation consumes the run/build budget; a response settles
+to observed token estimates. Errors, timeouts and killed workers retain unknown charges
+without inventing usage. Worker recovery marks abandoned build reservations uncertain.
+Automatic provider HTTP retries are disabled. Rubric accounting commits only isolated
+evaluation/read-only grading state; production tool transactions do not use these hooks.
+Known run costs are charged once at worker checkpoints/manual retries, and outstanding
+reservations remain separate in scorecards and usage metrics. Promotion cost ceilings
+include reservations, and unknown charges cannot establish cost savings. Its judgment is
 provisional and can reflect evaluator bias. Demo mode or unavailable provider access
 leaves the grade pending; no score is invented. Administrators can retry pending
 grading with `POST /evaluation-results/{id}/grade` after configuring the provider.
+Returning calls recheck build controls/lease ownership and pending result state. An
+interleaved retry may retain its observed charge but cannot replace an already resolved
+grade. Deterministic failures remain failed. Provider billing reconciliation remains
+unavailable, as does full durable accounting for the evaluated agent's own model calls.
 
 Human reviewers submit `{passed, evidence}` to
 `POST /evaluation-results/{id}/review`, or use the form under an expanded lab result.

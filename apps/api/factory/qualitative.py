@@ -4,12 +4,12 @@ import asyncio
 import json
 import time
 
-from agents import Agent, AgentOutputSchema, ModelSettings, RunConfig, Runner, set_default_openai_key
+from agents import Agent, AgentOutputSchema, ModelSettings
 from pydantic import BaseModel, Field
 
+from factory.builder import run_factory_role
 from factory.config import settings
-from factory.models import UsageRecord
-from factory.runtime import BudgetHooks
+from factory.provider_accounting import RubricBudgetHooks
 from factory.security import redact_tenant
 
 
@@ -23,7 +23,9 @@ class RubricGrade(BaseModel):
     criteria: list[CriterionGrade]
 
 
-async def grade_rubric(db, version, run, case, max_cost=None, max_seconds=None):
+async def grade_rubric(db, version, run, case, max_cost=None, max_seconds=None, job=None):
+    if run.org_id != version.org_id or case.org_id != version.org_id or run.version_id != version.id:
+        raise PermissionError("Rubric tenant or version mismatch")
     cfg = settings()
     if max_seconds is not None and max_seconds <= 0:
         return [
@@ -44,8 +46,12 @@ async def grade_rubric(db, version, run, case, max_cost=None, max_seconds=None):
             }
         ]
     limit = min(version.spec["max_cost"], max_cost) if max_cost is not None else version.spec["max_cost"]
-    hooks = BudgetHooks(max(0, limit - run.metrics.get("cost", 0)), "live")
-    set_default_openai_key(cfg.openai_api_key)
+    timeout = (
+        min(version.spec["timeout_seconds"], max_seconds)
+        if max_seconds is not None
+        else version.spec["timeout_seconds"]
+    )
+    hooks = RubricBudgetHooks(limit, db, run, job, timeout)
     grader = Agent(
         name="Independent Rubric Evaluator",
         model=cfg.openai_model,
@@ -56,18 +62,15 @@ async def grade_rubric(db, version, run, case, max_cost=None, max_seconds=None):
     started = time.monotonic()
     try:
         result = await asyncio.wait_for(
-            Runner.run(
+            run_factory_role(
                 grader,
                 json.dumps(
                     redact_tenant(db, version.org_id, {"rubric": case.rubric, "input": run.input, "output": run.output})
                 ),
                 hooks=hooks,
                 max_turns=2,
-                run_config=RunConfig(tracing_disabled=True, trace_include_sensitive_data=False),
             ),
-            timeout=min(version.spec["timeout_seconds"], max_seconds)
-            if max_seconds is not None
-            else version.spec["timeout_seconds"],
+            timeout=timeout,
         )
         grades = RubricGrade.model_validate(result.final_output).criteria
         if sorted(g.criterion for g in grades) != sorted(case.rubric["criteria"]):
@@ -94,13 +97,4 @@ async def grade_rubric(db, version, run, case, max_cost=None, max_seconds=None):
             }
         ]
     finally:
-        db.add(UsageRecord(org_id=run.org_id, run_id=run.id, tokens=hooks.tokens, cost=hooks.cost))
-        run.metrics = {
-            **run.metrics,
-            "tokens": run.metrics.get("tokens", 0) + hooks.tokens,
-            "cost": run.metrics.get("cost", 0) + hooks.cost,
-            "grading_tokens": hooks.tokens,
-            "grading_cost": hooks.cost,
-            "duration_ms": run.metrics.get("duration_ms", 0) + (time.monotonic() - started) * 1000,
-            "grading_duration_ms": (time.monotonic() - started) * 1000,
-        }
+        hooks.finish((time.monotonic() - started) * 1000)

@@ -212,17 +212,22 @@ async def advance(db, job):
         ]
         if remaining:
             case, trial = remaining[0]
-            result = await evaluate_case(
-                db,
-                evaluation,
-                version,
-                case,
-                trial,
-                max_cost=max(0, budget.max_cost - job.spent),
-                max_seconds=max(0, budget.max_seconds - elapsed),
-            )
+            try:
+                result = await evaluate_case(
+                    db,
+                    evaluation,
+                    version,
+                    case,
+                    trial,
+                    max_cost=max(0, budget.max_cost - job.spent),
+                    max_seconds=max(0, budget.max_seconds - elapsed),
+                    job=job,
+                )
+            except BuildInterrupted:
+                return
             run = db.get(__import__("factory.models", fromlist=["ExecutionRun"]).ExecutionRun, result.execution_id)
-            job.spent += run.metrics.get("cost", 0)
+            job.spent += max(0, run.metrics.get("cost", 0) - run.metrics.get("build_accounted_cost", 0))
+            run.metrics = {**run.metrics, "build_accounted_cost": run.metrics.get("cost", 0)}
             if run.error == "BudgetExceeded":
                 transition(
                     db,

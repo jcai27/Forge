@@ -219,7 +219,7 @@ def evaluation_environment(db, case, version):
     return state, environment
 
 
-async def evaluate_case(db, evaluation, version, case, trial=0, max_cost=None, max_seconds=None):
+async def evaluate_case(db, evaluation, version, case, trial=0, max_cost=None, max_seconds=None, job=None):
     existing = db.scalar(
         select(EvaluationResult).where(
             EvaluationResult.evaluation_run_id == evaluation.id,
@@ -251,7 +251,7 @@ async def evaluate_case(db, evaluation, version, case, trial=0, max_cost=None, m
         remaining_seconds = (
             max(0, max_seconds - run.metrics.get("duration_ms", 0) / 1000) if max_seconds is not None else None
         )
-        checks.extend(await grade_rubric(db, version, run, case, max_cost, remaining_seconds))
+        checks.extend(await grade_rubric(db, version, run, case, max_cost, remaining_seconds, job))
     if case.source == "human":
         checks.append(
             {
@@ -285,7 +285,7 @@ def scorecard(db, evaluation):
     counts = Counter()
     critical_failures = 0
     split_counts, split_passed = Counter(), Counter()
-    durations, costs, tokens = [], [], []
+    durations, costs, tokens, reservations = [], [], [], []
     trials = {}
     pending_reviews = 0
     regression_outcomes = {}
@@ -305,6 +305,7 @@ def scorecard(db, evaluation):
         durations.append(run.metrics.get("duration_ms", 0))
         costs.append(run.metrics.get("cost", 0))
         tokens.append(run.metrics.get("tokens", 0))
+        reservations.append(run.metrics.get("reserved_cost", 0))
     p = passed / total if total else 0
     # Wilson interval captures finite fixture uncertainty; never claims general accuracy.
     z, n = 1.96, total or 1
@@ -325,6 +326,7 @@ def scorecard(db, evaluation):
         "mean_latency_ms": sum(durations) / total if total else 0,
         "cost": sum(costs),
         "tokens": sum(tokens),
+        "reserved_cost": sum(reservations),
         "pending_reviews": pending_reviews,
         "regression_outcomes": regression_outcomes,
         "variability": {
@@ -382,7 +384,7 @@ def can_promote(candidate, baseline=None, policy=None):
         return False
     if (
         candidate["mean_latency_ms"] > policy.maximum_mean_latency_ms
-        or candidate["cost"] > policy.maximum_evaluation_cost
+        or candidate["cost"] + candidate.get("reserved_cost", 0) > policy.maximum_evaluation_cost
     ):
         return False
     if baseline is None:
@@ -399,6 +401,8 @@ def can_promote(candidate, baseline=None, policy=None):
     ):
         return False
     if policy.objective == "cost":
+        if candidate.get("reserved_cost", 0) or baseline.get("reserved_cost", 0):
+            return False  # Unknown charges cannot establish a measured cost improvement.
         return (
             candidate["score"] >= policy.minimum_score
             and baseline["cost"] - candidate["cost"] > policy.minimum_improvement
@@ -437,7 +441,8 @@ async def evaluate_suite(
                 max_cost=max(0, max_cost - spent),
                 max_seconds=max(0, max_seconds - (time.monotonic() - started)),
             )
-            spent += db.get(ExecutionRun, result.execution_id).metrics.get("cost", 0)
+            metrics = db.get(ExecutionRun, result.execution_id).metrics
+            spent += metrics.get("cost", 0) + metrics.get("reserved_cost", 0)
     evaluation.scorecard = scorecard(db, evaluation)
     evaluation.status = "completed"
     return evaluation

@@ -2,8 +2,8 @@
 
 Authoritative scope: docs/AGENT_FACTORY_SPEC.md. The complete goal remains active.
 See docs/ACCEPTANCE.md for requirement-level evidence and gaps; chronological evidence
-is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 bounded MCP session responses,
-decompression, pagination and whole-operation deadlines, verified through actual SDK/TLS.
+is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 durable read-only rubric reservations,
+observed settlement, worker-control preservation and once-only checkpoint/retry accounting.
 
 Verified working slices:
 
@@ -21,10 +21,9 @@ Verified working slices:
 9. Orders/quotes/administrative hiring share runtime, factory, tools and assertions.
 10. Real worker kill/recovery, tenant/RBAC/secret tests and PG concurrency tests.
 
-Latest checks: Ruff; 112 SQLite tests passed (4 PG-only skips); 116 PG tests passed;
+Latest checks: Ruff; 128 SQLite tests passed (4 PG-only skips); 132 PG tests passed;
 strict TypeScript; 2 Vitest tests; two browser journeys; Alembic drift checks on both
 DBs; populated migration upgrade/downgrade; optimized images and Compose health.
-The final MCP iterator cancellation adjustment passes all 23 focused MCP tests.
 These prove working slices, not complete phases or the whole product specification.
 
 Next work, in priority order:
@@ -32,10 +31,10 @@ Next work, in priority order:
 1. Broader custom-workflow evidence and reviewed proposal browser interaction. Background Test Designer
    proposals now require administrator correction/acceptance; verify more connector
    workflows and keep hidden answers outside optimizer context.
-2. Extend durable provider reservations to evaluation/rubric/deployment model calls
+2. Extend durable provider reservations to evaluation/deployment model calls
    while preserving transactional tool/approval safety. Architecture/designer/optimizer
-   now retain unknown charges across real process termination, disable hidden HTTP
-   retries and preserve pause/cancel/lease ownership. Billing reconciliation remains
+   and rubric grading retain unknown charges across real process termination, disable
+   hidden HTTP retries and preserve pause/cancel/lease ownership. Billing reconciliation remains
    unavailable; unknown charges are conservatively retained. Verify broader contracts
    without inventing metrics.
 3. Broader private-field minimization and email/Postgres transport bounds,

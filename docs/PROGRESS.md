@@ -375,3 +375,43 @@ Remaining: email/Postgres transport bounds, private-field minimization and produ
 security audit; durable evaluation/rubric/deployment provider accounting; broader workflows,
 proposal browser review, memberships/pagination/mobile/accessibility and final acceptance.
 The complete goal remains active.
+
+
+2026-10-09 durable rubric-accounting milestone verified: independent read-only grading
+commits a pending UsageRecord/run reservation before SDK dispatch. Build-funded calls
+link both run/job and charge the build; observed usage settles its reservation, while
+failed/timed-out requests retain uncertain charges without inventing observed tokens or
+billing. A real killed grading process leaves a durable pending charge, and worker
+recovery marks it uncertain without refunding it. Insufficient remaining budget blocks
+retry before provider dispatch. Hidden provider HTTP retries are disabled.
+
+Run metrics and scorecards keep observed cost and reservations separate. Build-funded
+known run costs are charged once, with a migration-compatible marker for historical
+completed results. Manual retries preserve old unknown reservations while using genuine
+remaining budget; reservations count toward promotion cost ceilings and cannot prove
+measured cost savings. Grading failures keep the check pending and preserve deterministic
+failures; over-budget responses still persist actual observed usage.
+
+Returning graders preserve pause/cancel, transferred leases and immutable redirection.
+The worker abandons its stale trial result while retaining the observed charge. Manual
+grading rereads the pending result after I/O: interleaved calls retain both charges but
+publish one grade. The lease extension uses the bounded grading timeout, rather than a
+longer whole-build duration. Grading hooks commit only evaluation/read-only state and
+must not be reused for production tool/approval transactions.
+
+Sixteen new behavioral tests cover separate-session pre-dispatch visibility, settlement,
+unknown charges, actual SDK HTTP failure without retries, excessive reported usage,
+process kill/recovery budgets, worker checkpoint charging, user controls, manual retry
+history/concurrency and cost-policy handling. Local SDK models/transports are explicitly
+fictional provider contracts, not live OpenAI calls. No score override or production write.
+
+Final checks: 128 SQLite tests passed (4 PG-only skips), all 132 PostgreSQL tests passed;
+Ruff, strict TypeScript, 2 Vitest tests and both browser journeys pass. SQLite/PG drift
+checks pass; optimized Docker images rebuild and API/worker/web/PG/Redis startup plus
+API health/dashboard HTTP checks pass. Engineering/evaluation/factory documentation and
+the acceptance roadmap state the accounting boundary and remaining gaps.
+
+Remaining: durable evaluated-agent/deployment provider accounting, broader custom
+workflows and proposal browser review, email/Postgres transport and private-field
+hardening, memberships/pagination/mobile/accessibility and final acceptance audit.
+External OpenAI/provider credentials remain absent. The complete goal stays active.

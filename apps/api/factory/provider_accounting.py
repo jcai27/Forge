@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from factory.config import settings
 from factory.db import now
-from factory.models import BuildJob, UsageRecord
+from factory.models import BuildJob, ExecutionRun, UsageRecord
 from factory.runtime import BudgetExceeded, BudgetHooks
 
 
@@ -86,3 +86,107 @@ def recover_reservations(db, job):
     for record in db.scalars(select(UsageRecord).where(UsageRecord.job_id == job.id, UsageRecord.status == "pending")):
         record.status = "uncertain"
     # These reservations already contribute to job.spent. Never refund unknown calls.
+
+
+class RubricBudgetHooks(BudgetHooks):
+    """Durable read-only grading charges; never use for production tool transactions."""
+
+    def __init__(self, ceiling, db, run, job=None, max_seconds=120):
+        super().__init__(ceiling, "live")
+        self.ceiling, self.db, self.run, self.job = ceiling, db, run, job
+        self.owner, self.stage = (job.lease_owner, job.state) if job else (None, None)
+        self.deadline = now() + timedelta(seconds=max_seconds + 15)
+        self.pending = None
+        if job and job.org_id != run.org_id:
+            raise PermissionError("Rubric accounting tenant mismatch")
+
+    def lock(self):
+        if self.job:
+            self.db.scalar(
+                select(BuildJob)
+                .where(BuildJob.id == self.job.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        self.db.scalar(
+            select(ExecutionRun)
+            .where(ExecutionRun.id == self.run.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
+    def check_active(self):
+        if self.job and (self.job.lease_owner != self.owner or self.job.state != self.stage):
+            raise BuildInterrupted()
+
+    async def on_llm_start(self, context, agent, system_prompt, input_items):
+        self.lock()
+        self.check_active()
+        metrics = self.run.metrics
+        available = self.ceiling - metrics.get("cost", 0) - metrics.get("reserved_cost", 0)
+        self.max_cost = self.cost + max(0, available)
+        await super().on_llm_start(context, agent, system_prompt, input_items)
+        reserve = self.next_reservation
+        accounted = metrics.get("build_accounted_cost", 0)
+        unaccounted = max(0, metrics.get("cost", 0) - accounted) if self.job else 0
+        if self.job and self.job.spent + unaccounted + reserve > self.job.budget["max_cost"]:
+            raise BudgetExceeded("Insufficient build budget for rubric call")
+        self.pending = UsageRecord(
+            org_id=self.run.org_id,
+            run_id=self.run.id,
+            job_id=self.job.id if self.job else None,
+            role="rubric_evaluator",
+            status="pending",
+            reserved_cost=reserve,
+        )
+        self.db.add(self.pending)
+        self.run.metrics = {**metrics, "reserved_cost": metrics.get("reserved_cost", 0) + reserve}
+        if self.job:
+            self.job.spent += unaccounted + reserve
+            self.run.metrics = {**self.run.metrics, "build_accounted_cost": accounted + unaccounted}
+            if self.owner:
+                self.job.lease_until = self.deadline
+        self.db.commit()
+
+    async def on_llm_end(self, context, agent, response):
+        self.lock()
+        actual = response.usage.total_tokens * settings().estimated_token_cost
+        reserve = self.pending.reserved_cost
+        self.pending.tokens, self.pending.cost = response.usage.total_tokens, actual
+        self.pending.status, self.pending.reserved_cost = "recorded", 0
+        metrics = self.run.metrics
+        self.run.metrics = {
+            **metrics,
+            "reserved_cost": max(0, metrics.get("reserved_cost", 0) - reserve),
+            "tokens": metrics.get("tokens", 0) + response.usage.total_tokens,
+            "cost": metrics.get("cost", 0) + actual,
+            "grading_tokens": metrics.get("grading_tokens", 0) + response.usage.total_tokens,
+            "grading_cost": metrics.get("grading_cost", 0) + actual,
+            "cost_is_estimate": True,
+            "grading_cost_is_estimate": True,
+        }
+        if self.job:
+            self.job.spent = (self.job.spent - reserve) + actual
+            self.run.metrics = {
+                **self.run.metrics,
+                "build_accounted_cost": metrics.get("build_accounted_cost", 0) + actual,
+            }
+        self.db.commit()
+        self.pending = None
+        await super().on_llm_end(context, agent, response)
+
+    def finish(self, duration_ms):
+        self.lock()
+        if self.pending is not None:
+            self.pending.status = "uncertain"
+        metrics = self.run.metrics
+        self.run.metrics = {
+            **metrics,
+            "grading_tokens": metrics.get("grading_tokens", 0),
+            "grading_cost": metrics.get("grading_cost", 0),
+            "grading_duration_ms": metrics.get("grading_duration_ms", 0) + duration_ms,
+            "duration_ms": metrics.get("duration_ms", 0) + duration_ms,
+        }
+        self.db.commit()
+        self.lock()
+        self.check_active()

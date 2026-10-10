@@ -29,6 +29,13 @@ fresh attempt only within the remaining budget. Automatic HTTP retries are disab
 for these roles. The lease outlives the bounded request; returning workers recheck the
 lease and user state before persisting results, preserving pause/cancel decisions.
 
+Independent rubric grading now uses the same durable reservation principle with a
+run-linked rubric_evaluator ledger entry and optional build ownership. Unknown charges
+survive real process termination; observed grading usage is charged once, including
+manual retries. Paused/cancelled/redirected builds and transferred leases survive a
+returning grader. Main evaluation/deployment model calls still require equivalent
+durable accounting; do not infer that their transactions are covered by grading hooks.
+
 `GET /usage` exposes tenant-owned paginated ledger entries. Metrics report observed
 cost estimates and outstanding reservations separately; build details expose
 `factory_observed_cost` and `factory_reserved_cost`. The build page labels unresolved

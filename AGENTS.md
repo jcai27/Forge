@@ -23,6 +23,14 @@ use run_id. Factory model calls commit pending UsageRecords/reserved_cost before
 observed responses settle them, unresolved calls retain uncertain reservations in the
 build budget. Do not count reserved_cost as observed token usage or billing. Preserve
 pause/cancel and lease ownership when committing results after provider I/O.
+Read-only rubric calls also commit pending run/job UsageRecords before dispatch, retain
+unknown reservations, disable hidden HTTP retries and settle observed usage independently
+of grade validity. build_accounted_cost prevents charging observed run costs twice.
+Manual grading rechecks the pending result after I/O; competing calls retain both charges
+but publish one grade. Include reservations in budget ceilings, never in observed cost
+or tokens; unknown charges cannot prove a cost improvement. Do not reuse grading hooks
+for production tool transactions: execution/deployment durable accounting still needs
+its own transaction design.
 Read PLANS.md's current priorities rather than older progress snapshots.
 Build redirection requires a fresh immutable version/evaluation and retains global
 time/cost/iteration limits. Never reuse previous scorecards for a revised objective or

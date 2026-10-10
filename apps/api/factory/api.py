@@ -949,13 +949,12 @@ def review_result(result_id: str, body: HumanReview, actor=ACTOR, db=DB):
 @app.post("/evaluation-results/{result_id}/grade")
 async def retry_rubric_grade(result_id: str, actor=ACTOR, db=DB):
     from factory.evaluation import scorecard
+    from factory.provider_accounting import BuildInterrupted
     from factory.qualitative import grade_rubric
 
     require_admin(actor)
     result = db.scalar(
-        select(m.EvaluationResult)
-        .where(m.EvaluationResult.id == result_id, m.EvaluationResult.org_id == actor.org_id)
-        .with_for_update()
+        select(m.EvaluationResult).where(m.EvaluationResult.id == result_id, m.EvaluationResult.org_id == actor.org_id)
     )
     if not result:
         raise HTTPException(404, "Evaluation result not found")
@@ -975,12 +974,31 @@ async def retry_rubric_grade(result_id: str, actor=ACTOR, db=DB):
     job = next((job for job in jobs if job.checkpoint.get("evaluation_id") == evaluation.id), None)
     remaining = max(0, job.budget["max_cost"] - job.spent) if job else version.spec["max_cost"]
     previous_cost = run.metrics.get("cost", 0)
-    checks = await grade_rubric(db, version, run, case, max_cost=previous_cost + remaining)
+    if job and "build_accounted_cost" not in run.metrics:
+        # Existing completed result checkpoints already charged their observed cost.
+        run.metrics = {**run.metrics, "build_accounted_cost": previous_cost}
+    try:
+        checks = await grade_rubric(
+            db,
+            version,
+            run,
+            case,
+            max_cost=previous_cost + run.metrics.get("reserved_cost", 0) + remaining,
+            job=job,
+        )
+    except BuildInterrupted:
+        raise HTTPException(409, "Build changed during rubric grading; usage was retained") from None
+    result = db.scalar(
+        select(m.EvaluationResult)
+        .where(m.EvaluationResult.id == result_id, m.EvaluationResult.org_id == actor.org_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if not any(check["category"] == "qualitative" and check.get("pending") for check in result.checks):
+        raise HTTPException(409, "Rubric grading was already resolved; usage was retained")
     result.checks = [check for check in result.checks if check["category"] != "qualitative"] + checks
     result.failures = [check["category"] for check in result.checks if not check["passed"]]
     result.passed = not result.failures
-    if job:
-        job.spent += run.metrics.get("cost", 0) - previous_cost
     db.flush()
     evaluation.scorecard = scorecard(db, evaluation)
     audit(db, actor, "evaluation_rubric_graded", result.id, {"pending": any(check.get("pending") for check in checks)})
