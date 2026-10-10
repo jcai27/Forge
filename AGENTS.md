@@ -29,8 +29,10 @@ of grade validity. build_accounted_cost prevents charging observed run costs twi
 Manual grading rechecks the pending result after I/O; competing calls retain both charges
 but publish one grade. Include reservations in budget ceilings, never in observed cost
 or tokens; unknown charges cannot prove a cost improvement. Do not reuse grading hooks
-for production tool transactions: execution/deployment durable accounting still needs
-its own transaction design.
+for production tool transactions: deployment/production durable accounting still needs
+its own transaction design. Live evaluated-agent calls now use evaluation_agent ledgers
+and control checks at model/tool boundaries. Recover abandoned calls as uncertain and
+mark their orphaned execution failed; rerun only within the remaining build budget.
 Read PLANS.md's current priorities rather than older progress snapshots.
 Build redirection requires a fresh immutable version/evaluation and retains global
 time/cost/iteration limits. Never reuse previous scorecards for a revised objective or

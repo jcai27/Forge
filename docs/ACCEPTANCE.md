@@ -14,9 +14,9 @@ AGENT_FACTORY_SPEC.md. The goal stays active until remaining feasible work is do
 | Data discovery and least privilege | Integration test/discovery, typed registered tools, allowed tables/hosts, revocation | Resource-specific approval UX and contracts audit |
 | Natural-language builder | Template inference, versioned baseline, live architect SDK role | Structured requirements and background architecture/usage verified; general reviewed Test Designer verified; broader arbitrary connector workflow journeys remain |
 | Safe evaluation | Independent assertions, fresh fixture state, JSON schemas, dev/regression/validation splits | Replay/read-only grants, isolated state/schema/sequence checks and human review pass; rubric availability/budget tested, actual provider grades unavailable |
-| Autonomous loop | Measured failed baseline → hypothesis → new version → retest → compare → promote; persisted per-case checkpoints | Real process kill/recovery passes for builds and invocations; repeated-trial variability implemented; factory role/rubric crash reservations and lease/control boundaries verified; main evaluation/runtime model accounting remains |
+| Autonomous loop | Measured failed baseline → hypothesis → new version → retest → compare → promote; persisted per-case checkpoints | Real process kill/recovery passes for builds and invocations; repeated-trial variability implemented; factory/evaluation/rubric reservations and control boundaries verified; production runtime model accounting remains |
 | Regression protection | Critical stock bypass candidate rejected; competing stock approvals serialize correctly | Higher-score critical regression and equal aggregate regression hiding an individual failure are both rejected |
-| Budgets and stopping | Iterations/cost/time/stagnation, cancel/pause/resume, pre-call runtime token reservation; durable rubric reservations/settlement/retries | Durable architecture/designer/optimizer/rubric reservations verified; main evaluation/runtime durable provider accounting and broader resource audit remain |
+| Budgets and stopping | Iterations/cost/time/stagnation, cancel/pause/resume, pre-call runtime token reservation; durable evaluation/rubric reservations and settlement | Durable architecture/designer/optimizer/evaluation/rubric reservations verified; production runtime durable provider accounting and broader resource audit remain |
 | Trace/usage safety | Redacted secrets, external response trace summaries, audited actions | Mapped imports select declared fields and state evidence is summarized; broader raw output minimization and adversarial audit remain |
 | Template A data/edge cases | 100 products, multiple customers, aliases, prices, inventory, history, 36 cases | Fractional cents and duplicate requests verified; broader parsing/unit policy checks remain |
 | Templates B/C | Shared factory/runtime, independent suites, approved quote/hiring writes tested | Browser tests for both templates and scheduling constraints |
@@ -106,3 +106,15 @@ and deployment model calls still need equivalent durable transaction/accounting 
 Final checks: 128 SQLite tests (4 PG-only skips), 132 PostgreSQL tests, Ruff/TypeScript,
 Vitest, both browser journeys, migration drift and rebuilt Compose health pass. Actual
 OpenAI grading remains unverified without credentials; fixtures exercise SDK contracts.
+
+
+2026-10-09: live evaluated-agent calls now use durable run/build reservations and observed
+settlement with provider HTTP retries disabled. Real process interruption retains unknown
+charges and recovery marks orphaned execution failed. Model/tool boundary controls block
+further dispatch after pause/cancel/lease transfer; worker checkpoints charge settled
+usage once. Standalone evaluations are run-owned, and production execution cannot use
+these accounting hooks. Real SDK fixture tools execute without production mutations or
+approvals. Deployment/production durable accounting and wider acceptance remain incomplete.
+Final checks: 139 SQLite tests (4 PG-only skips), 143 PostgreSQL tests, Ruff/TypeScript,
+Vitest, both browser journeys, migration drift and rebuilt Compose health pass. Actual
+OpenAI/provider responses remain unverified without credentials.

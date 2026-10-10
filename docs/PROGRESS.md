@@ -415,3 +415,40 @@ Remaining: durable evaluated-agent/deployment provider accounting, broader custo
 workflows and proposal browser review, email/Postgres transport and private-field
 hardening, memberships/pagination/mobile/accessibility and final acceptance audit.
 External OpenAI/provider credentials remain absent. The complete goal stays active.
+
+
+2026-10-09 evaluated-agent accounting milestone verified: live evaluation execution
+uses durable evaluation_agent UsageRecords linked to its run and optional build job.
+Reservations commit before SDK dispatch, settle to observed reported usage, and retain
+unknown charges on errors/interruption. Provider HTTP retries are disabled. Model/tool
+boundaries recheck build stage and lease ownership before further tool dispatch. Observed
+usage is retained even when returning responses lose ownership, while stale trials do
+not create evaluation results or overwrite user pause/cancel decisions.
+
+Accounting checkpoints are restricted to isolated/replayed/authorized read-only
+evaluation. Passing a build job into production execution rejects before dispatch.
+Normal deployment/approval transactions do not use these commits. Runtime result metrics
+retain the ledger's reservation/accounted fields and measured duration; worker checkpoints
+do not add settled costs again. Grading continues to use its independent durable role.
+Recovery marks abandoned evaluation-agent requests uncertain and their orphaned execution
+failed with InterruptedProviderCall. The unknown charge remains against the build budget;
+insufficient residual budget rejects a fresh request before dispatch.
+
+Eleven new tests exercise the real SDK registered-tool loop with an explicitly local
+provider contract, separate-session pending-record visibility, settlement, known tool
+outputs, zero production mutations/approvals, pause/cancel/lease transfer before tools,
+actual HTTP failure without retry, standalone evaluation accounting, worker checkpoint
+charging and production-boundary rejection. A real killed evaluation process proves
+durable unknown usage, orphan status and recovery-budget behavior. Reported fixture tokens
+are provider-contract evidence, not live OpenAI execution or billing. No score override.
+
+Final checks: 139 SQLite tests passed (4 PG-only skips), all 143 PostgreSQL tests passed;
+Ruff, strict TypeScript, 2 Vitest tests and both browser journeys pass. SQLite/PG migration
+drift checks pass. Optimized Docker images rebuild; API/worker/web/PG/Redis startup and
+API health/dashboard HTTP checks pass. Engineering/factory/evaluation/acceptance documents
+and the roadmap state the implemented boundary and remaining gaps accurately.
+
+Remaining: durable deployment/production provider accounting with safe approval/tool
+transaction boundaries; broader custom workflows/proposal browser review; email/Postgres
+transport and private-field hardening; memberships/pagination/mobile/accessibility; full
+acceptance audit. External credentials remain absent. The complete goal stays active.

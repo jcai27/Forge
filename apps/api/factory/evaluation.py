@@ -243,6 +243,7 @@ async def evaluate_case(db, evaluation, version, case, trial=0, max_cost=None, m
         observation=observation,
         max_cost=max_cost,
         max_seconds=max_seconds,
+        job=job,
     )
     checks, failures = grade(run, case, observation)
     if case.rubric:

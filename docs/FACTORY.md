@@ -33,8 +33,11 @@ Independent rubric grading now uses the same durable reservation principle with 
 run-linked rubric_evaluator ledger entry and optional build ownership. Unknown charges
 survive real process termination; observed grading usage is charged once, including
 manual retries. Paused/cancelled/redirected builds and transferred leases survive a
-returning grader. Main evaluation/deployment model calls still require equivalent
-durable accounting; do not infer that their transactions are covered by grading hooks.
+returning grader. Live evaluated-agent calls now use evaluation_agent reservations,
+observed settlement and model/tool control checks. Their isolated/read-only tools permit
+durable checkpoints without committing production state. Killed executions become
+failed/uncertain on recovery and fresh attempts remain budget-bound. Deployment/production
+model calls still require their own transaction design; these hooks cannot execute them.
 
 `GET /usage` exposes tenant-owned paginated ledger entries. Metrics report observed
 cost estimates and outstanding reservations separately; build details expose

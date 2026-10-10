@@ -127,7 +127,14 @@ grading with `POST /evaluation-results/{id}/grade` after configuring the provide
 Returning calls recheck build controls/lease ownership and pending result state. An
 interleaved retry may retain its observed charge but cannot replace an already resolved
 grade. Deterministic failures remain failed. Provider billing reconciliation remains
-unavailable, as does full durable accounting for the evaluated agent's own model calls.
+unavailable. Live evaluated-agent model calls also commit run/build reservations before
+dispatch, settle observed usage once, and preserve unknown charges across interruption.
+Control checks gate returning responses and tool boundaries; paused/cancelled/transferred
+workers cannot use a returning response to dispatch another tool. Recovery marks an
+abandoned execution failed and its charge uncertain, retaining the charge while a fresh
+attempt receives isolated state. Automatic provider HTTP retries are disabled. This
+accounting applies only to isolated/replayed/authorized read-only evaluation, never to
+production approvals or writes. Deployment/production accounting needs a separate design.
 
 Human reviewers submit `{passed, evidence}` to
 `POST /evaluation-results/{id}/review`, or use the form under an expanded lab result.

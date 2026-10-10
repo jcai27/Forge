@@ -247,7 +247,10 @@ async def execute(
     environment=None,
     observation=None,
     max_seconds=None,
+    job=None,
 ):
+    if job is not None and not evaluation:
+        raise ValueError("Build accounting requires isolated evaluation execution")
     spec = AgentSpec.model_validate(version.spec)
     validate(input_data, spec.input_schema)
     mode = mode or settings().execution_mode
@@ -263,7 +266,15 @@ async def execute(
     before = deepcopy(isolated)
     context = ExecutionContext(db, version, run, spec, isolated, evaluation, environment)
     started = time.monotonic()
-    budget_hooks = BudgetHooks(min(spec.max_cost, max_cost) if max_cost is not None else spec.max_cost, mode)
+    ceiling = min(spec.max_cost, max_cost) if max_cost is not None else spec.max_cost
+    timeout = min(spec.timeout_seconds, max_seconds) if max_seconds is not None else spec.timeout_seconds
+    durable = evaluation and mode == "live"
+    if durable:
+        from factory.provider_accounting import EvaluationBudgetHooks
+
+        budget_hooks = EvaluationBudgetHooks(ceiling, db, run, job, timeout)
+    else:
+        budget_hooks = BudgetHooks(ceiling, mode)
     emit(
         db,
         version.org_id,
@@ -273,15 +284,30 @@ async def execute(
     )
     try:
         agent = reconstruct_agent(context, mode)
+        if durable:
+            from factory.builder import run_factory_role
+
+            async def run_agent():
+                return await run_factory_role(
+                    agent,
+                    json.dumps(redact_tenant(db, version.org_id, input_data)),
+                    max_turns=spec.max_turns,
+                    hooks=budget_hooks,
+                )
+        else:
+
+            async def run_agent():
+                return await Runner.run(
+                    agent,
+                    json.dumps(redact_tenant(db, version.org_id, input_data)),
+                    max_turns=spec.max_turns,
+                    hooks=budget_hooks,
+                    run_config=RunConfig(tracing_disabled=True, trace_include_sensitive_data=False),
+                )
+
         result = await asyncio.wait_for(
-            Runner.run(
-                agent,
-                json.dumps(redact_tenant(db, version.org_id, input_data)),
-                max_turns=spec.max_turns,
-                hooks=budget_hooks,
-                run_config=RunConfig(tracing_disabled=True, trace_include_sensitive_data=False),
-            ),
-            timeout=min(spec.timeout_seconds, max_seconds) if max_seconds is not None else spec.timeout_seconds,
+            run_agent(),
+            timeout=timeout,
         )
         output = json.loads(result.final_output) if isinstance(result.final_output, str) else result.final_output
         if not isinstance(output, dict):
@@ -339,6 +365,7 @@ async def execute(
         elif output.get("flags"):
             run.status = "needs_attention"
         run.metrics = {
+            **(run.metrics if durable else {}),
             "duration_ms": round((time.monotonic() - started) * 1000, 3),
             "tokens": tokens,
             "cost": cost,
@@ -348,7 +375,8 @@ async def execute(
             "state_changes": sum(1 for key in isolated if isolated[key] != before.get(key)),
             "approval_ids": context.pending,
         }
-        db.add(UsageRecord(org_id=version.org_id, run_id=run.id, tokens=tokens, cost=cost))
+        if not durable:
+            db.add(UsageRecord(org_id=version.org_id, run_id=run.id, tokens=tokens, cost=cost))
         emit(
             db,
             version.org_id,
@@ -370,6 +398,7 @@ async def execute(
             cause = cause.__cause__
         run.error = type(cause).__name__
         run.metrics = {
+            **(run.metrics if durable else {}),
             "duration_ms": round((time.monotonic() - started) * 1000, 3),
             "tokens": budget_hooks.tokens,
             "cost": budget_hooks.cost,
@@ -380,8 +409,18 @@ async def execute(
                 isinstance(cause, PermissionError) or (isinstance(cause, HTTPException) and cause.status_code == 403)
             ),
         }
-        db.add(UsageRecord(org_id=version.org_id, run_id=run.id, tokens=budget_hooks.tokens, cost=budget_hooks.cost))
+        if not durable:
+            db.add(
+                UsageRecord(org_id=version.org_id, run_id=run.id, tokens=budget_hooks.tokens, cost=budget_hooks.cost)
+            )
         emit(db, version.org_id, "execution_failed", {"error_type": type(error).__name__}, run_id=run.id)
+    finally:
+        if durable:
+            elapsed = round((time.monotonic() - started) * 1000, 3)
+            run.metrics = {**run.metrics, "duration_ms": elapsed, "execution_duration_ms": elapsed}
+            if run.status == "running":
+                run.status, run.error = "failed", "InterruptedExecution"
+            budget_hooks.finish(0)
     if evaluation and observation is not None:
         observation.update(state=deepcopy(isolated), tool_calls=deepcopy(context.tool_calls))
     db.flush()
