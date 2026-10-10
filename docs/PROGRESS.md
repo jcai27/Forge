@@ -521,3 +521,43 @@ broader multi-turn connector and residual-budget/concurrent-policy audit; custom
 and proposal browser review; email/Postgres transport/private-field hardening;
 memberships/pagination/mobile/accessibility and complete requirement-level audit.
 External credentials remain absent. The complete platform goal stays active.
+
+
+2026-10-09 proposal browser review milestone verified: the build page shows scenario
+names/splits/critical flags/assertion counts derived from the editable plan and reports
+invalid JSON inline with accessible field/error associations. Administrator correction
+and acceptance is verified end to end, including persisted cases and actual subsequent
+isolated execution/grading. Invalid JSON leaves review pending; an attempted live-access
+grant returns 403 and imports no cases. Correcting the fictional Tomatoes expectation
+from 901 to 900 cents imports six scenarios; independent held-out execution passes two
+cases. Repeated acceptance returns 409 and reload preserves the completed review.
+
+The disposable browser database prepares proposals through the real Test Designer SDK
+and worker with an explicitly local Model fixture, not a network model. The helper only
+accepts the E2E temporary SQLite path. It seeds no scores or evaluation results; the demo
+worker executes actual fixture tools and graders after human review. No test endpoint
+was added to the application and no external production side effect was performed.
+
+The expanded journey exposed a real frontend request storm: per-event stream cache
+invalidation exhausted the existing API limit and left an accepted proposal on screen.
+Build streams now coalesce refreshes into a 1.5-second window while retaining every
+cursor update and canceling pending work on unmount. All three browser journeys verify
+zero HTTP 429 responses. API limits were not raised or disabled. Docker contexts now
+exclude browser traces/reports and TypeScript cache artifacts.
+
+The execution-entry-point audit corrected the roadmap: all public production invocation
+routes already enter the durable queue. Direct execute is an internal helper, not a
+standalone production/preview endpoint. Any future public entry must retain durable
+accounting and current authorization. Multi-turn/residual-budget/concurrent-policy audits
+remain open; this correction does not claim the broader security audit complete.
+
+Current scoped checks: Ruff; 13 factory-role tests on SQLite and 13 on PostgreSQL;
+strict TypeScript; 2 Vitest tests; all three browser journeys; shell syntax/diff checks.
+Optimized Docker images rebuild and API/worker/web/PG/Redis start; API health reports
+labeled demo mode and dashboard returns HTTP 200. The unchanged backend's last full
+suite remains 159 SQLite tests plus 4 PG-only skips, and all 163 PostgreSQL tests.
+
+Remaining: broader custom connector workflow journeys; deployment concurrency/budget
+contracts; email/Postgres transport/private-field hardening; memberships/pagination/
+mobile/accessibility, templates B/C browser evidence and full requirement-level audit.
+Actual OpenAI/provider credentials remain absent. The complete platform goal stays active.

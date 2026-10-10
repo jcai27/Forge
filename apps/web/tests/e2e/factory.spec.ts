@@ -1,5 +1,7 @@
 import {test,expect} from '@playwright/test';
 test('create a project, build and improve an agent, deploy and approve a real fixture operation',async({page})=>{
+  const rateLimited:string[]=[];
+  page.on('response',response=>{if(response.status()===429)rateLimited.push(response.url());});
  await page.goto('/dashboard');
  await page.getByRole('button',{name:'Open local demo workspace'}).click();
  await expect(page.getByRole('heading',{name:'Your agent factory'})).toBeVisible();
@@ -61,4 +63,5 @@ test('create a project, build and improve an agent, deploy and approve a real fi
  await expect(page.getByRole('button',{name:'Record independent review',exact:true})).toHaveCount(0);
  await page.goto('/dashboard');
  await page.screenshot({path:'test-results/dashboard.png',fullPage:true});
+  expect(rateLimited,'Browser interactions must stay within the API request limit').toEqual([]);
 });

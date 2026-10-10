@@ -54,8 +54,9 @@ configuration and worker ownership. Connector and fixture approvals stay staged 
 validated final output; the final result, approvals and queue allocation settlement commit
 together. Returning stale workers retain reported usage but cannot publish their result.
 A late response after successor completion converts the retained unknown reservation to
-observed usage without duplicating approvals. Standalone production/preview calls outside
-the deployment queue still need durable accounting and authorization checkpoints.
+observed usage without duplicating approvals. All public production invocation routes
+enter this queue. Direct execute is an internal helper with no standalone endpoint; any
+future public entry point must preserve durable accounting and current authorization.
 
 Each immutable AgentSpec carries a `quality_policy`:
 

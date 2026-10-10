@@ -94,4 +94,5 @@ provider charges remain reserved against lifetime limits after failure/recovery.
 and tool checkpoints recheck authorization and worker ownership. Successful result and
 staged approvals commit with queue settlement; failed/stale executions cannot publish
 approvals. Costs are configured estimates from reported tokens, not provider invoices.
-Standalone production/preview calls outside this queue still need equivalent accounting.
+All current public production invocation routes enter this queue; direct execute is an
+internal helper. Any future execution endpoint must retain accounting and authorization.

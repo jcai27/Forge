@@ -36,18 +36,28 @@ function BuildPanel({agent,versions}: {agent:Agent; versions:Version[]}) {
   useEffect(()=>{
     if(!jobId)return;
     const controller=new AbortController(); let cursor='';
+    let refreshTimer:ReturnType<typeof setTimeout>|undefined;
+    function scheduleRefresh() {
+      if(refreshTimer!==undefined)return;
+      refreshTimer=setTimeout(()=>{
+        refreshTimer=undefined;
+        if(controller.signal.aborted)return;
+        void cache.invalidateQueries({queryKey:[`/builds/${jobId}`]});
+        void cache.invalidateQueries({queryKey:[`/builds/${jobId}/history?limit=200`]});
+      },1500);
+    }
     async function connect() {
       while(!controller.signal.aborted) {
         try {
           const response=await fetch(`${API_URL}/builds/${jobId}/events${cursor?'?after='+cursor:''}`,{headers:{Authorization:`Bearer ${token()}`},signal:controller.signal});
           if(!response.ok||!response.body)throw new Error('Stream unavailable');
           setStreamStatus('Live events');const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
-          while(!controller.signal.aborted){const chunk=await reader.read();if(chunk.done)break;buffer+=decoder.decode(chunk.value,{stream:true});const frames=buffer.split('\n\n');buffer=frames.pop()??'';for(const frame of frames){const line=frame.split('\n').find(l=>l.startsWith('id: '));if(line){cursor=line.slice(4);void cache.invalidateQueries({queryKey:[`/builds/${jobId}`]});void cache.invalidateQueries({queryKey:[`/builds/${jobId}/history?limit=200`]});}}}
+          while(!controller.signal.aborted){const chunk=await reader.read();if(chunk.done)break;buffer+=decoder.decode(chunk.value,{stream:true});const frames=buffer.split('\n\n');buffer=frames.pop()??'';for(const frame of frames){const line=frame.split('\n').find(l=>l.startsWith('id: '));if(line){cursor=line.slice(4);scheduleRefresh();}}}
         } catch {if(controller.signal.aborted)return;setStreamStatus('Reconnecting · polling active');}
         await new Promise<void>(resolve=>setTimeout(resolve,1500));
       }
     }
-    void connect();return()=>controller.abort();
+    void connect();return()=>{controller.abort();if(refreshTimer!==undefined)clearTimeout(refreshTimer);};
   },[jobId,cache]);
   if(!jobId)return <Card><Empty title="No build yet">Start a build to run the factory workflow.</Empty></Card>;
   if(!job.data)return <Loading/>;

@@ -2,8 +2,8 @@
 
 Authoritative scope: docs/AGENT_FACTORY_SPEC.md. The complete goal remains active.
 See docs/ACCEPTANCE.md for requirement-level evidence and gaps; chronological evidence
-is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 durable queued-deployment model reservations,
-interruption recovery, authorization controls and late-response settlement.
+is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 corrected test-proposal browser review and
+coalesced build-stream refreshes, verified without API rate-limit failures.
 
 Verified working slices:
 
@@ -22,23 +22,25 @@ Verified working slices:
 10. Real worker kill/recovery, tenant/RBAC/secret tests and PG concurrency tests.
 
 Latest checks: Ruff; 159 SQLite tests passed (4 PG-only skips); 163 PG tests passed;
-strict TypeScript; 2 Vitest tests; two browser journeys; Alembic drift checks on both
+strict TypeScript; 2 Vitest tests; three browser journeys; Alembic drift checks on both
 DBs; populated migration upgrade/downgrade; optimized images and Compose health.
-These prove working slices, not complete phases or the whole product specification.
+Latest scoped verification: 13 factory-role tests on each SQLite/PostgreSQL, Ruff,
+TypeScript, 2 Vitest tests and all 3 browser journeys. The complete backend counts above
+are from the unchanged runtime at the preceding milestone. These prove working slices,
+not complete phases or the whole product specification.
 
 Next work, in priority order:
 
-1. Broader custom-workflow evidence and reviewed proposal browser interaction. Background Test Designer
-   proposals now require administrator correction/acceptance; verify more connector
-   workflows and keep hidden answers outside optimizer context.
-2. Extend durable provider reservations and authorization checkpoints to standalone
-   production/preview calls outside the deployment queue. Queued deployments now persist
-   per-model ledgers inside their queue allocation, retain unknown charges through recovery,
-   disable hidden HTTP retries and commit validated results/approvals with final settlement.
-   Real worker termination and stale responses after successor completion are verified.
-   Broaden multi-turn connector contracts, residual-budget rejection and concurrent policy/
-   authorization audits. Architecture/designer/optimizer/evaluation/rubric accounting is
-   durable; billing reconciliation remains unavailable and unknown charges stay reserved.
+1. Broader custom-workflow evidence across reusable connectors. Generated proposal
+   correction/acceptance now passes a real browser journey with actual SDK-generated
+   local fixtures, denied live grants, real isolated evaluation and persisted review.
+   Verify arbitrary connector workflows and keep hidden answers outside optimizer context.
+2. Broaden multi-turn deployment connector contracts, residual-budget rejection and
+   concurrent policy/authorization audits. All public production invocation routes enter
+   the durable deployment queue; direct execute is an internal helper with no standalone
+   endpoint. Do not add an unprotected public execution path. Architecture/designer/
+   optimizer/evaluation/rubric/deployment accounting is durable; actual provider billing
+   reconciliation remains unavailable and unknown charges stay reserved.
 3. Broader private-field minimization and email/Postgres transport bounds,
    safe deployment users/settings and tenant/relational enforcement audit.
 4. Membership/invitation management, collection pagination, mobile/accessibility checks,

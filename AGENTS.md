@@ -34,8 +34,9 @@ deployment_agent ledger: reserve inside the queue allocation before dispatch, re
 unknown charges on interruption, and settle observed costs once. Model/tool checkpoints
 recheck current membership, pinned approved version, deployment and lease ownership.
 Keep final approvals/result/queue settlement in one transaction. A late stale response
-may settle usage but cannot publish another result. Standalone production/preview
-execution still needs durable accounting; do not silently reuse evaluation hooks. Live evaluated-agent calls now use evaluation_agent ledgers
+may settle usage but cannot publish another result. Public production execution must enter the deployment queue. Direct execute is an
+internal helper, with no standalone API endpoint. Do not expose a new production entry
+point without durable accounting and current authorization, or reuse evaluation hooks. Live evaluated-agent calls now use evaluation_agent ledgers
 and control checks at model/tool boundaries. Recover abandoned calls as uncertain and
 mark their orphaned execution failed; rerun only within the remaining build budget.
 Production connector write requests stay staged in ExecutionContext until final output
@@ -43,6 +44,11 @@ validation succeeds. Do not attach them to the SQLAlchemy session during model/t
 checkpoints. Publish pending approvals with the validated execution result; failures must
 expose no new actionable approval. Approval dispatch rejects queued/running/failed runs,
 while authorized rejection remains available for stale requests.
+Build event streams must coalesce query refreshes instead of refetching once per event.
+Preserve the event cursor and cancel queued refreshes on unmount. Browser acceptance
+checks include zero HTTP 429 responses; do not raise/disable API limits to pass them.
+Proposal browser fixtures use a local SDK model and actual worker review checkpoints,
+never seeded scores or a production-only test endpoint.
 Read PLANS.md's current priorities rather than older progress snapshots.
 Build redirection requires a fresh immutable version/evaluation and retains global
 time/cost/iteration limits. Never reuse previous scorecards for a revised objective or

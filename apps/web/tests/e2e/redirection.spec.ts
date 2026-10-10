@@ -1,6 +1,8 @@
 import {test,expect} from '@playwright/test';
 
 test('redirect a paused build through a new immutable configuration and fresh evaluation',async({page})=>{
+  const rateLimited:string[]=[];
+  page.on('response',response=>{if(response.status()===429)rateLimited.push(response.url());});
   await page.goto('/dashboard');
   await page.getByRole('button',{name:'Open local demo workspace'}).click();
   await expect(page.getByRole('heading',{name:'Your agent factory'})).toBeVisible();
@@ -37,4 +39,5 @@ test('redirect a paused build through a new immutable configuration and fresh ev
   expect(result.checkpoint.validation_scorecard.score).toBe(1);
   const versions=await (await page.request.get(`${base}/agents/${agent.id}/versions`,{headers})).json();
   expect(versions.items.find((version:{id:string})=>version.id===agent.version.id).spec.rules.resolve_aliases).toBe(false);
+  expect(rateLimited,'Browser interactions must stay within the API request limit').toEqual([]);
 });

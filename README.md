@@ -89,6 +89,11 @@ corepack pnpm --filter @factory/web build
 
 The test command runs Ruff, backend pytest, strict TypeScript, Vitest, and Playwright.
 Playwright starts isolated API/worker/browser services on 8100/3100 with a fresh database.
+A test-only local SDK model prepares the proposal-review fixture through the actual
+Test Designer/worker logic before startup. It deliberately proposes one incorrect
+expectation for correction in the browser; no evaluation score is seeded. All subsequent
+evaluations use the explicitly labeled deterministic fixture runtime, not OpenAI.
+This helper only accepts the disposable E2E database and never runs in normal startup.
 Install its browser once with `corepack pnpm --filter @factory/web exec playwright install chromium`.
 To run backend acceptance tests on local PostgreSQL using isolated per-test schemas:
 

@@ -12,15 +12,15 @@ AGENT_FACTORY_SPEC.md. The goal stays active until remaining feasible work is do
 | Immutable structured specs/runtime | Version creation/edit API, pinned tool contracts, SDK reconstruction | Live provider calls unavailable without key; multi-tool custom SDK provider-contract test passes; actual provider responses unavailable |
 | Generic connectors | REST/Postgres/file/webhook/email/MCP adapters and contract tests; actual local TLS MCP SDK initialization/discovery/call with bounded JSON/SSE, compression, pagination and deadline tests | Real PostgreSQL discovery/read/denied-write test passed; email/Postgres transport bounds and external credentials remain |
 | Data discovery and least privilege | Integration test/discovery, typed registered tools, allowed tables/hosts, revocation | Resource-specific approval UX and contracts audit |
-| Natural-language builder | Template inference, versioned baseline, live architect SDK role | Structured requirements and background architecture/usage verified; general reviewed Test Designer verified; broader arbitrary connector workflow journeys remain |
+| Natural-language builder | Template inference, versioned baseline, live architect SDK role | Structured requirements and background architecture/usage verified; general reviewed Test Designer plus correction/acceptance browser journey verified; broader arbitrary connector workflow journeys remain |
 | Safe evaluation | Independent assertions, fresh fixture state, JSON schemas, dev/regression/validation splits | Replay/read-only grants, isolated state/schema/sequence checks and human review pass; rubric availability/budget tested, actual provider grades unavailable |
-| Autonomous loop | Measured failed baseline → hypothesis → new version → retest → compare → promote; persisted per-case checkpoints | Real process kill/recovery passes for builds and invocations; repeated-trial variability implemented; factory/evaluation/rubric reservations and control boundaries verified; queued deployment ledger/recovery verified; standalone production accounting remains |
+| Autonomous loop | Measured failed baseline → hypothesis → new version → retest → compare → promote; persisted per-case checkpoints | Real process kill/recovery passes for builds and invocations; repeated-trial variability implemented; factory/evaluation/rubric reservations and control boundaries verified; queued deployment ledger/recovery verified; broader concurrent policy/authorization audit remains |
 | Regression protection | Critical stock bypass candidate rejected; competing stock approvals serialize correctly | Higher-score critical regression and equal aggregate regression hiding an individual failure are both rejected |
-| Budgets and stopping | Iterations/cost/time/stagnation, cancel/pause/resume, pre-call runtime token reservation; durable evaluation/rubric reservations and settlement | Durable architecture/designer/optimizer/evaluation/rubric reservations verified; queued deployment reservations/settlement verified; standalone production accounting and broader resource audit remain |
+| Budgets and stopping | Iterations/cost/time/stagnation, cancel/pause/resume, pre-call runtime token reservation; durable evaluation/rubric reservations and settlement | Durable architecture/designer/optimizer/evaluation/rubric reservations verified; queued deployment reservations/settlement verified; broader resource audit remains |
 | Trace/usage safety | Redacted secrets, external response trace summaries, audited actions | Mapped imports select declared fields and state evidence is summarized; broader raw output minimization and adversarial audit remain |
 | Template A data/edge cases | 100 products, multiple customers, aliases, prices, inventory, history, 36 cases | Fractional cents and duplicate requests verified; broader parsing/unit policy checks remain |
 | Templates B/C | Shared factory/runtime, independent suites, approved quote/hiring writes tested | Browser tests for both templates and scheduling constraints |
-| Frontend pages/design | All required paths, actual controls, charts, workflow, responsive CSS; browser journey passed; screenshot inspected | Mobile and accessibility checks; list pagination; budget editing UX; in-progress immutable redirection browser flow now passes; human review browser flow passes |
+| Frontend pages/design | All required paths, actual controls, charts, workflow, responsive CSS; browser journey passed; screenshot inspected | Mobile and accessibility checks; list pagination; budget editing UX; in-progress immutable redirection browser flow now passes; human review and generated-proposal correction browser flows pass |
 | Deployment runtime | Approved version pinning, invocation/idempotency, approval completion, logs, pause and rollback | Schedules, signed webhooks, lifetime budgets and durable queue tested; production runtime audit remains |
 | Production side effects | Default approval, permission recheck, dispatch intent, no automatic ambiguous retry | Administrator reconciliation receipts and concurrent stock/duplicate-request approvals verified; transport hardening remains |
 | DX/documents | README, env sample, migrations, scripts, OpenAPI, engineering memory | Seed CLI/API examples beyond demo bootstrap and final runbook |
@@ -142,3 +142,19 @@ connector/concurrent-policy coverage and the remaining full acceptance audit are
 Final checks: 159 SQLite tests (4 PG-only skips), 163 PostgreSQL tests, Ruff/TypeScript,
 2 Vitest tests, both browser journeys, both migration drift checks and rebuilt Compose
 startup/API health/dashboard HTTP checks pass.
+
+
+2026-10-09: generated proposal correction/acceptance now passes a third browser journey.
+A clearly local SDK fixture prepares the review checkpoint through real worker logic;
+no score or evaluation result is seeded. The browser verifies inline invalid-JSON
+feedback, rejected live access with zero imported cases, corrected expectations, six
+persisted cases, actual held-out evaluation, duplicate acceptance denial and reload.
+Scenario summaries follow edits. The journey uncovered per-event refresh requests
+exhausting the API limit; coalesced stream refreshes fix it, and all three journeys now
+assert zero HTTP 429 responses with unchanged server limits. Current scoped checks:
+13 factory-role tests on each DB, Ruff, TypeScript, 2 Vitest tests, all 3 browser journeys,
+optimized Docker rebuild/startup/API health/dashboard HTTP. Backend runtime unchanged;
+last full suite is 159 SQLite tests (4 PG-only skips) and 163 PostgreSQL tests.
+All public production invocation routes enter the durable queue; direct execute is an
+internal helper with no standalone endpoint. Broader connector, concurrency, UX and
+full acceptance work remains, and actual external providers are still unverified.
