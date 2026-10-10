@@ -23,7 +23,7 @@ from factory.models import (
     Membership,
     ToolDefinition,
 )
-from factory.runtime import reconstruct_agent
+from factory.runtime import reconstruct_agent, tool_name
 from factory.schemas import AgentSpec
 from factory.security import token_for
 
@@ -97,7 +97,8 @@ def provider_model(monkeypatch):
         def bind(context, mode):
             agent = reconstruct_agent(context, mode)
             agent.model = ProviderContractModel(
-                "t_" + read.replace("-", "_"), "t_" + send.replace("-", "_") if send else None
+                tool_name(context.db.get(ToolDefinition, read)),
+                tool_name(context.db.get(ToolDefinition, send)) if send else None,
             )
             return agent
 

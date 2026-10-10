@@ -2,8 +2,10 @@
 
 Authoritative scope: docs/AGENT_FACTORY_SPEC.md. The complete goal remains active.
 See docs/ACCEPTANCE.md for requirement-level evidence and gaps; chronological evidence
-is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 bounded collection traversal and frontend Load more
-controls, including out-of-first-page project/connection selection and actual agent build.
+is in docs/PROGRESS.md. Latest verified milestone: 2026-10-10 builder harness (docs/BUILDER.md):
+search-loop fixes, tool-using optimizer with typed patches, screened multi-candidate rounds,
+executed bundle fields, isolated open-web research, sandboxed builder-written tools,
+connection proposals, shadow comparison, release dossier and cases from real runs.
 
 Verified working slices:
 
@@ -26,6 +28,27 @@ strict TypeScript; 3 Vitest tests; five browser journeys with zero HTTP 429s; Al
 upgrade/drift checks on both DBs; populated migration upgrade/downgrade; optimized images
 and Compose startup/health. These prove working slices, not complete phases or the
 whole product specification.
+
+Builder checks (2026-10-10): Ruff; 321 SQLite tests (6 PG-only skips); 327 PostgreSQL tests;
+migration 0008 drift-free on both; 36 sandbox isolation checks; containerized worker-to-
+sandbox end-to-end; strict TypeScript; 3 Vitest; production web build; all 6 browser journeys.
+Search benchmark with a simulated proposer, 30 builds per arm: history raises target-reached
+from 67% to 100% and cuts trials by about a quarter; screening cuts full evaluations by 30%.
+First real-model runs used a local llama3.2:3b, the only model available: the pipeline ran
+end to end and exposed six defects now fixed, but the model could not produce one valid
+patch, so whether the builder helps is still unmeasured.
+
+Builder work still open, in priority order:
+
+a. Run the live benchmark with a capable model (`python -m benchmarks.search --live`). It
+   needs an API key, or disk space for a larger local model through `OPENAI_BASE_URL`. Then
+   add workflows over custom connectors and a mock vendor API with messy documentation.
+b. Parallel trial execution, rerun-to-confirm promotion and a rotating held-out set.
+c. Path parameters in the REST connector and non-REST proposals.
+d. Reviewed third-party packages for generated tools; a hardened sandbox runtime for
+   production (gVisor, Firecracker or managed).
+e. The build timeline lags about two seconds behind a finished build before "Load more"
+   appears. Tests now wait for it; consider refreshing the timeline when the build completes.
 
 Next work, in priority order:
 

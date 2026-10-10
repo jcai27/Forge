@@ -1467,6 +1467,236 @@
         }
       }
     },
+    "/connection-proposals": {
+      "get": {
+        "summary": "Connection Proposals",
+        "operationId": "connection_proposals_connection_proposals_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Draft Connection Proposal",
+        "operationId": "draft_connection_proposal_connection_proposals_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftProposal"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connection-proposals/import-openapi": {
+      "post": {
+        "summary": "Import Openapi Proposal",
+        "operationId": "import_openapi_proposal_connection_proposals_import_openapi_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportOpenAPI"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/connection-proposals/{proposal_id}/approve": {
+      "post": {
+        "summary": "Approve Connection Proposal",
+        "operationId": "approve_connection_proposal_connection_proposals__proposal_id__approve_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveProposal"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connection-proposals/{proposal_id}/reject": {
+      "post": {
+        "summary": "Reject Connection Proposal",
+        "operationId": "reject_connection_proposal_connection_proposals__proposal_id__reject_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/integrations/{connection_id}/revoke": {
       "post": {
         "summary": "Revoke",
@@ -2103,8 +2333,213 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ApproveVersion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/versions/{version_id}/dossier": {
+      "get": {
+        "summary": "Version Dossier",
+        "operationId": "version_dossier_versions__version_id__dossier_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/versions/{version_id}/shadow": {
+      "post": {
+        "summary": "Shadow Version",
+        "operationId": "shadow_version_versions__version_id__shadow_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShadowRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/feedback": {
+      "get": {
+        "summary": "Agent Feedback",
+        "operationId": "agent_feedback_agents__agent_id__feedback_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/case": {
+      "post": {
+        "summary": "Case From Run",
+        "operationId": "case_from_run_runs__run_id__case_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseFromRun"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -3187,6 +3622,37 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Design Metrics"
+          },
+          "examples": {
+            "items": {
+              "$ref": "#/components/schemas/Example"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Examples"
+          },
+          "verifiers": {
+            "items": {
+              "$ref": "#/components/schemas/Verifier"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Verifiers"
+          },
+          "tool_notes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Tool Notes"
+          },
+          "generated_tools": {
+            "items": {
+              "$ref": "#/components/schemas/GeneratedTool"
+            },
+            "type": "array",
+            "maxItems": 6,
+            "title": "Generated Tools"
           }
         },
         "additionalProperties": false,
@@ -3211,6 +3677,53 @@
           "approved"
         ],
         "title": "ApprovalDecision"
+      },
+      "ApproveProposal": {
+        "properties": {
+          "secret": {
+            "type": "string",
+            "maxLength": 20000,
+            "title": "Secret",
+            "default": ""
+          },
+          "allow_write": {
+            "type": "boolean",
+            "title": "Allow Write",
+            "default": false
+          },
+          "confirmed_hosts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Confirmed Hosts"
+          },
+          "attach": {
+            "type": "boolean",
+            "title": "Attach",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "confirmed_hosts"
+        ],
+        "title": "ApproveProposal"
+      },
+      "ApproveVersion": {
+        "properties": {
+          "acknowledged_code": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Acknowledged Code"
+          }
+        },
+        "type": "object",
+        "title": "ApproveVersion"
       },
       "Body_import_file_integrations__connection_id__import_post": {
         "properties": {
@@ -3262,6 +3775,27 @@
             "minimum": 1.0,
             "title": "Stagnation Limit",
             "default": 3
+          },
+          "candidates_per_round": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 1.0,
+            "title": "Candidates Per Round",
+            "default": 1
+          },
+          "screen_sample": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Screen Sample",
+            "default": 3
+          },
+          "investigator_turns": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Investigator Turns",
+            "default": 6
           }
         },
         "additionalProperties": false,
@@ -3384,6 +3918,52 @@
         "additionalProperties": false,
         "type": "object",
         "title": "CaseEnvironment"
+      },
+      "CaseFromRun": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "split": {
+            "type": "string",
+            "enum": [
+              "development",
+              "regression",
+              "validation"
+            ],
+            "title": "Split",
+            "default": "development"
+          },
+          "assertions": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Assertions"
+          },
+          "critical": {
+            "type": "boolean",
+            "title": "Critical",
+            "default": false
+          },
+          "authorize_data_use": {
+            "type": "boolean",
+            "title": "Authorize Data Use",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "assertions"
+        ],
+        "title": "CaseFromRun"
       },
       "CreateAgent": {
         "properties": {
@@ -3721,6 +4301,53 @@
         ],
         "title": "DeployRequest"
       },
+      "DraftProposal": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "config": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Config"
+          },
+          "rationale": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Rationale",
+            "default": ""
+          },
+          "samples": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "maxItems": 40,
+            "title": "Samples"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "config"
+        ],
+        "title": "DraftProposal"
+      },
       "EvaluationRequest": {
         "properties": {
           "suite_id": {
@@ -3747,6 +4374,100 @@
           "suite_id"
         ],
         "title": "EvaluationRequest"
+      },
+      "Example": {
+        "properties": {
+          "input": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Input"
+          },
+          "output": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Output"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Note",
+            "default": ""
+          },
+          "source_case": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Case"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "input",
+          "output"
+        ],
+        "title": "Example",
+        "description": "A worked input/output the runtime shows the model. Provenance is checked when a version is persisted."
+      },
+      "GeneratedTool": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 3,
+            "pattern": "^[a-z][a-z0-9_]+$",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Description"
+          },
+          "input_schema": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Input Schema"
+          },
+          "output_schema": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Output Schema"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Code"
+          },
+          "capabilities": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Capabilities"
+          },
+          "code_hash": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Code Hash",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "code"
+        ],
+        "title": "GeneratedTool",
+        "description": "Builder-written tool code. It runs only in the sandbox and reaches systems only through capabilities."
       },
       "HTTPValidationError": {
         "properties": {
@@ -3781,6 +4502,50 @@
           "evidence"
         ],
         "title": "HumanReview"
+      },
+      "ImportOpenAPI": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "document": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Document"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "document"
+        ],
+        "title": "ImportOpenAPI"
       },
       "Invoke": {
         "properties": {
@@ -4044,6 +4809,38 @@
         ],
         "title": "ReplayResponse"
       },
+      "ShadowRequest": {
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 10
+          },
+          "max_cost": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Max Cost",
+            "default": 1
+          },
+          "max_seconds": {
+            "type": "integer",
+            "maximum": 600.0,
+            "minimum": 1.0,
+            "title": "Max Seconds",
+            "default": 120
+          },
+          "authorize_live_reads": {
+            "type": "boolean",
+            "title": "Authorize Live Reads",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "ShadowRequest"
+      },
       "SwitchOrganization": {
         "properties": {
           "org_id": {
@@ -4139,6 +4936,126 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "Verifier": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "required",
+              "one_of",
+              "range",
+              "sum_equals",
+              "schema"
+            ],
+            "title": "Kind"
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Path",
+            "default": "$"
+          },
+          "values": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array",
+                "maxItems": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Values"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "total_path": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Path"
+          },
+          "tolerance": {
+            "type": "number",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Tolerance",
+            "default": 0
+          },
+          "schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Message",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "kind"
+        ],
+        "title": "Verifier",
+        "description": "Closed vocabulary of deterministic output checks run before a result is returned."
       },
       "Visibility": {
         "properties": {

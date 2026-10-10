@@ -5,8 +5,8 @@ from sqlalchemy import select
 from factory.builder import design, persist_version
 from factory.connectors import discover_connection
 from factory.fixtures import seed_business
-from factory.models import AgentRecord, Connection, Membership, Organization, Project, User
-from factory.security import passwords
+from factory.models import AgentRecord, Connection, EvaluationSuite, Membership, Organization, Project, User
+from factory.security import Principal, audit, passwords
 
 
 async def seed_collections(db):
@@ -41,5 +41,9 @@ async def seed_collections(db):
         db.flush()
         spec = await design(db, agent, [connection.id], model_backed=False)
         persist_version(db, agent, spec)
+        audit(db, Principal(user.id, org.id, "admin"), "collection_fixture_created", agent.id, {"index": index})
+        if index == 0:
+            for suite_index in range(53):
+                db.add(EvaluationSuite(org_id=org.id, agent_id=agent.id, name=f"Collection Suite {suite_index:03d}"))
     db.commit()
     assert len(list(db.scalars(select(AgentRecord).where(AgentRecord.org_id == org.id)))) == 53

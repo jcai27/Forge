@@ -205,6 +205,9 @@ class ConfigurationProvider(Model):
         spec = payload.get("baseline", payload.get("spec"))
         if self.invalid_scope:
             spec["tools"].append(uid())
+        if "development_failures" in payload:
+            # The optimizer contract is a typed patch of mutable fields; an empty patch changes nothing.
+            spec = {"hypothesis": ""}
         return ModelResponse(
             output=[
                 ResponseOutputMessage(
@@ -298,7 +301,9 @@ async def test_optimizer_records_usage_and_receives_only_development_evidence(db
     db.commit()
     assert job.state == "RETESTING"
     assert len(calls) == 1 and calls[0]["development_failures"] == evidence
-    assert set(calls[0]) == {"spec", "development_failures"}
+    assert set(calls[0]) == {"spec", "development_failures", "attempt_history", "passing_examples"}
+    # A fresh checkpoint has no notebook or contrast examples; nothing else may be added to the payload.
+    assert calls[0]["attempt_history"] == [] and calls[0]["passing_examples"] == []
     assert calls[0]["spec"]["requirements"]["required_systems"] == initial.spec["connection_ids"]
     generated = db.get(AgentVersion, job.checkpoint["version_id"])
     assert generated.id != initial.id and "unchanged configuration" in generated.hypothesis

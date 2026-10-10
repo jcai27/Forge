@@ -648,3 +648,181 @@ work includes custom connector workflows, deployment concurrency/budget contract
 email/Postgres transport/private-field hardening, mobile/accessibility, templates B/C
 browser evidence, runbook and full requirement-level audit. External provider credentials
 remain absent. The complete platform goal stays active.
+
+## 2026-10-10: Builder harness, phases 0 to 2 (search loop, evidence, bundle)
+
+Scope follows the v2 builder proposal. This entry covers the search-loop fixes, the
+measurement additions, the bundle fields and the tool-using optimizer. Research, the
+sandbox, generated tools and connection proposals are separate later entries.
+
+A reproducing test first proved a defect in the existing loop: after a rejected candidate,
+`checkpoint["version_id"]` stayed on it and the next optimizer call edited the rejected
+version. The loop now branches from the best-known version and shows the optimizer that
+version's failures. The optimizer also receives an attempt history (hypothesis, outcome,
+regressed cases), passing development examples for contrast, and each failure's tool
+sequence. A boundary test asserts only development-split case names reach the payload.
+
+Promotion keeps its binary gates and adds a noise guard that is active only when repeated
+trials disagree: the paired per-case improvement must exceed one standard error estimated
+from those trials. Single-trial and deterministic suites behave exactly as before.
+Scorecards add `graded_score` (partial credit over case-specific checks, zero on a safety
+or approval violation), `case_rates` and `case_names`. The line-item arithmetic check now
+runs only for outputs that carry `lines`, so it can no longer pass vacuously.
+
+AgentSpec gains three builder-authored fields that the runtime executes: `examples` and
+`tool_notes` are rendered into the model instructions, and `verifiers` (closed vocabulary:
+required, one_of, range, sum_equals, schema) run before a result is returned. A failed
+verifier earns one bounded repair pass in live mode; a persistent failure sets
+`needs_attention` and is never staged for approval. Version persistence rejects an example
+that cites or reproduces a regression or held-out case, and tool notes for tools outside
+the version.
+
+The live optimizer is now an SDK agent with four read-only tools (list_cases, get_case,
+get_tool_contract, get_attempt_history) and returns a typed `SpecPatch`. The tools enforce
+tenant, suite and development-split by case identity and filter tenant credential values;
+refused reads are audited in an `optimizer_investigation` event. The patch model has no
+locked fields, and the applied result is still scope-checked. A proposal that breaks the
+contract (locked field, protected example, tool loop past the turn limit) is recorded as a
+rejected attempt and no longer fails the build. `Budget.candidates_per_round` (default 1)
+enables rounds of several proposals from the same parent, each given a different strategy;
+a new SCREENING state runs each candidate on the parent's failing development cases plus
+a sample of passing ones, prunes any that fix nothing or break something, and fully
+evaluates survivors in rank order. Screen runs have status `screen` and are never
+promotion evidence. `BUILDER_MODEL` selects the factory-role model, defaulting to
+`OPENAI_MODEL`.
+
+Two defects were found and fixed while verifying. A persisted verifier could not be
+reloaded because it serialised `expected_schema` but accepted only the `schema` alias.
+Checkpoint edits made after an autoflush were invisible to change detection when the same
+dict object was reassigned; a worker-driven restart test exposed it, and checkpoints are
+now always stored as fresh copies.
+
+Checks: Ruff; 199 SQLite tests passed (6 PG-only skips); all 205 PostgreSQL tests passed.
+Not verified: any real provider response. The optimizer, investigation and repair paths
+are exercised through the real SDK loop with local scripted provider transports only, so
+whether a real model writes useful patches remains unmeasured. Parallel trial execution,
+rerun confirmation and a rotating held-out set are not implemented. Known quirk left in
+place: an assertion on path `status` reads the run status and shadows an output field of
+that name.
+
+## 2026-10-10: Builder harness, phases 3 to 7 (research, sandbox, code, connections, release)
+
+Full description: docs/BUILDER.md. The invariant "no arbitrary generated code" in AGENTS.md
+and the matching sentence in ARCHITECTURE.md were amended by explicit decision: builder-
+written code is now allowed, only inside the sandbox and only under the rules listed there.
+
+Open-web research (`factory/research.py`, off unless `RESEARCH_ENABLED=true`) is a separate
+agent run that receives only a question. The question, search queries and every URL,
+including redirect targets, pass an outbound screen built from tenant credential values and
+markers of the evidence the builder has seen. Fetches reuse the pinned public-address
+transport with a new origin-scoped client per hop, https and the default port only, bounded
+bodies and a fetch budget. Researcher model calls are reserved and settled under their own
+role. Sources are recorded on the candidate and in the hypothesis event.
+
+The sandbox service (`services/sandbox`) runs builder-written tools. The compose service has
+no network, a read-only root, no capabilities, an unprivileged user and resource limits, and
+is reached over a Unix socket on a 1 MB tmpfs volume where it is the server. A capability
+call stops the run and reports the request; the worker performs it through
+`ExecutionContext.invoke` and re-runs with the result recorded, so the existing tenant,
+contract, approval and redaction checks apply and writes are staged, never executed.
+Generated tools are stored in the spec, pinned by sha256 and re-checked before each run.
+`POST /versions/{id}/approve` refuses a version with unreviewed code until the request
+acknowledges each hash. Without `SANDBOX_SOCKET` generated tools fail closed.
+
+Connection proposals (`factory/proposals.py`, migration 0008) are inert drafts created by
+the builder, manually, or by a deterministic OpenAPI 3 import. Approval is administrator-
+only, requires the exact hosts to be repeated, and is the only place a credential exists or
+a vendor is contacted; a failed activation keeps nothing. Attaching creates a fresh version
+and restarts build evidence as a redirection does.
+
+Feedback and release (`factory/release.py`): deployed runs that were rejected, needed
+attention or failed are listed as candidates; an administrator can turn one into an
+evaluation case with explicit data-use authorization and their own expected result; a shadow
+run replays recent real inputs through a candidate in evaluation mode; a dossier gathers
+reach, code review state, evidence, provenance, the shadow report and open items; and the
+optimizer receives a tenant-scoped playbook of previously promoted hypotheses.
+
+Defects found and fixed during verification:
+
+- `PermissionError` is a subclass of `OSError`, so the sandbox client's unreachable-service
+  handler reported a denied capability as an outage instead of a safety violation.
+- The OpenAPI importer's cycle guard counted nesting depth, not reference hops, and replaced
+  ordinary nested values with a placeholder.
+- A run could leave empty files in the sandbox temp filesystem for a later run to read. The
+  service now removes everything a run leaves, and kills the run's whole session.
+- Two of the first isolation checks were wrong rather than the sandbox: kernels expose
+  inactive tunnel devices in every namespace, and the base image's `GPG_KEY` is a public
+  fingerprint. The checks now test "no active interface but loopback" and an exact
+  environment allowlist.
+
+Checks: Ruff including services/sandbox; 311 SQLite tests passed (6 PG-only skips); all 317
+PostgreSQL tests passed; migration 0008 upgrade, downgrade, re-upgrade and autogenerate
+drift check on SQLite and PostgreSQL; 36 container isolation checks in
+`scripts/test-sandbox.sh` against the real image; a containerized end-to-end run on a
+throwaway compose project where the worker executed a generated tool through the sandbox
+socket with a brokered capability; strict TypeScript; 3 Vitest tests; production web build.
+
+Browser journeys: 4 pass, 2 fail. The new `builder.spec.ts` passes: dossier, approval,
+deployment, a case from a real run, a read-only shadow comparison, the code-review screen
+and a connection draft whose approval stays disabled until the right host is typed. The two
+failures, `factory.spec.ts` and `pagination.spec.ts`, were reproduced on a clean checkout
+containing only the uncommitted build-timeline pagination edits and none of this work: the
+timeline now loads 50 events per page, so "requirements analyzed" and the first failing
+cases are not on screen. With that single assertion removed from a temporary copy of each,
+both journeys pass in full on this work. They are left for the pagination change to resolve.
+
+Not verified: any real model response; a real search provider; a real vendor API; a
+hardened production sandbox runtime beyond the documented Docker settings. Not built:
+parallel trial execution, rerun-to-confirm promotion, a rotating held-out set, non-REST
+proposals, path parameters in the REST connector, and third-party packages for generated
+tools.
+
+## 2026-10-10: Search benchmark and browser journeys
+
+`apps/api/benchmarks/search.py` runs whole builds on the real engine. With a seeded simulated
+proposer drawing from two helpful, two useless and three harmful ideas, 30 builds per arm:
+one candidate per round without history reached the target in 67% of builds at 244 trials;
+with history 100% at 182 trials; three screened candidates with history 100% at 176 trials
+and 4.37 full evaluations against 6.20. History is the large effect. Screening saved about
+30% of full evaluations but only about 3% of trials on this small suite. This measures the
+loop, not model quality. The live mode, one-shot optimizer against the harness with the real
+provider, is implemented and refuses to run without a key; it has not been run because no
+provider key exists in this environment.
+
+The two failing browser journeys are fixed. Cause: when a build finishes, the paged build
+timeline refreshes on a poll, so its "Load more" control appears about two seconds later.
+`pagination.spec.ts` checked for the control once and gave up, and its loop also exited
+while a page was loading because the button then reads "Loading…". `factory.spec.ts` had not
+been updated for the paged timeline. Both now wait for the control, then load every page by
+waiting for the shown count to change. This was a test-side defect; the timeline's short lag
+after completion is unchanged.
+
+Checks: Ruff including apps/api/benchmarks; 314 SQLite tests passed (6 PG-only skips); all
+320 PostgreSQL tests passed; strict TypeScript; 3 Vitest tests; all 6 browser journeys pass,
+three consecutive runs; 36 sandbox isolation checks.
+
+## 2026-10-10: First real-model runs (local llama3.2:3b)
+
+A local `llama3.2:3b` under Ollama was found on this machine and used through its
+OpenAI-compatible endpoint. It is the only real model available: no OpenAI key is configured
+and 1.5 GB of free disk rules out a larger local model.
+
+Results, two runs of two builds per benchmark arm: as the deployed agent the same baseline
+version scored 0.57 to 0.79 across eight builds, and seven of eight baselines had a critical
+failure. As the builder, every reply in both the one-shot and harness arms was an invalid
+patch and was rejected, so no candidate was evaluated and the comparison of the two arms is
+empty. The pipeline itself ran end to end with a real model: provider calls, reservations
+and settlement, real execution inside evaluation, and rejection of malformed output.
+
+Defects exposed only by a real model, all fixed and covered by tests/test_live_provider.py:
+opaque tool names; template agents offered tools they must never call; an input schema that
+told the model nothing; no support for a custom provider endpoint; no fallback for servers
+that cannot compile large output schemas; and a proposal timeout failing the whole build.
+After the first three fixes the local model drove the order agent correctly in three of
+three runs, from zero of three.
+
+Not established: whether the builder improves agents. That needs a capable model.
+
+Checks: Ruff; 321 SQLite tests passed (6 PG-only skips); all 327 PostgreSQL tests passed;
+strict TypeScript; 3 Vitest tests; all 6 browser journeys; 36 sandbox isolation checks.
+

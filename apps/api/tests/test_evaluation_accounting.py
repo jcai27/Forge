@@ -18,7 +18,7 @@ from factory.db import now
 from factory.fixtures import business_snapshot
 from factory.models import Approval, BuildJob, EvaluationCase, ExecutionRun, ToolDefinition, UsageRecord
 from factory.provider_accounting import BuildInterrupted, recover_reservations
-from factory.runtime import DeterministicToolModel, execute
+from factory.runtime import DeterministicToolModel, execute, tool_name
 from factory.schemas import Budget
 from factory.workflow import control, new_job
 
@@ -36,7 +36,7 @@ def setup_evaluation(db, seeded):
     job = new_job(db, agent, Budget())
     job.state = "TESTING"
     db.commit()
-    return version, case, job, "t_" + definition.id.replace("-", "_")
+    return version, case, job, tool_name(definition)
 
 
 class EvaluationProvider(DeterministicToolModel):

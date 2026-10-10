@@ -6,8 +6,11 @@ build checkpoints, evaluations, executions, approvals, audit and usage. SQLite s
 isolated local tests. A database-leased worker advances one checkpoint per transaction;
 completed iterations have unique keys so restart retries cannot duplicate results.
 
-The factory designs configuration, never executable source. A separate runtime binds
-only approved tools to an immutable version. Deterministic business calculations live
+The factory designs configuration, and may also write small tools as code. Builder-written
+code never runs in the API or worker: it runs in a separate sandbox service with no network,
+credentials or host disk, reaches systems only through capability calls the worker performs
+on its behalf, and is pinned by hash in the immutable version (see BUILDER.md). A separate
+runtime binds only approved tools to an immutable version. Deterministic business calculations live
 in tool implementations. Real execution uses OpenAI Agents SDK; local deterministic
 execution is explicitly labeled. Evaluation forks fictional business state for each
 case and compares outputs and side effects with independent expectations.

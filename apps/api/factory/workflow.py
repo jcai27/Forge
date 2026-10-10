@@ -1,15 +1,19 @@
 """Checkpointed workflow: each worker tick persists one stage or one evaluation trial."""
 
 from collections import Counter
+from copy import deepcopy
 from datetime import UTC, timedelta
 
+from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError
+from jsonschema.exceptions import ValidationError as SchemaError
+from pydantic import ValidationError
 from sqlalchemy import select, update
 
-from factory.builder import design, design_tests, optimize, persist_version
+from factory.builder import design, design_tests, mutable_view, optimize, persist_version
 from factory.config import settings
 from factory.connectors import check_connection
 from factory.db import SessionLocal, now, uid
-from factory.evaluation import can_promote, development_evidence, evaluate_case, scorecard
+from factory.evaluation import can_promote, development_evidence, evaluate_case, passing_examples, scorecard
 from factory.models import (
     AgentRecord,
     AgentVersion,
@@ -19,9 +23,13 @@ from factory.models import (
     EvaluationResult,
     EvaluationRun,
     EvaluationSuite,
+    ExecutionRun,
     UsageRecord,
 )
+from factory.optimizer_tools import Investigation
 from factory.provider_accounting import BuildInterrupted, FactoryBudgetHooks, recover_reservations
+from factory.release import playbook
+from factory.research import OutboundScreen, tenant_markers
 from factory.runtime import BudgetExceeded, emit
 from factory.schemas import AgentSpec, Budget
 from factory.security import known_secret_values
@@ -58,7 +66,9 @@ def new_job(db, agent, budget):
 def transition(db, job, state, checkpoint=None):
     job.state = state
     if checkpoint is not None:
-        job.checkpoint = checkpoint
+        # Always store a fresh object: an autoflush between two in-place edits of the same dict
+        # would otherwise hide the second edit from change detection.
+        job.checkpoint = deepcopy(checkpoint)
     emit(db, job.org_id, "build_state", {"state": state, "iteration": job.iteration, "spent": job.spent}, job_id=job.id)
 
 
@@ -78,6 +88,102 @@ def record_role_usage(db, job, role, usage):
             )
         )
     emit(db, job.org_id, "factory_role_usage", {"role": role, **usage}, job_id=job.id)
+
+
+# A proposal that breaks its contract is a rejected idea, not a failed build.
+# A proposal that runs out of time is one too: the reservation is kept as uncertain, the build goes on.
+REJECTED_PROPOSAL = (PermissionError, ValidationError, ModelBehaviorError, MaxTurnsExceeded, TimeoutError)
+
+STRATEGIES = [
+    "Make the smallest change to the instructions that fixes the most common development failure.",
+    "Add or revise worked examples and tool usage notes that would prevent the observed failures.",
+    "Add deterministic verifiers that catch the observed wrong outputs, and adjust a rule where one explains them.",
+    "Propose a different explanation for the failures than earlier attempts did, and act on that.",
+]
+
+
+def record_attempt(checkpoint, attempt):
+    checkpoint["attempts"] = [*checkpoint.get("attempts", []), attempt][-12:]
+
+
+def screen_sets(db, suite, checkpoint, sample):
+    """Development cases a candidate is screened on: the parent's failures plus a few it must not break.
+
+    Only deterministically graded cases qualify; human-reviewed and rubric cases need the full evaluation.
+    """
+    rates = (checkpoint.get("best_scorecard") or {}).get("case_rates", {})
+    failing, passing = [], []
+    for case in db.scalars(
+        select(EvaluationCase)
+        .where(EvaluationCase.suite_id == suite.id, EvaluationCase.split == "development")
+        .order_by(EvaluationCase.id)
+    ):
+        if case.source == "human" or case.rubric or case.id not in rates:
+            continue
+        passed, trials = rates[case.id]
+        (failing if passed < trials else passing).append(case.id)
+    return failing, passing[:sample]
+
+
+async def run_next_trial(db, job, budget, elapsed, checkpoint, evaluation, version, cases):
+    """Run one remaining (case, trial). Returns "ran", "done", "interrupted" or "stopped"."""
+    completed = {
+        (r.case_id, r.trial)
+        for r in db.scalars(select(EvaluationResult).where(EvaluationResult.evaluation_run_id == evaluation.id))
+    }
+    remaining = [(case, trial) for case in cases for trial in range(case.trials) if (case.id, trial) not in completed]
+    if not remaining:
+        return "done"
+    case, trial = remaining[0]
+    try:
+        result = await evaluate_case(
+            db,
+            evaluation,
+            version,
+            case,
+            trial,
+            max_cost=max(0, budget.max_cost - job.spent),
+            max_seconds=max(0, budget.max_seconds - elapsed),
+            job=job,
+        )
+    except BuildInterrupted:
+        return "interrupted"
+    run = db.get(ExecutionRun, result.execution_id)
+    job.spent += max(0, run.metrics.get("cost", 0) - run.metrics.get("build_accounted_cost", 0))
+    run.metrics = {**run.metrics, "build_accounted_cost": run.metrics.get("cost", 0)}
+    if run.error == "BudgetExceeded":
+        transition(
+            db, job, "BUDGET_EXHAUSTED", {**checkpoint, "stop_reason": "insufficient_budget_before_provider_call"}
+        )
+        return "stopped"
+    emit(
+        db,
+        job.org_id,
+        "evaluation_case",
+        {
+            "evaluation_id": evaluation.id,
+            "case_id": case.id,
+            "name": case.name,
+            "split": case.split,
+            "trial": trial,
+            "passed": result.passed,
+            "completed": len(completed) + 1,
+            "total": len(completed) + len(remaining),
+            "failures": result.failures,
+            "screen": evaluation.status == "screening",
+        },
+        job_id=job.id,
+    )
+    return "ran"
+
+
+def next_round_or_stop(db, job, budget, checkpoint):
+    """After a round with no promotion: stop at the limits, otherwise propose again from the parent."""
+    checkpoint.pop("round", None)
+    if job.iteration >= budget.max_iterations or checkpoint.get("stagnation", 0) >= budget.stagnation_limit:
+        transition(db, job, "BUDGET_EXHAUSTED", {**checkpoint, "stop_reason": "iterations_or_stagnation_limit"})
+    else:
+        transition(db, job, "OPTIMIZING", checkpoint)
 
 
 async def advance(db, job):
@@ -125,7 +231,7 @@ async def advance(db, job):
                 spec.quality_policy = AgentSpec.model_validate(version.spec).quality_policy
                 version = persist_version(db, agent, spec, "Background requirements analysis and architecture")
                 checkpoint["version_id"] = version.id
-                job.checkpoint = checkpoint
+                job.checkpoint = deepcopy(checkpoint)
                 agent.name = spec.name
             except BuildInterrupted:
                 return
@@ -203,57 +309,10 @@ async def advance(db, job):
                 .order_by(EvaluationCase.id)
             )
         )
-        completed = {
-            (r.case_id, r.trial)
-            for r in db.scalars(select(EvaluationResult).where(EvaluationResult.evaluation_run_id == evaluation.id))
-        }
-        remaining = [
-            (case, trial) for case in cases for trial in range(case.trials) if (case.id, trial) not in completed
-        ]
-        if remaining:
-            case, trial = remaining[0]
-            try:
-                result = await evaluate_case(
-                    db,
-                    evaluation,
-                    version,
-                    case,
-                    trial,
-                    max_cost=max(0, budget.max_cost - job.spent),
-                    max_seconds=max(0, budget.max_seconds - elapsed),
-                    job=job,
-                )
-            except BuildInterrupted:
-                return
-            run = db.get(__import__("factory.models", fromlist=["ExecutionRun"]).ExecutionRun, result.execution_id)
-            job.spent += max(0, run.metrics.get("cost", 0) - run.metrics.get("build_accounted_cost", 0))
-            run.metrics = {**run.metrics, "build_accounted_cost": run.metrics.get("cost", 0)}
-            if run.error == "BudgetExceeded":
-                transition(
-                    db,
-                    job,
-                    "BUDGET_EXHAUSTED",
-                    {**checkpoint, "stop_reason": "insufficient_budget_before_provider_call"},
-                )
-                return
-            emit(
-                db,
-                job.org_id,
-                "evaluation_case",
-                {
-                    "evaluation_id": evaluation.id,
-                    "case_id": case.id,
-                    "name": case.name,
-                    "split": case.split,
-                    "trial": trial,
-                    "passed": result.passed,
-                    "completed": len(completed) + 1,
-                    "total": len(completed) + len(remaining),
-                    "failures": result.failures,
-                },
-                job_id=job.id,
-            )
-        else:
+        outcome = await run_next_trial(db, job, budget, elapsed, checkpoint, evaluation, version, cases)
+        if outcome in ("interrupted", "stopped"):
+            return
+        if outcome == "done":
             evaluation.scorecard = scorecard(db, evaluation)
             evaluation.status = "completed"
             if evaluation.scorecard.get("pending_reviews"):
@@ -324,12 +383,39 @@ async def advance(db, job):
                 promoted=promoted,
             )
         )
+        # A lab notebook of what was tried, so the optimizer never repeats a rejected edit.
+        names = card.get("case_names", {})
+        lost = [
+            names.get(key.split(":")[0], key)
+            for key, passed in (baseline or {}).get("regression_outcomes", {}).items()
+            if passed and not card.get("regression_outcomes", {}).get(key, False)
+        ]
+        attempt = {
+            "iteration": job.iteration,
+            "version_number": version.number,
+            "hypothesis": version.hypothesis,
+            "promoted": promoted,
+            "score": card["score"],
+            "graded_score": card.get("graded_score"),
+            "baseline_score": baseline["score"] if baseline else None,
+            "critical_failures": card["critical_failures"],
+            "regressed_cases": sorted(set(lost))[:5],
+            "development_failures": [failure["case"] for failure in evidence][:5],
+        }
+        checkpoint["attempts"] = [*checkpoint.get("attempts", []), attempt][-12:]
         if promoted:
             agent.best_version_id = version.id
-            checkpoint.update(best_version_id=version.id, best_scorecard=card, stagnation=0)
+            checkpoint.update(
+                best_version_id=version.id,
+                best_scorecard=card,
+                best_diagnosis=diagnosis,
+                best_passing=passing_examples(db, evaluation),
+                best_evaluation_id=evaluation.id,
+                stagnation=0,
+            )
         else:
             checkpoint["stagnation"] = checkpoint.get("stagnation", 0) + 1
-        checkpoint.update(diagnosis=diagnosis, last_scorecard=card)
+        checkpoint.update(diagnosis=diagnosis, last_diagnosis=diagnosis, last_scorecard=card)
         emit(
             db,
             job.org_id,
@@ -350,53 +436,267 @@ async def advance(db, job):
             and checkpoint.get("best_scorecard", {}).get("distinct_cases", 0) >= policy.minimum_cases
         ):
             checkpoint["version_id"] = checkpoint["best_version_id"]
-            job.checkpoint = checkpoint
+            checkpoint.pop("round", None)
+            job.checkpoint = deepcopy(checkpoint)
             start_evaluation(db, job, db.get(AgentVersion, checkpoint["version_id"]), suite, validation=True)
             transition(db, job, "RETESTING")
         elif job.iteration >= budget.max_iterations or checkpoint["stagnation"] >= budget.stagnation_limit:
+            checkpoint.pop("round", None)
             transition(db, job, "BUDGET_EXHAUSTED", {**checkpoint, "stop_reason": "iterations_or_stagnation_limit"})
         else:
-            transition(db, job, "OPTIMIZING", checkpoint)
+            queue = list((checkpoint.get("round") or {}).get("queue", []))
+            if not promoted and queue:
+                # Another screened survivor of this round still deserves its full evaluation.
+                survivor = db.get(AgentVersion, queue.pop(0))
+                checkpoint["round"] = {**checkpoint["round"], "queue": queue}
+                checkpoint["version_id"] = survivor.id
+                job.checkpoint = deepcopy(checkpoint)
+                start_evaluation(db, job, survivor, suite)
+                transition(db, job, "RETESTING")
+            else:
+                checkpoint.pop("round", None)
+                best_id = checkpoint.get("best_version_id")
+                if best_id and best_id != version.id:
+                    # Branch from the best-known version, never from a rejected candidate, and show the
+                    # optimizer that version's failures rather than the rejected candidate's.
+                    checkpoint["version_id"] = best_id
+                    checkpoint["diagnosis"] = checkpoint.get("best_diagnosis", diagnosis)
+                transition(db, job, "OPTIMIZING", checkpoint)
     elif job.state == "OPTIMIZING":
         # Never pass regression/validation answer records into optimizer context.
-        usage = {}
+        round_ = dict(checkpoint.get("round") or {"parent_id": version.id, "candidates": [], "discarded": 0})
+        candidates = [dict(item) for item in round_["candidates"]]
+        index = len(candidates) + round_["discarded"]
+        spec = AgentSpec.model_validate(version.spec)
+        live = settings().execution_mode == "live"
+        researching = live and bool(budget.investigator_turns) and settings().research_enabled
+        ceiling = 60 if budget.investigator_turns == 0 else 240 if researching else 120
+        seconds = min(ceiling, max(0, budget.max_seconds - elapsed))
+        investigation = None
+        if live and budget.investigator_turns:
+            research = None
+            if researching:
+                evidence = [*checkpoint["diagnosis"]["development_failures"], *checkpoint.get("best_passing", [])]
+                research = {
+                    # Customer data seen by the builder must not leave in a question, query or URL.
+                    "screen": OutboundScreen(known_secret_values(db, job.org_id), tenant_markers(evidence)),
+                    "hooks": lambda: FactoryBudgetHooks(
+                        max(0, budget.max_cost - job.spent), db, job, "researcher", max_seconds=seconds
+                    ),
+                    "on_usage": lambda used: record_role_usage(db, job, "researcher", used),
+                    "max_calls": 2,
+                    "max_seconds": 60,
+                }
+            investigation = Investigation(
+                db,
+                job,
+                spec,
+                checkpoint.get("best_evaluation_id") or checkpoint.get("evaluation_id"),
+                checkpoint.get("attempts", []),
+                research=research,
+                proposals={"agent_id": agent.id, "max": 1},
+            )
+        usage, proposal, rejection = {}, None, None
         try:
-            candidate, hypothesis = await optimize(
-                AgentSpec.model_validate(version.spec),
+            proposal = await optimize(
+                spec,
                 checkpoint["diagnosis"]["development_failures"],
+                history=checkpoint.get("attempts", []),
+                passing=checkpoint.get("best_passing", []),
+                playbook=playbook(db, job.org_id, agent.template, exclude_agent_id=agent.id) if live else None,
                 max_cost=max(0, budget.max_cost - job.spent),
-                max_seconds=min(60, max(0, budget.max_seconds - elapsed)),
+                max_seconds=seconds,
                 usage=usage,
                 secret_values=known_secret_values(db, job.org_id),
-                hooks=FactoryBudgetHooks(
-                    max(0, budget.max_cost - job.spent),
-                    db,
-                    job,
-                    "optimizer",
-                    max_seconds=min(60, max(0, budget.max_seconds - elapsed)),
-                )
-                if settings().execution_mode == "live"
+                tools=investigation.tools() if investigation else None,
+                max_turns=budget.investigator_turns + 2,
+                strategy=STRATEGIES[index % len(STRATEGIES)] if budget.candidates_per_round > 1 else None,
+                hooks=FactoryBudgetHooks(max(0, budget.max_cost - job.spent), db, job, "optimizer", max_seconds=seconds)
+                if live
                 else None,
             )
         except BuildInterrupted:
             return
+        except REJECTED_PROPOSAL as error:
+            rejection = type(error).__name__
         except Exception as error:
             record_role_usage(db, job, "optimizer", usage)
             job.error = type(error).__name__
             transition(db, job, "BUDGET_EXHAUSTED" if isinstance(error, BudgetExceeded) else "FAILED")
             return
         record_role_usage(db, job, "optimizer", usage)
-        new_version = persist_version(db, agent, candidate, hypothesis)
-        checkpoint["version_id"] = new_version.id
-        job.checkpoint = checkpoint
-        emit(
-            db,
-            job.org_id,
-            "improvement_hypothesis",
-            {"hypothesis": hypothesis, "version_id": new_version.id, "number": new_version.number},
-            job_id=job.id,
+        if investigation:
+            emit(
+                db,
+                job.org_id,
+                "optimizer_investigation",
+                {
+                    "calls": investigation.calls,
+                    "denied": investigation.denied,
+                    "research": investigation.research_log,
+                    "connection_proposals": investigation.proposals,
+                    "withheld_outbound": research["screen"].refused if research else [],
+                },
+                job_id=job.id,
+            )
+        new_version = None
+        if proposal:
+            candidate, hypothesis = proposal
+            seen = {mutable_view(db.get(AgentVersion, item["version_id"]).spec) for item in candidates}
+            duplicate = mutable_view(candidate) in seen or (index > 0 and mutable_view(candidate) == mutable_view(spec))
+            if duplicate:
+                rejection = "DuplicateProposal"
+            else:
+                try:
+                    with db.begin_nested():
+                        new_version = persist_version(db, agent, candidate, hypothesis)
+                except (PermissionError, ValidationError, SchemaError, ValueError) as error:
+                    rejection = type(error).__name__
+        if new_version:
+            candidates.append(
+                {
+                    "version_id": new_version.id,
+                    "number": new_version.number,
+                    "hypothesis": hypothesis,
+                    "status": "proposed",
+                    # Provenance: public pages that were in context when this candidate was written.
+                    "research_sources": sorted(
+                        {
+                            url
+                            for entry in (investigation.research_log if investigation else [])
+                            for url in entry["sources"]
+                        }
+                    ),
+                }
+            )
+            emit(
+                db,
+                job.org_id,
+                "improvement_hypothesis",
+                {
+                    "hypothesis": hypothesis,
+                    "version_id": new_version.id,
+                    "number": new_version.number,
+                    "research_sources": candidates[-1]["research_sources"],
+                },
+                job_id=job.id,
+            )
+        else:
+            round_["discarded"] += 1
+            record_attempt(
+                checkpoint,
+                {"iteration": job.iteration, "promoted": False, "rejected_before_evaluation": rejection},
+            )
+            emit(db, job.org_id, "proposal_rejected", {"reason": rejection}, job_id=job.id)
+        round_["candidates"] = candidates
+        checkpoint["round"] = round_
+        exhausted = rejection == "DuplicateProposal" and not live  # the deterministic ladder has no more ideas
+        if len(candidates) + round_["discarded"] < budget.candidates_per_round and not exhausted:
+            job.checkpoint = deepcopy(checkpoint)
+            return
+        if not candidates:
+            checkpoint["stagnation"] = checkpoint.get("stagnation", 0) + 1
+            next_round_or_stop(db, job, budget, checkpoint)
+            return
+        failing, passing = screen_sets(db, suite, checkpoint, budget.screen_sample)
+        if len(candidates) > 1 and failing:
+            round_.update(screen_failing=failing, screen_passing=passing)
+            checkpoint["round"] = round_
+            transition(db, job, "SCREENING", checkpoint)
+        else:
+            first = db.get(AgentVersion, candidates[0]["version_id"])
+            round_["queue"] = [item["version_id"] for item in candidates[1:]]
+            checkpoint.update(round=round_, version_id=first.id)
+            job.checkpoint = deepcopy(checkpoint)
+            start_evaluation(db, job, first, suite)
+            transition(db, job, "RETESTING")
+    elif job.state == "SCREENING":
+        round_ = dict(checkpoint["round"])
+        candidates = [dict(item) for item in round_["candidates"]]
+        current = next((item for item in candidates if item["status"] == "proposed"), None)
+        if current is not None:
+            candidate_version = db.get(AgentVersion, current["version_id"])
+            if not current.get("screen_evaluation_id"):
+                screen = EvaluationRun(
+                    org_id=job.org_id, version_id=candidate_version.id, suite_id=suite.id, status="screening"
+                )
+                db.add(screen)
+                db.flush()
+                current["screen_evaluation_id"] = screen.id
+            round_["candidates"] = candidates
+            checkpoint["round"] = round_
+            job.checkpoint = deepcopy(checkpoint)
+            screen = db.get(EvaluationRun, current["screen_evaluation_id"])
+            wanted = set(round_["screen_failing"]) | set(round_["screen_passing"])
+            cases = list(
+                db.scalars(
+                    select(EvaluationCase)
+                    .where(
+                        EvaluationCase.suite_id == suite.id,
+                        EvaluationCase.split == "development",
+                        EvaluationCase.id.in_(wanted),
+                    )
+                    .order_by(EvaluationCase.id)
+                )
+            )
+            outcome = await run_next_trial(db, job, budget, elapsed, checkpoint, screen, candidate_version, cases)
+            if outcome != "done":
+                return
+            card = scorecard(db, screen)
+            screen.scorecard, screen.status = card, "screen"
+            parent = checkpoint["best_scorecard"]["case_rates"]
+
+            def rate(rates, case_id):
+                passed, trials = rates.get(case_id, [0, 1])
+                return passed / trials
+
+            fixed = sum(rate(card["case_rates"], c) > rate(parent, c) for c in wanted)
+            broken = sum(rate(card["case_rates"], c) < rate(parent, c) for c in wanted)
+            survived = (
+                fixed > 0 and broken == 0 and not card["critical_failures"] and card["metrics"].get("safety", 0) == 1
+            )
+            current.update(
+                status="survived" if survived else "pruned",
+                screen={"fixed": fixed, "broken": broken, "graded_score": card["graded_score"]},
+            )
+            emit(
+                db,
+                job.org_id,
+                "candidate_screened",
+                {"version_id": current["version_id"], "survived": survived, **current["screen"]},
+                job_id=job.id,
+            )
+            if not survived:
+                record_attempt(
+                    checkpoint,
+                    {
+                        "iteration": job.iteration,
+                        "version_number": current["number"],
+                        "hypothesis": current["hypothesis"],
+                        "promoted": False,
+                        "pruned_in_screen": True,
+                        "fixed_cases": fixed,
+                        "broken_cases": broken,
+                    },
+                )
+            round_["candidates"] = candidates
+            checkpoint["round"] = round_
+            job.checkpoint = deepcopy(checkpoint)
+            if any(item["status"] == "proposed" for item in candidates):
+                return
+        survivors = sorted(
+            (item for item in candidates if item["status"] == "survived"),
+            key=lambda item: (-item["screen"]["fixed"], -item["screen"]["graded_score"], item["number"]),
         )
-        start_evaluation(db, job, new_version, suite)
+        if not survivors:
+            checkpoint["stagnation"] = checkpoint.get("stagnation", 0) + 1
+            next_round_or_stop(db, job, budget, checkpoint)
+            return
+        first = db.get(AgentVersion, survivors[0]["version_id"])
+        round_["queue"] = [item["version_id"] for item in survivors[1:]]
+        checkpoint.update(round=round_, version_id=first.id)
+        job.checkpoint = deepcopy(checkpoint)
+        start_evaluation(db, job, first, suite)
         transition(db, job, "RETESTING")
     else:
         raise ValueError("Unknown workflow checkpoint state")

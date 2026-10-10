@@ -1,5 +1,10 @@
 # Builder roles and quality policy
 
+The tool-using optimizer, typed patches, screened rounds, bundle fields, research, generated
+tools, connection proposals and release evidence are documented in BUILDER.md. Where this
+file says the optimizer returns a complete AgentSpec in one call, BUILDER.md supersedes it:
+the live optimizer now investigates with read-only tools and returns a SpecPatch.
+
 Agent creation persists a valid baseline configuration and structured business
 requirements immediately. Live model-backed design runs in the durable worker's
 DESIGNING stage, so the browser need not remain open. The combined Requirements

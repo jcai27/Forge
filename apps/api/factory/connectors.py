@@ -112,6 +112,11 @@ REST_REQUEST_TIMEOUT = 15
 
 async def bounded_json(response, limit=2_000_000):
     """Bound both wire bytes and decoded bytes before parsing an upstream payload."""
+    return json.loads(await bounded_bytes(response, limit))
+
+
+async def bounded_bytes(response, limit=2_000_000):
+    """Read a streamed body with wire and decoded limits, including compressed bodies."""
     length = response.headers.get("Content-Length")
     if length is not None:
         try:
@@ -144,7 +149,7 @@ async def bounded_json(response, limit=2_000_000):
         body.extend(chunk)
     if decoder and (not decoder.eof or decoder.unused_data):
         raise ValueError("Incomplete or trailing compressed response")
-    return json.loads(body)
+    return bytes(body)
 
 
 class RESTConnector(Connector):

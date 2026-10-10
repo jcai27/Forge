@@ -9,6 +9,22 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
+    # Optional OpenAI-compatible endpoint (for example a local model server). Empty uses the OpenAI API.
+    openai_base_url: str = ""
+    # "responses" (OpenAI) or "chat_completions" (most compatible servers).
+    openai_api: str = "responses"
+    # "schema" sends the output JSON Schema to the provider. "prompt" puts it in the instructions and
+    # validates the reply in code, for servers that cannot compile large schemas.
+    openai_structured_output: str = "schema"
+    # Model used by factory roles (architect, optimizer, test designer). Falls back to openai_model.
+    builder_model: str = ""
+    # Open-web research for the builder. Off unless explicitly enabled for a deployment.
+    research_enabled: bool = False
+    # Optional JSON search endpoint containing "{query}", and an optional "Name: value" header.
+    research_search_url: str = ""
+    research_search_header: str = ""
+    # Unix socket of the sandbox service that runs builder-written tools. Empty disables them.
+    sandbox_socket: str = ""
     execution_mode: str = "demo"
     estimated_token_cost: float = 0.000005
     worker_lease_seconds: int = 360
@@ -17,6 +33,12 @@ class Settings(BaseSettings):
     encryption_key: str = ""
     environment: str = "development"
     cors_origins: list[str] = ["http://localhost:3000"]
+
+    def validate_provider(self):
+        if self.openai_api not in ("responses", "chat_completions"):
+            raise ValueError("OPENAI_API must be responses or chat_completions")
+        if self.openai_structured_output not in ("schema", "prompt"):
+            raise ValueError("OPENAI_STRUCTURED_OUTPUT must be schema or prompt")
 
     def validate_production(self):
         if self.environment == "production":
@@ -31,5 +53,6 @@ class Settings(BaseSettings):
 @lru_cache
 def settings():
     value = Settings()
+    value.validate_provider()
     value.validate_production()
     return value

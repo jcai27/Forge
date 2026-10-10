@@ -28,6 +28,7 @@ from factory.models import (
     ToolDefinition,
     UsageRecord,
 )
+from factory.runtime import tool_name
 from factory.security import Principal
 
 
@@ -55,7 +56,7 @@ def setup_invocation(db, seeded, monkeypatch):
     tool = db.scalar(
         select(ToolDefinition).where(ToolDefinition.org_id == org.id, ToolDefinition.name == "prepare_operation")
     )
-    return deployment, run, job, "t_" + tool.id.replace("-", "_")
+    return deployment, run, job, tool_name(tool)
 
 
 @pytest.mark.asyncio

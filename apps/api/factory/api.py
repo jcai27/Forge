@@ -28,6 +28,8 @@ from factory.connectors import FileConnector, check_connection, discover_connect
 from factory.db import get_db, now
 from factory.fixtures import fictional_data, seed_business, seed_suite
 from factory.memberships import router as membership_router
+from factory.proposals import ProposalError, approve_proposal, create_proposal, openapi_to_config
+from factory.release import dossier, feedback_candidates, shadow_run
 from factory.runtime import emit, resolve_approval
 from factory.schemas import (
     AgentSpec,
@@ -703,6 +705,128 @@ async def test_connection(connection_id: str, actor=ACTOR, db=DB):
     return result
 
 
+class DraftProposal(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    config: dict
+    rationale: str = Field(default="", max_length=4000)
+    samples: list[dict] = Field(default_factory=list, max_length=40)
+    agent_id: str | None = None
+
+
+class ImportOpenAPI(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    document: dict
+    base_url: str | None = Field(default=None, max_length=2000)
+    agent_id: str | None = None
+
+
+class ApproveProposal(BaseModel):
+    secret: str = Field(default="", max_length=20000)
+    allow_write: bool = False
+    # The administrator repeats the exact hosts: approving a host is a deliberate act, not a default.
+    confirmed_hosts: list[str] = Field(max_length=10)
+    attach: bool = True
+
+
+@app.get("/connection-proposals")
+def connection_proposals(offset: int = OFFSET, limit: int = LIMIT, actor=ACTOR, db=DB):
+    return collection(db, m.ConnectionProposal, actor, offset, limit)
+
+
+@app.post("/connection-proposals", status_code=201)
+def draft_connection_proposal(body: DraftProposal, actor=ACTOR, db=DB):
+    require_write(actor)
+    if body.agent_id:
+        owned(db, m.AgentRecord, body.agent_id, actor)
+    try:
+        proposal = create_proposal(
+            db, actor.org_id, body.name, body.config, body.rationale, body.samples, agent_id=body.agent_id
+        )
+    except ProposalError as error:
+        raise HTTPException(422, str(error)) from None
+    audit(db, actor, "connection_proposed", proposal.id, {"host": proposal.checks["host"]})
+    db.commit()
+    return serialize(proposal)
+
+
+@app.post("/connection-proposals/import-openapi", status_code=201)
+def import_openapi_proposal(body: ImportOpenAPI, actor=ACTOR, db=DB):
+    require_write(actor)
+    if body.agent_id:
+        owned(db, m.AgentRecord, body.agent_id, actor)
+    try:
+        config, skipped = openapi_to_config(body.document, body.base_url)
+        proposal = create_proposal(
+            db,
+            actor.org_id,
+            body.name,
+            config,
+            "Imported from an OpenAPI document",
+            agent_id=body.agent_id,
+            origin="openapi",
+        )
+    except ProposalError as error:
+        raise HTTPException(422, str(error)) from None
+    proposal.checks = {**proposal.checks, "skipped": skipped[:60]}
+    audit(db, actor, "connection_proposed", proposal.id, {"host": proposal.checks["host"], "origin": "openapi"})
+    db.commit()
+    return serialize(proposal)
+
+
+@app.post("/connection-proposals/{proposal_id}/approve")
+async def approve_connection_proposal(proposal_id: str, body: ApproveProposal, actor=ACTOR, db=DB):
+    require_admin(actor)
+    proposal = db.scalar(
+        select(m.ConnectionProposal)
+        .where(m.ConnectionProposal.id == proposal_id, m.ConnectionProposal.org_id == actor.org_id)
+        .with_for_update()
+    )
+    if not proposal:
+        raise HTTPException(404, "Proposal not found")
+    try:
+        connection, version = await approve_proposal(
+            db, actor, proposal, body.secret, body.allow_write, body.confirmed_hosts, body.attach
+        )
+    except ProposalError as error:
+        db.rollback()
+        raise HTTPException(409, str(error)) from None
+    except PermissionError as error:
+        db.rollback()
+        raise HTTPException(409, str(error)) from None
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as error:
+        # The vendor could not be reached or rejected the credential. Nothing is kept.
+        db.rollback()
+        raise HTTPException(502, f"The connection could not be activated ({type(error).__name__})") from None
+    audit(
+        db,
+        actor,
+        "connection_proposal_approved",
+        proposal.id,
+        {"connection_id": connection.id, "hosts": body.confirmed_hosts, "write": body.allow_write},
+    )
+    db.commit()
+    return {
+        "proposal": serialize(proposal),
+        "connection": serialize(connection),
+        "version": serialize(version) if version else None,
+    }
+
+
+@app.post("/connection-proposals/{proposal_id}/reject")
+def reject_connection_proposal(proposal_id: str, actor=ACTOR, db=DB):
+    require_admin(actor)
+    proposal = owned(db, m.ConnectionProposal, proposal_id, actor)
+    if proposal.status != "proposed":
+        raise HTTPException(409, "This proposal has already been reviewed")
+    proposal.status, proposal.reviewed_by, proposal.reviewed_at = "rejected", actor.user_id, now()
+    audit(db, actor, "connection_proposal_rejected", proposal.id, {})
+    db.commit()
+    return serialize(proposal)
+
+
 @app.post("/integrations/{connection_id}/revoke")
 def revoke(connection_id: str, actor=ACTOR, db=DB):
     require_admin(actor)
@@ -1075,13 +1199,62 @@ def quality_gate(db, version):
     return {"score": sum(row.passed for row in selected) / len(selected), "cases": len(selected), "provisional": True}
 
 
+class ApproveVersion(BaseModel):
+    # Hashes of builder-written tool code the administrator has read and accepts.
+    acknowledged_code: list[str] = Field(default_factory=list, max_length=20)
+
+
+def unreviewed_generated_tools(db, version, acknowledged):
+    """Generated tools whose exact code no administrator has approved for this agent before."""
+    tools = version.spec.get("generated_tools") or []
+    if not tools:
+        return []
+    reviewed = set(acknowledged)
+    for earlier in db.scalars(
+        select(m.AgentVersion).where(
+            m.AgentVersion.agent_id == version.agent_id,
+            m.AgentVersion.org_id == version.org_id,
+            m.AgentVersion.approved_at.is_not(None),
+        )
+    ):
+        reviewed.update(tool.get("code_hash") for tool in earlier.spec.get("generated_tools") or [])
+    names = {
+        tool.id: tool.name
+        for tool in db.scalars(select(m.ToolDefinition).where(m.ToolDefinition.org_id == version.org_id))
+    }
+    return [
+        {
+            "name": tool["name"],
+            "code_hash": tool["code_hash"],
+            "capabilities": {alias: names.get(tool_id, tool_id) for alias, tool_id in tool["capabilities"].items()},
+        }
+        for tool in tools
+        if tool["code_hash"] not in reviewed
+    ]
+
+
 @app.post("/versions/{version_id}/approve")
-def approve_version(version_id: str, actor=ACTOR, db=DB):
+def approve_version(version_id: str, body: ApproveVersion | None = None, actor=ACTOR, db=DB):
     require_admin(actor)
     version = owned(db, m.AgentVersion, version_id, actor)
     gate = quality_gate(db, version)
+    acknowledged = body.acknowledged_code if body else []
+    pending = unreviewed_generated_tools(db, version, acknowledged)
+    if pending:
+        # Builder-written code is never approved implicitly: each new piece is acknowledged by its hash.
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "code_review_required",
+                    "message": "This version contains builder-written tool code that must be reviewed and acknowledged",
+                    "generated_tools": pending,
+                }
+            },
+        )
     version.approved_at = now()
     version.approved_by = actor.user_id
+    gate = {**gate, "acknowledged_code": sorted(set(acknowledged))} if acknowledged else gate
     audit(db, actor, "version_approved", version.id, gate)
     db.commit()
     return {**serialize(version), "quality_gate": gate}
@@ -1092,6 +1265,98 @@ class DeployRequest(BaseModel):
     max_cost: float = Field(default=1, ge=0, le=100)
     lifetime_max_cost: float = Field(default=10, ge=0, le=10000)
     max_invocations: int = Field(default=1000, ge=1, le=100000)
+
+
+class ShadowRequest(BaseModel):
+    limit: int = Field(default=10, ge=1, le=20)
+    max_cost: float = Field(default=1, ge=0, le=100)
+    max_seconds: int = Field(default=120, ge=1, le=600)
+    authorize_live_reads: bool = False
+
+
+def gate_summary(db, version):
+    try:
+        return {"passed": True, **quality_gate(db, version)}
+    except HTTPException as error:
+        return {"passed": False, "reason": str(error.detail)}
+
+
+@app.get("/versions/{version_id}/dossier")
+def version_dossier(version_id: str, actor=ACTOR, db=DB):
+    version = owned(db, m.AgentVersion, version_id, actor)
+    return dossier(db, version, gate_summary(db, version))
+
+
+@app.post("/versions/{version_id}/shadow")
+async def shadow_version(version_id: str, body: ShadowRequest, actor=ACTOR, db=DB):
+    require_admin(actor)
+    version = owned(db, m.AgentVersion, version_id, actor)
+    try:
+        report = await shadow_run(
+            db, actor, version, body.limit, body.max_cost, body.max_seconds, body.authorize_live_reads
+        )
+    except PermissionError as error:
+        raise HTTPException(409, str(error)) from None
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from None
+    audit(db, actor, "shadow_comparison", version.id, {"compared": report["compared"]})
+    db.commit()
+    return report
+
+
+@app.get("/agents/{agent_id}/feedback")
+def agent_feedback(agent_id: str, actor=ACTOR, db=DB):
+    agent = owned(db, m.AgentRecord, agent_id, actor)
+    return {"items": feedback_candidates(db, agent)}
+
+
+class CaseFromRun(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    split: Literal["development", "regression", "validation"] = "development"
+    assertions: list[dict] = Field(min_length=1, max_length=50)
+    critical: bool = False
+    # Production input becomes test material only by an explicit, audited decision.
+    authorize_data_use: bool = False
+
+
+@app.post("/runs/{run_id}/case", status_code=201)
+def case_from_run(run_id: str, body: CaseFromRun, actor=ACTOR, db=DB):
+    require_admin(actor)
+    run = owned(db, m.ExecutionRun, run_id, actor)
+    if not body.authorize_data_use:
+        raise HTTPException(422, "Using a real request as test material requires explicit authorization")
+    version = owned(db, m.AgentVersion, run.version_id, actor)
+    suite = db.scalar(
+        select(m.EvaluationSuite).where(
+            m.EvaluationSuite.agent_id == version.agent_id, m.EvaluationSuite.org_id == actor.org_id
+        )
+    )
+    if not suite:
+        raise HTTPException(409, "This agent has no evaluation suite yet")
+    reject_secret_config(run.input)
+    # The reviewer supplies the expected result; the agent's own output is never copied in as the answer.
+    try:
+        checked = CreateCase(
+            name=body.name, split=body.split, input=run.input, assertions=body.assertions, critical=body.critical
+        )
+    except ValueError:
+        raise HTTPException(422, "The assertions are not valid for an evaluation case") from None
+    case = m.EvaluationCase(
+        org_id=actor.org_id,
+        suite_id=suite.id,
+        name=checked.name,
+        split=checked.split,
+        source="production_input",
+        input=run.input,
+        assertions=checked.assertions,
+        critical=checked.critical,
+        authorized_by=actor.user_id,
+    )
+    db.add(case)
+    db.flush()
+    audit(db, actor, "evaluation_case_from_run", case.id, {"run_id": run.id, "split": case.split})
+    db.commit()
+    return serialize(case)
 
 
 @app.get("/agents/{agent_id}/deployments")

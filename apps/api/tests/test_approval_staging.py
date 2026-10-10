@@ -13,7 +13,7 @@ from factory.connectors import discover_connection
 from factory.db import uid
 from factory.fixtures import business_snapshot
 from factory.models import Approval, Connection, ToolDefinition
-from factory.runtime import execute, reconstruct_agent, resolve_approval
+from factory.runtime import execute, reconstruct_agent, resolve_approval, tool_name
 from factory.schemas import AgentSpec
 from factory.security import Principal
 
@@ -110,7 +110,7 @@ async def test_write_approvals_publish_only_after_validated_final_output(db, see
             assert list(other.scalars(select(Approval).where(Approval.org_id == org.id))) == []
         checkpoints.append(True)
 
-    provider = WriteThenFinish("t_" + definition.id.replace("-", "_"), after_tool, outcome)
+    provider = WriteThenFinish(tool_name(definition), after_tool, outcome)
 
     def bind(context, mode):
         reconstructed = reconstruct_agent(context, mode)

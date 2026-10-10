@@ -86,6 +86,25 @@ class Connection(Owned, Base):
     status: Mapped[str] = mapped_column(String(30), default="setup_required")
 
 
+class ConnectionProposal(Owned, Base):
+    """A drafted connection. It holds no credential and grants nothing until an administrator approves it."""
+
+    __tablename__ = "connection_proposals"
+    agent_id: Mapped[str | None] = mapped_column(ForeignKey("agent_specs.id"), index=True)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("build_jobs.id"))
+    name: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(40))
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    sources: Mapped[list] = mapped_column(JSON, default=list)
+    checks: Mapped[dict] = mapped_column(JSON, default=dict)
+    origin: Mapped[str] = mapped_column(String(30), default="manual")
+    status: Mapped[str] = mapped_column(String(30), default="proposed")
+    reviewed_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    reviewed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    connection_id: Mapped[str | None] = mapped_column(ForeignKey("integration_connections.id"))
+
+
 class DataSource(Owned, Base):
     __tablename__ = "data_sources"
     connection_id: Mapped[str] = mapped_column(ForeignKey("integration_connections.id"), index=True)

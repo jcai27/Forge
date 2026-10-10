@@ -77,6 +77,16 @@ against build budgets; `/usage` and metrics distinguish them from observed token
 estimates. See [docs/FACTORY.md](docs/FACTORY.md) for promotion objectives,
 editable thresholds, in-progress build redirection and current limitations.
 
+The builder that improves agents is described in [docs/BUILDER.md](docs/BUILDER.md): a
+tool-using optimizer that returns typed patches, screened multi-candidate rounds, examples
+and verifiers the runtime executes, optional open-web research (`RESEARCH_ENABLED=true`),
+builder-written tools that run only in the sandbox service, connection proposals an
+administrator approves, shadow comparison and a release dossier. `BUILDER_MODEL` selects
+the model for factory roles. Docker Compose starts the sandbox and sets `SANDBOX_SOCKET`;
+`bash scripts/dev.sh` does not, so generated tools fail closed there. Run
+`bash scripts/test-sandbox.sh` to prove the sandbox image's isolation. None of the builder
+has been run against a real model.
+
 Credential filtering and retired-ciphertext handling are described in
 [docs/SECRET_BOUNDARIES.md](docs/SECRET_BOUNDARIES.md).
 

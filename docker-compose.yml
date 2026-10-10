@@ -34,19 +34,44 @@ services:
       EXECUTION_MODE: ${EXECUTION_MODE:-demo}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_API: ${OPENAI_API:-responses}
+      OPENAI_STRUCTURED_OUTPUT: ${OPENAI_STRUCTURED_OUTPUT:-schema}
       JWT_SECRET: ${JWT_SECRET:-local-development-only-change-before-deployment}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      BUILDER_MODEL: ${BUILDER_MODEL:-}
+      RESEARCH_ENABLED: ${RESEARCH_ENABLED:-false}
+      RESEARCH_SEARCH_URL: ${RESEARCH_SEARCH_URL:-}
+      RESEARCH_SEARCH_HEADER: ${RESEARCH_SEARCH_HEADER:-}
+      SANDBOX_SOCKET: /run/sandbox/sandbox.sock
     depends_on: {postgres: {condition: service_healthy}}
   api:
     build: {context: ., dockerfile: apps/api/Dockerfile}
     environment: *api_environment
     ports: ["127.0.0.1:8000:8000"]
+    volumes: ["sandbox_socket:/run/sandbox"]
     depends_on: {migrate: {condition: service_completed_successfully}, redis: {condition: service_healthy}}
   worker:
     build: {context: ., dockerfile: apps/api/Dockerfile}
     command: ["python", "/app/services/worker/main.py"]
     environment: *api_environment
+    volumes: ["sandbox_socket:/run/sandbox"]
     depends_on: {migrate: {condition: service_completed_successfully}}
+  # Runs builder-written tool code. No network of any kind, no credentials, read-only root and no
+  # capabilities. The only channel is a Unix socket on a small shared tmpfs, where this is the server.
+  sandbox:
+    build: {context: ., dockerfile: services/sandbox/Dockerfile}
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: "10001:10001"
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    volumes: ["sandbox_socket:/run/sandbox"]
+    restart: unless-stopped
   web:
     build:
       context: .
@@ -57,3 +82,6 @@ services:
     depends_on: [api]
 volumes:
   postgres_data:
+  sandbox_socket:
+    driver: local
+    driver_opts: {type: tmpfs, device: tmpfs, o: "size=1m,uid=10001,gid=10001,mode=0770"}

@@ -16,6 +16,17 @@ test('create a project, build and improve an agent, deploy and approve a real fi
  const agentId=page.url().split('/agents/')[1].split('/')[0];
  await expect(page.getByRole('status',{name:'Build status'})).toHaveText('ready for review',{timeout:60000});
  await expect(page.getByText('Iteration 3',{exact:true})).toBeVisible();
+  // The build timeline is paged and refreshes on a poll, so its "Load more" control appears a moment
+  // after the build finishes. Wait for it, then load every page. While a page is being fetched the
+  // button reads "Loading…", so wait for the count to change rather than for the button to vanish.
+  const shown=page.getByText(/^Showing \d+ of \d+ build events$/);
+  await expect(shown).toBeVisible({timeout:15000});
+  for(let pages=0;pages<20;pages++) {
+    if(await shown.count()===0)break;
+    const before=await shown.textContent();
+    await page.getByRole('button',{name:'Load more build events',exact:true}).click();
+    await expect(page.getByText(before!,{exact:true})).toHaveCount(0);
+  }
  await expect(page.getByText(/Customer alias red toms/).first()).toBeVisible();
  await page.getByRole('link',{name:'Evaluations',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Evaluation lab',exact:true})).toBeVisible();

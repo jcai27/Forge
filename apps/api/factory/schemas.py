@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -28,6 +28,80 @@ class QualityPolicy(StrictModel):
     maximum_evaluation_cost: float = Field(default=1000, ge=0, le=1000)
     objective: Literal["pass_rate", "cost", "latency"] = "pass_rate"
     minimum_improvement: float = Field(default=0, ge=0, le=1000)
+
+
+class Example(StrictModel):
+    """A worked input/output the runtime shows the model. Provenance is checked when a version is persisted."""
+
+    input: dict
+    output: dict
+    note: str = Field(default="", max_length=500)
+    source_case: str | None = None
+
+
+class Verifier(StrictModel):
+    """Closed vocabulary of deterministic output checks run before a result is returned."""
+
+    # Stored versions serialise the field name, authored input uses the "schema" alias; accept both.
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: str = Field(min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$")
+    kind: Literal["required", "one_of", "range", "sum_equals", "schema"]
+    path: str = Field(default="$", max_length=200)
+    values: list[Any] | None = Field(default=None, max_length=100)
+    minimum: float | None = None
+    maximum: float | None = None
+    field: str | None = Field(default=None, max_length=100)
+    total_path: str | None = Field(default=None, max_length=200)
+    tolerance: float = Field(default=0, ge=0, le=1000000)
+    expected_schema: dict | None = Field(default=None, alias="schema")
+    message: str = Field(default="", max_length=300)
+
+    @model_validator(mode="after")
+    def complete(self):
+        needs = {
+            "one_of": self.values is not None and len(self.values) > 0,
+            "range": self.minimum is not None or self.maximum is not None,
+            "sum_equals": bool(self.field and self.total_path),
+            "schema": self.expected_schema is not None,
+            "required": True,
+        }
+        if not needs[self.kind]:
+            raise ValueError(f"Verifier kind {self.kind} is missing required parameters")
+        if self.expected_schema is not None:
+            from jsonschema import Draft202012Validator
+
+            Draft202012Validator.check_schema(self.expected_schema)
+        return self
+
+
+class GeneratedTool(StrictModel):
+    """Builder-written tool code. It runs only in the sandbox and reaches systems only through capabilities."""
+
+    name: str = Field(min_length=3, max_length=40, pattern=r"^[a-z][a-z0-9_]+$")
+    description: str = Field(min_length=1, max_length=500)
+    input_schema: dict = Field(default_factory=lambda: {"type": "object"})
+    output_schema: dict = Field(default_factory=lambda: {"type": "object"})
+    code: str = Field(min_length=1, max_length=20000)
+    # alias used in code -> a registered tool id of this version. The only way out of the sandbox.
+    capabilities: dict[str, str] = Field(default_factory=dict)
+    # sha256 of code, set when the version is persisted and re-checked before every run.
+    code_hash: str = Field(default="", max_length=64)
+
+    @field_validator("capabilities")
+    @classmethod
+    def bounded_capabilities(cls, capabilities):
+        if len(capabilities) > 8 or any(not alias.isidentifier() for alias in capabilities):
+            raise ValueError("A generated tool has at most 8 capabilities with identifier aliases")
+        return capabilities
+
+    @field_validator("input_schema", "output_schema")
+    @classmethod
+    def valid_schema(cls, schema):
+        from jsonschema import Draft202012Validator
+
+        Draft202012Validator.check_schema(schema)
+        return schema
 
 
 class AgentSpec(StrictModel):
@@ -62,6 +136,41 @@ class AgentSpec(StrictModel):
     requirements: BusinessRequirements | None = None
     quality_policy: QualityPolicy = Field(default_factory=QualityPolicy)
     design_metrics: dict = Field(default_factory=dict)
+    # Builder-authored bundle contents. The runtime acts on every one of these.
+    examples: list[Example] = Field(default_factory=list, max_length=8)
+    verifiers: list[Verifier] = Field(default_factory=list, max_length=20)
+    tool_notes: dict[str, str] = Field(default_factory=dict)
+    generated_tools: list[GeneratedTool] = Field(default_factory=list, max_length=6)
+
+    @field_validator("tool_notes")
+    @classmethod
+    def bounded_notes(cls, notes):
+        if len(notes) > 40 or any(len(note) > 1000 for note in notes.values()):
+            raise ValueError("Tool notes are limited to 40 entries of 1000 characters")
+        return notes
+
+    @field_validator("examples")
+    @classmethod
+    def bounded_examples(cls, examples):
+        import json
+
+        if any(len(json.dumps(example.model_dump())) > 6000 for example in examples):
+            raise ValueError("Each example is limited to 6000 serialized characters")
+        return examples
+
+
+class SpecPatch(StrictModel):
+    """The only fields a builder may change. Locked fields do not exist here, so they cannot be named."""
+
+    hypothesis: str = Field(default="", max_length=1000)
+    instructions: str | None = Field(default=None, min_length=1, max_length=20000)
+    rules: dict | None = None
+    output_schema: dict | None = None
+    model: str | None = Field(default=None, min_length=1, max_length=200)
+    examples: list[Example] | None = Field(default=None, max_length=8)
+    verifiers: list[Verifier] | None = Field(default=None, max_length=20)
+    tool_notes: dict[str, str] | None = None
+    generated_tools: list[GeneratedTool] | None = Field(default=None, max_length=6)
 
 
 class Budget(StrictModel):
@@ -70,6 +179,12 @@ class Budget(StrictModel):
     max_seconds: int = Field(default=1800, ge=1, le=86400)
     target_score: float = Field(default=0.95, ge=0, le=1)
     stagnation_limit: int = Field(default=3, ge=1, le=20)
+    # Proposals generated per round. One reproduces the original single-candidate loop.
+    candidates_per_round: int = Field(default=1, ge=1, le=6)
+    # Passing development cases added to a screen so a candidate cannot win by breaking them.
+    screen_sample: int = Field(default=3, ge=0, le=20)
+    # Investigator tool-use turns for the live optimizer. Zero keeps the one-shot behaviour.
+    investigator_turns: int = Field(default=6, ge=0, le=20)
 
 
 class RedirectBuild(StrictModel):

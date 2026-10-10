@@ -15,19 +15,7 @@ from factory.models import DataSource, EvaluationCase, EvaluationResult, Evaluat
 from factory.runtime import execute
 from factory.schemas import QualityPolicy
 from factory.security import redact, redact_tenant
-
-
-def get_path(value, path):
-    if path in ("$", ""):
-        return value
-    for segment in path.split("."):
-        if isinstance(value, list):
-            value = value[int(segment)]
-        elif isinstance(value, dict):
-            value = value[segment]
-        else:
-            raise KeyError(path)
-    return value
+from factory.verifiers import get_path
 
 
 def grade(run, case, observation=None):
@@ -105,26 +93,40 @@ def grade(run, case, observation=None):
                     "evidence": "Missing or invalid field",
                 }
             )
-    lines = output.get("lines", [])
-    try:
-        arithmetic = all(
-            line.get("line_total_cents")
-            == int(
-                (Decimal(str(line.get("quantity", 0))) * line.get("unit_price_cents", 0)).quantize(
-                    Decimal("1"), rounding=ROUND_HALF_UP
+    lines = output.get("lines")
+    if isinstance(lines, list):
+        # Only outputs that carry line items have arithmetic to verify; a check that cannot
+        # fail for other workflows would inflate their category metrics.
+        try:
+            arithmetic = all(
+                line.get("line_total_cents")
+                == int(
+                    (Decimal(str(line.get("quantity", 0))) * line.get("unit_price_cents", 0)).quantize(
+                        Decimal("1"), rounding=ROUND_HALF_UP
+                    )
                 )
-            )
-            for line in lines
-        ) and output.get("total_cents", 0) == sum(line.get("line_total_cents", 0) for line in lines)
-    except (InvalidOperation, TypeError, ValueError, AttributeError, OverflowError):
-        arithmetic = False
-    checks.append(
-        {
-            "category": "business_rule_compliance",
-            "passed": arithmetic,
-            "evidence": "Independent line and total arithmetic verification",
-        }
-    )
+                for line in lines
+            ) and output.get("total_cents", 0) == sum(line.get("line_total_cents", 0) for line in lines)
+        except (InvalidOperation, TypeError, ValueError, AttributeError, OverflowError):
+            arithmetic = False
+        checks.append(
+            {
+                "category": "business_rule_compliance",
+                "passed": arithmetic,
+                "evidence": "Independent line and total arithmetic verification",
+            }
+        )
+    if run.metrics.get("verifiers_checked"):
+        failed = run.metrics.get("verification_failures", [])
+        checks.append(
+            {
+                "category": "verification",
+                "passed": not failed,
+                "evidence": "Builder-authored verifiers passed"
+                if not failed
+                else "Failed verifiers: " + ", ".join(failed),
+            }
+        )
     checks.append(
         {
             "category": "task_completion",
@@ -156,6 +158,26 @@ def grade(run, case, observation=None):
     )
     failures = [check["category"] for check in checks if not check["passed"]]
     return checks, failures
+
+
+GENERIC_CHECKS = {"task_completion", "tool_correctness", "approval_compliance", "safety"}
+
+
+def graded_score(checks):
+    """Partial credit for search: fraction of case-specific checks met; zero on a safety violation.
+
+    Boilerplate checks that nearly always pass are excluded so they do not dilute the signal.
+    Promotion gates stay binary; this only separates "nearly right" from "wrong".
+    """
+    by_category = {}
+    for check in checks:
+        by_category.setdefault(check["category"], []).append(check)
+    if any(not check["passed"] for key in ("safety", "approval_compliance") for check in by_category.get(key, [])):
+        return 0.0
+    specific = [check for check in checks if check["category"] not in GENERIC_CHECKS and not check.get("pending")]
+    if not specific:
+        return 1.0 if all(check["passed"] for check in checks) else 0.0
+    return sum(bool(check["passed"]) for check in specific) / len(specific)
 
 
 def evaluation_environment(db, case, version):
@@ -287,13 +309,19 @@ def scorecard(db, evaluation):
     critical_failures = 0
     split_counts, split_passed = Counter(), Counter()
     durations, costs, tokens, reservations = [], [], [], []
+    graded_total, graded_splits = 0.0, Counter()
     trials = {}
     pending_reviews = 0
     regression_outcomes = {}
+    case_names = {}
     for result in results:
         case = db.get(EvaluationCase, result.case_id)
+        case_names[case.id] = case.name
         split_counts[case.split] += 1
         split_passed[case.split] += int(result.passed)
+        grade_value = graded_score(result.checks)
+        graded_total += grade_value
+        graded_splits[case.split] += grade_value
         if case.split == "regression":
             regression_outcomes[f"{case.id}:{result.trial}"] = bool(result.passed)
         trials.setdefault(case.id, []).append(int(result.passed))
@@ -315,13 +343,19 @@ def scorecard(db, evaluation):
     half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denominator
     return {
         "score": p,
+        "graded_score": graded_total / total if total else 0,
         "passed": passed,
         "total": total,
         "distinct_cases": len(trials),
         "critical_failures": critical_failures,
         "metrics": {key: categories[key] / value for key, value in counts.items()},
         "splits": {
-            key: {"passed": split_passed[key], "total": value, "score": split_passed[key] / value}
+            key: {
+                "passed": split_passed[key],
+                "total": value,
+                "score": split_passed[key] / value,
+                "graded_score": graded_splits[key] / value,
+            }
             for key, value in split_counts.items()
         },
         "mean_latency_ms": sum(durations) / total if total else 0,
@@ -345,6 +379,8 @@ def scorecard(db, evaluation):
                 if len(values) > 1
             },
         },
+        "case_rates": {case_id: [sum(values), len(values)] for case_id, values in trials.items()},
+        "case_names": case_names,
         "confidence_interval_95": [max(0, center - half), min(1, center + half)],
         "provisional": True,
         "limitations": "Fixture pass rates measure these authored scenarios only; repeated trials may be correlated. No claim of general business accuracy.",
@@ -367,10 +403,74 @@ def development_evidence(db, evaluation):
                 "case": case.name,
                 "input": redact(case.input),
                 "output": run.output,
+                "status": run.status,
+                "tool_sequence": run.metrics.get("tool_sequence", []),
                 "failed_checks": [c for c in result.checks if not c["passed"]],
             }
         )
     return redact_tenant(db, evaluation.org_id, evidence)
+
+
+def passing_examples(db, evaluation, limit=3):
+    """Development-split behaviour that must be preserved; never regression or validation answers."""
+    examples, seen = [], set()
+    for result in db.scalars(
+        select(EvaluationResult)
+        .where(EvaluationResult.evaluation_run_id == evaluation.id, EvaluationResult.passed.is_(True))
+        .order_by(EvaluationResult.case_id, EvaluationResult.trial)
+    ):
+        case = db.get(EvaluationCase, result.case_id)
+        if case.split != "development" or case.id in seen:
+            continue
+        seen.add(case.id)
+        run = db.get(ExecutionRun, result.execution_id)
+        examples.append(
+            {
+                "case": case.name,
+                "input": redact(case.input),
+                "output": run.output,
+                "tool_sequence": run.metrics.get("tool_sequence", []),
+            }
+        )
+        if len(examples) >= limit:
+            break
+    return redact_tenant(db, evaluation.org_id, examples)
+
+
+# One standard error of the paired difference: improvements smaller than this are treated as noise.
+NOISE_Z = 1.0
+
+
+def _score_variance(card):
+    """Variance of the mean per-case pass rate, estimated from repeated trials only.
+
+    A single trial gives no evidence of noise, so cases with one trial contribute zero.
+    """
+    rates = card.get("case_rates")
+    if not rates:
+        return None
+    total = 0.0
+    for passes, trials in rates.values():
+        if trials > 1:
+            p = passes / trials
+            total += p * (1 - p) / (trials - 1)
+    return total / (len(rates) ** 2)
+
+
+def beyond_noise(candidate, baseline):
+    candidate_variance, baseline_variance = _score_variance(candidate), _score_variance(baseline)
+    if candidate_variance is None or baseline_variance is None:
+        return True
+    error = math.sqrt(candidate_variance + baseline_variance)
+    shared = set(candidate["case_rates"]) & set(baseline["case_rates"])
+    if error == 0 or not shared:
+        return True
+    delta = sum(
+        candidate["case_rates"][key][0] / candidate["case_rates"][key][1]
+        - baseline["case_rates"][key][0] / baseline["case_rates"][key][1]
+        for key in shared
+    ) / len(shared)
+    return delta > NOISE_Z * error
 
 
 def can_promote(candidate, baseline=None, policy=None):
@@ -413,7 +513,7 @@ def can_promote(candidate, baseline=None, policy=None):
             candidate["score"] >= policy.minimum_score
             and baseline["mean_latency_ms"] - candidate["mean_latency_ms"] > policy.minimum_improvement
         )
-    return candidate["score"] - baseline["score"] > policy.minimum_improvement
+    return candidate["score"] - baseline["score"] > policy.minimum_improvement and beyond_noise(candidate, baseline)
 
 
 async def evaluate_suite(

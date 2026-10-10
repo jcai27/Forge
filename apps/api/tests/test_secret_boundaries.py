@@ -12,7 +12,7 @@ from factory.builder import persist_version
 from factory.connectors import discover_connection
 from factory.db import uid
 from factory.models import Connection, ExecutionEvent, Organization, ToolDefinition
-from factory.runtime import execute, reconstruct_agent
+from factory.runtime import execute, reconstruct_agent, tool_name
 from factory.schemas import AgentSpec
 from factory.security import encrypt, known_secret_values, redact_tenant
 
@@ -134,7 +134,7 @@ async def test_sdk_tool_context_outputs_events_and_browser_rows_exclude_known_se
                 output = [
                     ResponseFunctionToolCall(
                         type="function_call",
-                        name="t_" + read.id.replace("-", "_"),
+                        name=tool_name(read),
                         arguments="{}",
                         call_id=uid(),
                         id=uid(),

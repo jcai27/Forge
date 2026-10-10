@@ -86,10 +86,52 @@ Keep bounded decompression, pagination limits and whole-operation deadlines. An 
 decoded budget must never reach zlib with max_length=0 (which means unlimited output).
 Do not enable automatic tool-call retries or expose resource ceilings as server overrides.
 
+The builder harness is documented in docs/BUILDER.md. The optimizer is a tool-using SDK
+agent that returns a typed SpecPatch of mutable fields only; locked fields (tools,
+connections, guardrails, quality policy, ceilings) are not in the patch model and the
+applied result is still scope-checked. Investigator tools expose only this tenant's
+development split by case identity; keep regression/held-out answers out of every
+builder payload, tool reply, example and notebook entry. The search loop always branches
+from the best-known version, never from a rejected candidate. Store checkpoints as fresh
+copies (deepcopy): reassigning an edited dict after an autoflush loses the edit. Screen
+runs have status `screen`/`screening` and are never promotion evidence. A proposal that
+breaks its contract is a rejected attempt, not a failed build.
+
+Builder-written code is allowed only as `generated_tools`, and only under these rules:
+it runs in the sandbox service (services/sandbox), never in the API or worker process;
+the sandbox has no network, credentials or host disk and is reached over a Unix socket
+where it is the server; code reaches systems only by capability calls that the worker
+performs through ExecutionContext.invoke, so tenant, contract, approval and redaction
+checks apply; writes are staged as approvals, never executed by code; code is pinned by
+sha256 in the immutable version and re-checked before every run; an administrator must
+acknowledge each new code hash before a version is approved. factory/codepolicy.py is
+defence in depth and a review aid, not the boundary; the container is. Never add an
+in-process fallback when SANDBOX_SOCKET is unset. Catch PermissionError before OSError:
+it is a subclass, and a denied capability must never be reported as an outage. Run
+`bash scripts/test-sandbox.sh` after changing the sandbox image, runner or compose service.
+
+Open-web research (factory/research.py) is off unless RESEARCH_ENABLED=true. It is a
+separate agent run that receives only a question; the question, search queries and every
+URL including redirect targets pass the OutboundScreen (tenant credential values and
+markers from evidence the builder has seen). Fetches use the pinned transport with a new
+origin-scoped client per hop, https and the default port only, and bounded bodies. Fetched
+text is untrusted data. Do not give the research step tenant data or the builder a network.
+
+Connection proposals (factory/proposals.py) hold no credential and contact nothing. Only
+administrator approval, with the exact hosts repeated back, creates a connection; the
+credential exists only there, encrypted. Attaching a connection creates a fresh version
+and resets build evidence exactly as redirection does. Production input becomes a test
+case only through the audited, administrator-only /runs/{id}/case with explicit
+authorization, and the reviewer supplies the expectation. Shadow runs execute in
+evaluation mode and must create no approval and change no business state. The playbook
+and the investigator ledger are tenant-scoped.
+
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require
 explicit authorization; secrets never enter model context or browser responses;
-no arbitrary generated code; promotion requires measured regression-safe evidence.
+generated code runs only in the sandbox, holds no secrets or network, reaches systems
+only through brokered capabilities and is pinned by hash in an immutable version;
+promotion requires measured regression-safe evidence.
 Demo mode is explicitly labeled and never represented as live model execution.
 Tests must exercise behavior and security boundaries, not invented score overrides.
 
