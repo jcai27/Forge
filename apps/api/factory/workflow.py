@@ -1102,7 +1102,10 @@ def control(db, job, action):
     elif action == "resume":
         if job.state not in ("PAUSED", "WAITING_FOR_APPROVAL"):
             raise ValueError("Build is not resumable")
-        transition(db, job, checkpoint.get("resume_state", "BUILDING"), checkpoint)
+        # The reason for waiting and where to go back to belong to this wait only.
+        target = checkpoint.pop("resume_state", "BUILDING")
+        checkpoint.pop("waiting_reason", None)
+        transition(db, job, target, checkpoint)
     elif action == "cancel":
         if job.state in TERMINAL:
             raise ValueError("Build is already terminal")

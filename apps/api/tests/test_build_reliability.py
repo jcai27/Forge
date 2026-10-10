@@ -179,6 +179,8 @@ async def test_a_provider_that_stays_down_pauses_the_build_which_resumes_where_i
     db.commit()
     await run_to_end(db, job)
     assert job.state == "READY_FOR_REVIEW" and job.checkpoint["validation_scorecard"]["score"] == 1
+    # The reason for the pause went with it.
+    assert "waiting_reason" not in job.checkpoint and "resume_state" not in job.checkpoint
 
 
 @pytest.mark.asyncio
@@ -692,3 +694,67 @@ async def test_a_tool_less_agent_is_deployed_invoked_and_answers(client, seeded,
 def test_a_request_may_take_minutes_by_default():
     assert AgentSpec(name="n", purpose="p", template="custom", instructions="i").timeout_seconds == 180
     assert Budget().max_cost == 25 and Budget().max_seconds == 14400
+
+
+@pytest.mark.asyncio
+async def test_rubric_graded_cases_run_side_by_side_without_holding_each_other_up(client, seeded, db, monkeypatch):
+    created = with_data(client, seeded, development=8, selection=0, validation=8)
+    criterion = "Names a queue"
+    for case in db.scalars(select(EvaluationCase).where(EvaluationCase.suite_id == created["suite_id"])):
+        case.rubric = {"criteria": [criterion], "threshold": 0.8}
+    db.commit()
+
+    class Grader(Model):
+        active = peak = 0
+
+        async def get_response(self, system_instructions, input, *args, **kwargs):
+            Grader.active += 1
+            Grader.peak = max(Grader.peak, Grader.active)
+            try:
+                await asyncio.sleep(0.01)
+                return reply({"criteria": [{"criterion": criterion, "score": 1, "evidence": "It names one."}]})
+            finally:
+                Grader.active -= 1
+
+        async def stream_response(self, *args, **kwargs):
+            raise NotImplementedError
+            yield
+
+    live(monkeypatch, Builder(), Slow())
+    monkeypatch.setattr("factory.qualitative.Agent", lambda **kwargs: Agent(**{**kwargs, "model": Grader()}))
+    monkeypatch.setattr(settings(), "evaluation_concurrency", 4)
+    agent = db.get(AgentRecord, created["id"])
+    job = new_job(db, agent, Budget(target_score=1, investigator_turns=0))
+    db.commit()
+    await run_to_end(db, job)
+    assert job.state == "READY_FOR_REVIEW", (job.state, job.error, job.checkpoint.get("waiting_reason"))
+    assert Grader.peak == 4
+    results = list(db.scalars(select(EvaluationResult)))
+    assert len(results) == 16 and all(result.passed for result in results)
+    assert all("qualitative" in {check["category"] for check in result.checks} for result in results)
+    recorded = db.scalar(select(func.sum(UsageRecord.cost)).where(UsageRecord.job_id == job.id))
+    assert job.spent == pytest.approx(recorded)
+
+
+@pytest.mark.asyncio
+async def test_the_build_reports_spend_by_role_and_how_often_the_held_back_rows_were_scored(
+    client, seeded, db, monkeypatch
+):
+    created = with_data(client, seeded)
+    assert client.get(f"/agents/{created['id']}").json()["held_out_uses"] == 0
+    live(monkeypatch, Builder(), TicketAgent())
+    agent = db.get(AgentRecord, created["id"])
+    job = new_job(db, agent, Budget(target_score=1, investigator_turns=0))
+    db.commit()
+    await run_to_end(db, job)
+    detail = client.get(f"/builds/{job.id}").json()
+    roles = detail["usage_by_role"]
+    assert set(roles) == {"requirements_architect", "optimizer", "evaluation_agent"}
+    assert roles["requirements_architect"]["calls"] == 1 and roles["optimizer"]["calls"] == 1
+    # Twelve read and twelve unseen rows twice, nine changed rows again, and eight held back.
+    assert roles["evaluation_agent"]["calls"] == 24 + 24 + 9 + 8
+    assert all(
+        row["input_tokens"] == 5 * row["calls"] and row["output_tokens"] == 5 * row["calls"] for row in roles.values()
+    )
+    assert sum(row["cost"] for row in roles.values()) == pytest.approx(detail["spent"])
+    assert client.get(f"/agents/{created['id']}").json()["held_out_uses"] == 1

@@ -291,6 +291,10 @@ async def evaluate_case(db, evaluation, version, case, trial=0, max_cost=None, m
         remaining_seconds = (
             max(0, max_seconds - run.metrics.get("duration_ms", 0) / 1000) if max_seconds is not None else None
         )
+        if job is not None:
+            # The agent's run ended holding its rows. Grading awaits the provider, so let them go first:
+            # other trials of this pass are waiting on the same build row.
+            db.commit()
         checks.extend(await grade_rubric(db, version, run, case, max_cost, remaining_seconds, job))
     if case.source == "human":
         checks.append(
