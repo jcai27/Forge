@@ -583,9 +583,10 @@ async def test_imported_mapping_requires_visibility_and_minimizes_isolated_state
             evaluation = EvaluationRun(org_id=org.id, version_id=version.id, suite_id=suite.id)
             db.add(evaluation)
             db.flush()
+            before = business_snapshot(db, org.id)
             result = await evaluate_case(db, evaluation, version, case)
             assert result.passed, result.checks
-            assert business_snapshot(db, org.id)["products"][0]["stock"] != 10
+            assert business_snapshot(db, org.id) == before
             assert "unrelated private data" not in json.dumps(result.checks)
             client.patch(f"/data-sources/{source['id']}", json={"model_visible": False})
             with pytest.raises(PermissionError, match="model-authorized"):

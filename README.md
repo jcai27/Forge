@@ -136,3 +136,10 @@ Workspace membership, invitation acceptance, role changes, removal and workspace
 are available in Settings. See [ACCESS.md](docs/ACCESS.md) for permission rules and API
 contracts. Invitation codes are returned once for private delivery; email is not sent
 automatically. Removed or downgraded memberships affect already-issued sessions.
+
+
+Agent libraries, project/connection selectors, integration and approval lists, candidate
+versions, evaluation histories/scenarios and deployment history support bounded Load more
+controls. Loaded selections stay available as more records arrive. Collection APIs use
+`offset` and `limit` (default 50, maximum 200), including agent suites and deployments.
+Secondary audit/trace/trigger lists still need the remaining pagination UX audit.

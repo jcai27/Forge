@@ -1,0 +1,36 @@
+import {test,expect} from '@playwright/test';
+
+test('reach older agents and select projects and integrations beyond the first page',async({page})=>{
+  const rateLimited:string[]=[];
+  page.on('response',response=>{if(response.status()===429)rateLimited.push(response.url());});
+  await page.goto('/dashboard');
+  await page.getByLabel('Email',{exact:true}).fill('pagination-fixture@example.invalid');
+  await page.getByLabel('Password',{exact:true}).fill('local-pagination-fixture-password');
+  await page.getByRole('button',{name:'Sign in',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Your agent factory'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Collection Agent 000',exact:true})).toHaveCount(0);
+  await expect(page.getByText('Showing 50 of 53 agents',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Load more agents',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Collection Agent 000',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Load more agents',exact:true})).toHaveCount(0);
+  await page.getByRole('link',{name:'Create agent',exact:true}).first().click();
+  await page.getByRole('button',{name:'Restaurant order entry'}).click();
+  await expect(page.getByLabel('Project',{exact:true})).not.toContainText('Collection Project 000');
+  await page.getByRole('button',{name:'Load more projects',exact:true}).click();
+  await expect(page.getByLabel('Project',{exact:true})).toContainText('Collection Project 000');
+  await page.getByLabel('Project',{exact:true}).selectOption({label:'Collection Project 000'});
+  await expect(page.getByRole('checkbox',{name:/Collection Connection 000/})).toHaveCount(0);
+  await page.getByRole('button',{name:'Load more connections',exact:true}).click();
+  await page.getByRole('checkbox',{name:/Collection Connection 000/}).check();
+  await expect(page).toHaveURL(/\/agents\/new$/);
+  const selectedProject=await page.getByLabel('Project',{exact:true}).inputValue();
+  await page.getByRole('button',{name:'Create and start build'}).click();
+  await expect(page).toHaveURL(/\/agents\/[^/]+\/build/);
+  await expect(page.getByRole('status',{name:'Build status'})).toHaveText('ready for review',{timeout:60000});
+  const id=page.url().split('/agents/')[1].split('/')[0];
+  const token=await page.evaluate(()=>localStorage.getItem('factory-token'));
+  const agent=await (await page.request.get(`http://127.0.0.1:8100/agents/${id}`,{headers:{Authorization:`Bearer ${token}`}})).json();
+  expect(agent.project_id).toBe(selectedProject);
+  expect(agent.latest_version.spec.connection_ids).toHaveLength(1);
+  expect(rateLimited).toEqual([]);
+});

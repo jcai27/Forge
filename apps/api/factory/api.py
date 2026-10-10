@@ -823,9 +823,9 @@ async def inbound_webhook(connection_id: str, request: Request, db=DB):
 
 
 @app.get("/agents/{agent_id}/suites")
-def suites(agent_id: str, actor=ACTOR, db=DB):
+def suites(agent_id: str, offset: int = OFFSET, limit: int = LIMIT, actor=ACTOR, db=DB):
     owned(db, m.AgentRecord, agent_id, actor)
-    return collection(db, m.EvaluationSuite, actor, predicates=(m.EvaluationSuite.agent_id == agent_id,))
+    return collection(db, m.EvaluationSuite, actor, offset, limit, (m.EvaluationSuite.agent_id == agent_id,))
 
 
 @app.get("/suites/{suite_id}/cases")
@@ -1095,9 +1095,9 @@ class DeployRequest(BaseModel):
 
 
 @app.get("/agents/{agent_id}/deployments")
-def deployments(agent_id: str, actor=ACTOR, db=DB):
+def deployments(agent_id: str, offset: int = OFFSET, limit: int = LIMIT, actor=ACTOR, db=DB):
     owned(db, m.AgentRecord, agent_id, actor)
-    return collection(db, m.Deployment, actor, predicates=(m.Deployment.agent_id == agent_id,))
+    return collection(db, m.Deployment, actor, offset, limit, (m.Deployment.agent_id == agent_id,))
 
 
 @app.post("/agents/{agent_id}/deployments", status_code=201)

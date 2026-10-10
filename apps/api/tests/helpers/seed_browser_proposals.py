@@ -12,6 +12,7 @@ from agents import Agent
 from sqlalchemy import select
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from seed_browser_collections import seed_collections
 from test_factory_roles import ProposalProvider
 
 from factory import builder
@@ -61,6 +62,8 @@ async def main():
         record = db.scalar(select(UsageRecord).where(UsageRecord.job_id == job.id))
         assert record.role == "test_designer" and record.status == "recorded"
         assert list(db.scalars(select(EvaluationCase).where(EvaluationCase.suite_id == created["suite_id"]))) == []
+        settings().execution_mode = "demo"
+        await seed_collections(db)
 
 
 asyncio.run(main())

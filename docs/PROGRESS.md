@@ -606,3 +606,45 @@ Remaining: broader arbitrary connector workflow and deployment concurrency/budge
 contracts; email/Postgres transport/private-field hardening; broader collection pagination,
 mobile/accessibility, templates B/C browser coverage, runbook and full acceptance audit.
 External model/provider credentials remain absent. The complete platform goal stays active.
+
+
+2026-10-09 primary collection pagination milestone verified: agent suite and deployment
+endpoints now accept validated offset/limit parameters with deterministic ordering, bounded
+pages and tenant ownership checks. Published OpenAPI includes the new parameters.
+Frontend agent library, project/connection selectors, integration/approval lists, versions,
+evaluation history/scenarios and deployment history expose Load more controls. Paged
+queries use separate cache keys, preserve loaded options and remove duplicate IDs.
+Polling scales with loaded page count, limiting refresh request growth. Buttons inside
+creation forms explicitly use type=button, so traversal cannot submit a new agent.
+Candidate versions refresh during builds to show worker-created immutable revisions.
+
+A separate disposable fixture tenant contains 53 projects, discovered fixture connections
+and actual baseline AgentSpecs created through the builder/persist-version functions.
+No evaluation score or result is seeded. The fifth browser journey reaches an older agent,
+loads the second project/connection pages, selects the oldest project/connection and
+creates a real agent that completes isolated evaluation/improvement to ready for review.
+All five browser journeys pass with zero HTTP 429 responses. A unit check verifies
+pagination replacement preserves existing query filters. API tests traverse 53 suite/
+deployment rows, verify non-overlapping stable pages and boundaries, reject oversized/
+negative parameters and deny another tenant's access.
+
+Initial backend verification found two test setup/assertion defects and they were fixed
+before the final rerun. The new suite fixture now preserves the existing authored suite
+and dependent cases instead of attempting a foreign-key-blocked delete. An older imported-
+mapping test assumed the first randomly ID-ordered product had a particular stock value;
+it now checks the entire business snapshot before/after evaluation, strengthening proof
+that mapped isolated evaluation leaves production fixture state unchanged.
+
+Final checks: 170 SQLite tests passed (6 PG-only skips); all 176 PostgreSQL tests passed;
+Ruff, strict TypeScript, 3 Vitest tests and all five browser journeys pass. SQLite/PG drift
+checks show no migration changes. Final optimized Docker images rebuild and API/worker/
+web/PG/Redis start; API is healthy in labeled demo mode and dashboard returns HTTP 200.
+Engineering/README/acceptance/roadmap documents reflect this scope without calling the
+complete collection or platform acceptance audit finished.
+
+Remaining collection work includes secondary audit/build-trace/trigger/invocation lists,
+suite selection UX and embedded/detail/derived-result resource bounds. Other remaining
+work includes custom connector workflows, deployment concurrency/budget contracts,
+email/Postgres transport/private-field hardening, mobile/accessibility, templates B/C
+browser evidence, runbook and full requirement-level audit. External provider credentials
+remain absent. The complete platform goal stays active.

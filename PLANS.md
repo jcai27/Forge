@@ -2,8 +2,8 @@
 
 Authoritative scope: docs/AGENT_FACTORY_SPEC.md. The complete goal remains active.
 See docs/ACCEPTANCE.md for requirement-level evidence and gaps; chronological evidence
-is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 workspace invitations, membership administration,
-workspace switching and cache/session revocation, including concurrent PostgreSQL checks.
+is in docs/PROGRESS.md. Latest verified milestone: 2026-10-09 bounded collection traversal and frontend Load more
+controls, including out-of-first-page project/connection selection and actual agent build.
 
 Verified working slices:
 
@@ -21,8 +21,8 @@ Verified working slices:
 9. Orders/quotes/administrative hiring share runtime, factory, tools and assertions.
 10. Real worker kill/recovery, tenant/RBAC/secret tests and PG concurrency tests.
 
-Latest checks: Ruff; 168 SQLite tests passed (6 PG-only skips); all 174 PG tests passed;
-strict TypeScript; 2 Vitest tests; four browser journeys with zero HTTP 429s; Alembic
+Latest checks: Ruff; 170 SQLite tests passed (6 PG-only skips); all 176 PG tests passed;
+strict TypeScript; 3 Vitest tests; five browser journeys with zero HTTP 429s; Alembic
 upgrade/drift checks on both DBs; populated migration upgrade/downgrade; optimized images
 and Compose startup/health. These prove working slices, not complete phases or the
 whole product specification.
@@ -41,7 +41,8 @@ Next work, in priority order:
    reconciliation remains unavailable and unknown charges stay reserved.
 3. Broader private-field minimization and email/Postgres transport bounds,
    safe deployment users/settings and tenant/relational enforcement audit.
-4. Broader collection pagination, mobile/accessibility checks,
+4. Secondary audit/trace/trigger/invocation collection pagination and suite selection UX,
+   mobile/accessibility checks,
    template browser journeys and controlled manual editing/redirect usability.
 5. Seed/API runbook and full requirement-by-requirement audit. Actual local TLS MCP
    initialization/discovery/call now passes; external provider credentials remain absent.

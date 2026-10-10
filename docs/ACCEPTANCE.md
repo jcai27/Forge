@@ -20,7 +20,7 @@ AGENT_FACTORY_SPEC.md. The goal stays active until remaining feasible work is do
 | Trace/usage safety | Redacted secrets, external response trace summaries, audited actions | Mapped imports select declared fields and state evidence is summarized; broader raw output minimization and adversarial audit remain |
 | Template A data/edge cases | 100 products, multiple customers, aliases, prices, inventory, history, 36 cases | Fractional cents and duplicate requests verified; broader parsing/unit policy checks remain |
 | Templates B/C | Shared factory/runtime, independent suites, approved quote/hiring writes tested | Browser tests for both templates and scheduling constraints |
-| Frontend pages/design | All required paths, actual controls, charts, workflow, responsive CSS; browser journey passed; screenshot inspected | Mobile and accessibility checks; list pagination; budget editing UX; in-progress immutable redirection browser flow now passes; human review and generated-proposal correction browser flows pass |
+| Frontend pages/design | All required paths, actual controls, charts, workflow, responsive CSS; browser journey passed; screenshot inspected | Mobile and accessibility checks; primary lists/selectors paginate, secondary audit/trace/trigger and suite selection UX remain; budget editing UX; in-progress immutable redirection browser flow now passes; human review and generated-proposal correction browser flows pass |
 | Deployment runtime | Approved version pinning, invocation/idempotency, approval completion, logs, pause and rollback | Schedules, signed webhooks, lifetime budgets and durable queue tested; production runtime audit remains |
 | Production side effects | Default approval, permission recheck, dispatch intent, no automatic ambiguous retry | Administrator reconciliation receipts and concurrent stock/duplicate-request approvals verified; transport hardening remains |
 | DX/documents | README, env sample, migrations, scripts, OpenAPI, engineering memory | Seed CLI/API examples beyond demo bootstrap and final runbook |
@@ -173,3 +173,18 @@ Migration 0007, populated migration tests and both DB drift checks pass. Final f
 checks: 168 SQLite tests (6 PG-only skips), 174 PostgreSQL tests, Ruff, strict TypeScript,
 2 Vitest tests, all 4 browser journeys without HTTP 429s, optimized Compose rebuild/
 startup/API health/Settings HTTP. Broader pagination/auth/security/UX acceptance remains.
+
+
+2026-10-09: suite/deployment collection APIs now validate bounded pagination; tests
+traverse 53 rows with stable non-overlapping pages and tenant denial. Primary frontend
+libraries/selectors/history lists expose bounded Load more without losing prior options.
+A fifth browser journey loads older agents/projects/discovered fixture connections and
+builds a real isolated agent with second-page selections. The fixture seeds configurations,
+not evaluation scores. Paged cache keys and scaled polling preserve request limits.
+An older isolation assertion now compares the whole before/after business snapshot,
+removing an incorrect assumption about random ID ordering and strengthening isolation
+verification. Final full checks: 170 SQLite tests (6 PG-only skips), 176 PostgreSQL tests,
+Ruff/TypeScript, 3 Vitest tests, all 5 browser journeys without HTTP 429s, both DB drift
+checks and rebuilt Compose startup/API health/dashboard HTTP. Secondary audit/trace/
+trigger/invocation paging, suite selection UX and detail/derived-response bounds remain;
+this is not a complete collection/security/product acceptance declaration.

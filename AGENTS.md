@@ -50,6 +50,11 @@ validation succeeds. Do not attach them to the SQLAlchemy session during model/t
 checkpoints. Publish pending approvals with the validated execution result; failures must
 expose no new actionable approval. Approval dispatch rejects queued/running/failed runs,
 while authorized rejection remains available for stale requests.
+Collection traversal uses bounded pages. Keep paged query keys separate from single-page
+resource keys; preserve loaded selector options and use type="button" for load controls
+inside forms. Never silently stop at a server's default first page. Scale polling with
+loaded pages rather than multiplying request rates. Remaining secondary/history lists
+are documented in PLANS.md and must not be called fully audited.
 Build event streams must coalesce query refreshes instead of refetching once per event.
 Preserve the event cursor and cancel queued refreshes on unmount. Browser acceptance
 checks include zero HTTP 429 responses; do not raise/disable API limits to pass them.
