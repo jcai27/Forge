@@ -217,3 +217,25 @@ async def test_a_proposal_strategy_is_stated_in_the_instructions(monkeypatch):
     assert "For this proposal: Add a verifier for the total." in provider.seen["instructions"]
     await optimize(spec, [{"case": "x"}])
     assert "For this proposal" not in provider.seen["instructions"]
+
+
+@pytest.mark.asyncio
+async def test_an_empty_base_url_setting_means_the_openai_api_even_if_exported(monkeypatch):
+    """An empty OPENAI_BASE_URL line in .env, once exported, must not blank the SDK's base URL."""
+    from factory import builder
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "")
+    monkeypatch.setattr(settings(), "openai_api_key", "local-provider-contract-only")
+    monkeypatch.setattr(settings(), "openai_base_url", "")
+    seen = {}
+
+    async def capture(*args, **kwargs):
+        seen["base_url"] = str(kwargs["run_config"].model_provider._client.base_url)
+        return "ran"
+
+    monkeypatch.setattr(builder.Runner, "run", capture)
+    assert await builder.run_factory_role(object(), "input") == "ran"
+    assert seen["base_url"].rstrip("/") == "https://api.openai.com/v1"
+    monkeypatch.setattr(settings(), "openai_base_url", "http://127.0.0.1:11434/v1")
+    await builder.run_factory_role(object(), "input")
+    assert seen["base_url"].rstrip("/") == "http://127.0.0.1:11434/v1"
