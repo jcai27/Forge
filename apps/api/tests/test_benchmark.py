@@ -35,4 +35,10 @@ async def test_live_benchmark_refuses_to_run_without_a_real_provider():
     with pytest.raises(SystemExit) as stopped:
         await live(1, 1.0)
     assert "needs a real provider" in str(stopped.value)
-    assert set(LIVE_ARMS) == {"one-shot optimizer", "harness (investigate, 3 screened)"}
+    assert set(LIVE_ARMS) == {
+        "one-shot optimizer",
+        "one-shot optimizer, 3x attempts",
+        "harness (investigate, 3 screened)",
+    }
+    # The equal-spend arm differs from the plain one-shot arm only in how many attempts it gets.
+    assert LIVE_ARMS["one-shot optimizer, 3x attempts"]["budget"] == LIVE_ARMS["one-shot optimizer"]["budget"]

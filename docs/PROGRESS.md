@@ -847,6 +847,12 @@ arm, while the one-shot arm spent full evaluations on three candidates that scor
 five identical to their parent. Caveats: one weak model, one task family, equal iteration cap
 but about 3.5 times the builder spend for the harness, and a deterministic agent.
 
+Third round at equal builder spend, six builds per arm, the one-shot optimizer given three
+times the iterations: it improved the agent in 2 of 6 builds, the harness in 5 of 6; mean best
+0.79 against 0.87; 163 against 105 evaluation trials. So part of the earlier gap was simply
+more attempts. The harness still leads and uses about a third fewer trials, but 5 of 6
+against 2 of 6 is not statistically distinguishable (one-sided Fisher exact p about 0.12).
+
 Directed exercises with the real model: research fetched https://example.com over the real
 internet through the pinned transport and reported it correctly in 2 of 4 runs; a model-
 written tool passed the code policy, was pinned and ran correctly in the host-run sandbox in

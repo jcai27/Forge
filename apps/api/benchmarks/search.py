@@ -65,6 +65,8 @@ SIMULATED_ARMS = {
 }
 LIVE_ARMS = {
     "one-shot optimizer": {"budget": {"candidates_per_round": 1, "investigator_turns": 0}},
+    # Three times the iterations, so its builder spend is comparable to three proposals per round.
+    "one-shot optimizer, 3x attempts": {"budget": {"candidates_per_round": 1, "investigator_turns": 0}, "scale": 3},
     "harness (investigate, 3 screened)": {"budget": {"candidates_per_round": 3, "investigator_turns": 6}},
 }
 LIMITS = {"max_iterations": 12, "stagnation_limit": 8, "max_seconds": 3600}
@@ -224,7 +226,7 @@ def deterministic_agent():
     return lambda: setattr(evaluation, "execute", original)
 
 
-async def live(seeds, max_cost, max_iterations=5, isolate_builder=False):
+async def live(seeds, max_cost, max_iterations=5, isolate_builder=False, arms=None):
     if settings().execution_mode != "live" or not settings().openai_api_key:
         raise SystemExit(
             "The live benchmark needs a real provider: set EXECUTION_MODE=live and OPENAI_API_KEY. "
@@ -234,7 +236,15 @@ async def live(seeds, max_cost, max_iterations=5, isolate_builder=False):
     restore = deterministic_agent() if isolate_builder else None
     try:
         for name, arm in LIVE_ARMS.items():
-            budget = {**arm["budget"], "max_cost": max_cost, "max_iterations": max_iterations, "stagnation_limit": 4}
+            if arms and name not in arms:
+                continue
+            scale = arm.get("scale", 1)
+            budget = {
+                **arm["budget"],
+                "max_cost": max_cost,
+                "max_iterations": max_iterations * scale,
+                "stagnation_limit": 4 * scale,
+            }
             runs = []
             for index in range(seeds):
                 runs.append(await run_build(budget, skip_architect=True))
@@ -276,10 +286,11 @@ def main(argv=None):
         action="store_true",
         help="run the agent under test deterministically so only the live builder varies",
     )
+    parser.add_argument("--arm", action="append", help="run only this live arm; may be repeated")
     parser.add_argument("--json", type=Path)
     arguments = parser.parse_args(argv)
     report = asyncio.run(
-        live(arguments.seeds, arguments.max_cost, arguments.max_iterations, arguments.isolate_builder)
+        live(arguments.seeds, arguments.max_cost, arguments.max_iterations, arguments.isolate_builder, arguments.arm)
         if arguments.live
         else simulated(arguments.seeds)
     )

@@ -37,14 +37,16 @@ from 67% to 100% and cuts trials by about a quarter; screening cuts full evaluat
 Real-model runs used a local llama3.2:3b, the only model available, and exposed eleven
 defects, now fixed. With the builder isolated, eight builds per arm: the harness improved
 the agent in 6 of 8 builds (2 reached the target with held-out passing) and the one-shot
-optimizer in 0 of 8. Caveats: one weak model, one task family, unequal builder spend.
+optimizer in 0 of 8. At equal builder spend, six builds per arm: 5 of 6 against 2 of 6, with
+a third fewer evaluation trials, which is a direction but not statistically distinguishable.
+Caveats: one weak model, one task family.
 Research and a generated tool were each driven by the real model a few times; a connection
 draft never was.
 
 Builder work still open, in priority order:
 
-a. Repeat the live benchmark with a capable model and equal builder spend per arm
-   (`python -m benchmarks.search --live`). It needs an API key or a larger local model through
+a. Repeat the live benchmark with a capable model and more builds per arm
+   (`python -m benchmarks.search --live --isolate-builder`). It needs an API key or a larger local model through
    `OPENAI_BASE_URL`. Add workflows over custom connectors and a mock vendor API with messy
    documentation, and get a connection draft out of a real model.
 b. Parallel trial execution, rerun-to-confirm promotion and a rotating held-out set.

@@ -269,11 +269,25 @@ exact test gives p of about 0.004). Model-written patches were parsed, scope-che
 screened, evaluated, promoted on measured evidence and validated on held-out cases with no
 scripted provider in the loop.
 
-How far to trust it: this is one weak model, one task family and eight builds per arm. The
-arms had the same iteration cap, not the same spend: the harness asks for three proposals a
-round and cost about 3.5 times as much in builder tokens, so part of its advantage is simply
-more attempts. The agent was held deterministic, so nothing here speaks to noisy agents.
-A capable model and more task families are still needed, and none is available here.
+That comparison had the same iteration cap but not the same spend: the harness asks for three
+proposals a round and cost about 3.5 times as much in builder tokens. A third round gave the
+one-shot optimizer three times the iterations instead, so builder spend was about equal.
+Six builds per arm, run after defects 10 and 11 were fixed:
+
+| Arm | Improved the agent | Reached target | Mean best score | Evaluation trials | Estimated builder cost |
+| --- | --- | --- | --- | --- | --- |
+| One-shot optimizer, 3x attempts | 2 of 6 | 0 of 6 | 0.79 | 163 | 0.34 |
+| Harness (investigate, 3 screened) | 5 of 6 | 1 of 6 | 0.87 | 105 | 0.37 |
+
+At equal spend the one-shot optimizer does sometimes improve the agent, so much of the gap in
+the second round was simply more attempts. The harness is still ahead on every measure and
+used about a third fewer evaluation trials, because screening discards weak candidates before
+they cost a full evaluation. But 5 of 6 against 2 of 6 is not statistically distinguishable
+(one-sided Fisher exact p of about 0.12), so this is a direction, not a result.
+
+How far to trust all of this: one weak model, one task family, six to eight builds per arm,
+and an agent held deterministic, so nothing here speaks to noisy agents. A capable model and
+more task families are still needed, and none is available on this machine.
 
 **The newer capabilities, each driven directly by the real model:**
 
@@ -335,10 +349,11 @@ EXECUTION_MODE=live OPENAI_API_KEY=... .venv/bin/python -m benchmarks.search --l
 
 ## What is not verified or not built
 
-- The real-model evidence comes from one weak local model, one task family and eight builds
-  per arm at unequal builder spend (see Benchmark). A capable model, equal-spend arms and
-  workflows over custom connectors and a mock vendor API with messy documentation are still
-  needed before the size of the builder's benefit can be stated.
+- The real-model evidence comes from one weak local model, one task family and six to eight
+  builds per arm (see Benchmark). At equal builder spend the harness leads the one-shot
+  optimizer but not by a statistically distinguishable margin. A capable model, more builds
+  and workflows over custom connectors and a mock vendor API with messy documentation are
+  still needed before the size of the builder's benefit can be stated.
 - Connection drafts have never been produced by a real model. Research and generated tools
   have, a few times each, in directed exercises rather than inside a full build.
 - The search endpoint integration is exercised against a local transport only.
