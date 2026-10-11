@@ -1,0 +1,7 @@
+source/
+__pycache__/
+# Built by prepare.py and statements.py from the court exhibits and labels.json.
+data/*.zip
+data/batch-answer-key.json
+data/batch-report.html
+data/price-findings.csv
