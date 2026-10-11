@@ -17,7 +17,8 @@ from factory.security import Principal, audit, principal, require_admin, token_f
 
 router = APIRouter()
 DB, ACTOR = Depends(get_db), Depends(principal)
-Role = Literal["admin", "editor", "viewer"]
+# "customer": a customer's own people, who use the portal and nothing else (see security.principal).
+Role = Literal["admin", "editor", "viewer", "customer"]
 OFFSET, LIMIT = Query(0, ge=0), Query(50, ge=1, le=200)
 
 

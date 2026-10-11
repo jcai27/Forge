@@ -3,7 +3,7 @@ import {useCallback, useEffect, useState} from 'react';
 import Link from 'next/link';
 import {usePathname} from 'next/navigation';
 import {QueryClient, QueryClientProvider, useQueryClient} from '@tanstack/react-query';
-import {Boxes, LayoutDashboard, Plug, ShieldCheck, Settings, Plus, LogOut, CircleCheck} from 'lucide-react';
+import {Boxes, Building2, LayoutDashboard, Plug, ShieldCheck, Settings, Plus, LogOut, CircleCheck} from 'lucide-react';
 import type {Me, Agent, Metrics} from '../../../packages/contracts/src';
 import {api, useResource} from '@/lib/api';
 import {Button} from './ui/button';
@@ -11,6 +11,8 @@ import {ToastContext, Loading} from './shared';
 import {Dashboard, NewAgent} from './workspace-pages';
 import {AgentWorkspace} from './agent-pages';
 import {Integrations, Approvals, RunDetail, SettingsPage} from './operations-pages';
+import {Customers} from './customers-page';
+import {Portal} from './portal';
 
 // One cache for the life of the tab. Moving between sections can remount this component, and a cache
 // created inside it was thrown away each time, so every navigation fetched everything again.
@@ -76,7 +78,7 @@ function Login({onLogin}: {onLogin: () => void}) {
     </div></main>
   </div>;
 }
-const SECTIONS: Record<string, string> = {integrations:'Integrations', approvals:'Approvals', settings:'Settings', runs:'Executions', dashboard:'Overview'};
+const SECTIONS: Record<string, string> = {customers:'Customers', integrations:'Integrations', approvals:'Approvals', settings:'Settings', runs:'Executions', dashboard:'Overview'};
 function initials(value: string) {return value.split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || '–';}
 function Workspace({path, logout}: {path: string; logout: () => void}) {
   const me = useResource<Me>('/auth/me');
@@ -86,12 +88,17 @@ function Workspace({path, logout}: {path: string; logout: () => void}) {
   const waiting = metrics.data?.pending_approvals ?? 0, mode = me.data?.execution_mode ?? 'demo', live = mode === 'live';
   const groups = [
     {label:'Build', items:[{href:'/dashboard', label:'Overview', icon:LayoutDashboard, active:parts.length === 0 || parts[0] === 'dashboard' || !!agentId || parts[0] === 'runs'}, {href:'/agents/new', label:'Create agent', icon:Plus, active:path === '/agents/new'}]},
-    {label:'Operate', items:[{href:'/approvals', label:'Approvals', icon:ShieldCheck, active:parts[0] === 'approvals', count:waiting}, {href:'/integrations', label:'Integrations', icon:Plug, active:parts[0] === 'integrations'}]},
+    {label:'Operate', items:[{href:'/customers', label:'Customers', icon:Building2, active:parts[0] === 'customers'}, {href:'/approvals', label:'Approvals', icon:ShieldCheck, active:parts[0] === 'approvals', count:waiting}, {href:'/integrations', label:'Integrations', icon:Plug, active:parts[0] === 'integrations'}]},
     {label:'Administration', items:[{href:'/settings', label:'Settings', icon:Settings, active:parts[0] === 'settings'}]},
   ];
+  // A customer's workspace is a different product: their documents and results, none of the builder's tools.
+  // Settings stays reachable there, since joining a workspace and switching between them happen in it.
+  const kind = (me.data?.organization as {kind?: string} | undefined)?.kind;
+  if ((kind === 'customer' || me.data?.role === 'customer') && parts[0] !== 'settings') return <Portal path={path} logout={logout} email={me.data?.user.email ?? ''}/>;
   let page;
   if (parts[0] === 'agents' && parts[1] === 'new') page = <NewAgent/>;
   else if (agentId) page = <AgentWorkspace id={agentId} section={parts[2] ?? 'overview'}/>;
+  else if (parts[0] === 'customers') page = <Customers/>;
   else if (parts[0] === 'integrations') page = <Integrations/>;
   else if (parts[0] === 'approvals') page = <Approvals/>;
   else if (parts[0] === 'settings') page = <SettingsPage/>;

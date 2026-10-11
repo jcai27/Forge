@@ -31,3 +31,11 @@ encoding or unknown private datum. Resource-specific field minimization, PII pol
 transport/DNS hardening and key/retention governance remain separate unfinished work.
 Credentials are not an appropriate business input: collisions with required identifiers
 or schema literals may cause validation to fail safely after filtering.
+
+## Scanned pages
+
+With `DOCUMENT_READING` on, a scanned page or photo is sent to the model provider as an image
+(docs/INTAKE.md). Known-value filtering works on text and cannot be applied to a picture, so a
+credential printed on such a page reaches the provider. The transcription that comes back is
+filtered before it is returned to the browser and again when it is stored in a case. Do not turn
+reading on for documents that may show credentials.

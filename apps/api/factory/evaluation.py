@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from factory.connectors import check_connection
 from factory.fixtures import business_snapshot
+from factory.intake import IntakeError
 from factory.models import (
     DataSource,
     EvaluationCase,
@@ -20,9 +21,11 @@ from factory.models import (
     ExecutionRun,
     Membership,
 )
+from factory.reading import case_input
 from factory.runtime import execute
 from factory.schemas import QualityPolicy
 from factory.security import redact, redact_tenant
+from factory.tables import row_checks, rows_met, same
 from factory.verifiers import get_path
 
 
@@ -57,7 +60,16 @@ def grade(run, case, observation=None):
             )
             actual = get_path(source, assertion.get("path", "$"))
             op = assertion.get("op", "equals")
-            if op == "equals":
+            if op == "rows_match":
+                # A table answer is one check per expected row, so a long table is not all or nothing.
+                rows = row_checks(
+                    assertion["path"], assertion["value"], actual, assertion.get("category", "structured_accuracy")
+                )
+                checks.extend(redact(rows))
+                continue
+            if op == "similar":
+                passed = same(assertion["value"], actual)
+            elif op == "equals":
                 passed = actual == assertion["value"]
             elif op == "contains":
                 passed = assertion["value"] in actual
@@ -95,6 +107,10 @@ def grade(run, case, observation=None):
                 }
             )
         except (KeyError, IndexError, TypeError, ValueError):
+            if assertion.get("op") == "rows_match":
+                # No table at all: every expected row is missing.
+                checks.extend(redact(row_checks(assertion.get("path", "$"), assertion.get("value", []), None)))
+                continue
             checks.append(
                 {
                     "category": assertion.get("category", "structured_accuracy"),
@@ -269,10 +285,17 @@ async def evaluate_case(db, evaluation, version, case, trial=0, max_cost=None, m
         raise PermissionError("Evaluation tenant or suite mismatch")
     state, environment = evaluation_environment(db, case, version)
     observation = {}
+    try:
+        given = await case_input(db, version, case, job)
+    except IntakeError as error:
+        if job is None:
+            raise
+        # A page that could not be read says nothing about the agent. Leave no result.
+        raise ProviderUnavailable(str(error)) from None
     run = await execute(
         db,
         version,
-        case.input,
+        given,
         evaluation=True,
         state=state,
         environment=environment,
@@ -449,7 +472,11 @@ def meets_expectations(case, output):
         try:
             actual, op = get_path(output, assertion.get("path", "$")), assertion.get("op", "equals")
             met = (
-                actual == assertion["value"]
+                rows_met(assertion["value"], actual)
+                if op == "rows_match"
+                else same(assertion["value"], actual)
+                if op == "similar"
+                else actual == assertion["value"]
                 if op == "equals"
                 else assertion["value"] in actual
                 if op == "contains"

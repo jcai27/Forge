@@ -105,6 +105,32 @@ class Investigation:
             return self.refuse("get_case", arguments)
         return self.reply("get_case", arguments, {"name": case.name, "input": redact(case.input), "trials": trials})
 
+    def scanned_fields(self):
+        """Request fields that, in some development case, were read from scanned pages."""
+        fields = []
+        for case, _ in self.results():
+            fields += [field for field in case.documents or {} if field not in fields]
+        return fields
+
+    async def ask_page(self, arguments):
+        from factory.intake import IntakeError
+        from factory.reading import Reader
+
+        case = self.db.get(EvaluationCase, arguments.get("case_id", ""))
+        parts = (case.documents or {}).get(arguments.get("field", "")) if self.visible(case) else None
+        question = str(arguments.get("question", "")).strip()[:300]
+        if not parts or not question:
+            return self.refuse("ask_page", arguments)
+        # A model call like any other: charged to this build and bounded by its budget.
+        reader = Reader(self.db, self.job.org_id, job=self.job)
+        try:
+            answer = await reader.ask(parts, question, case.name)
+        except IntakeError as error:
+            return self.reply("ask_page", arguments, {"error": str(error)})
+        finally:
+            await reader.close()
+        return self.reply("ask_page", arguments, {"case": case.name, "question": question, "read_from_page": answer})
+
     def get_tool_contract(self, arguments):
         tool_id = arguments.get("tool_id", "")
         if tool_id not in self.spec.tools or tool_id not in self.spec.tool_contracts:
@@ -327,6 +353,25 @@ class Investigation:
                         "additionalProperties": False,
                     },
                     self.propose_connection,
+                )
+            )
+        if self.scanned_fields():
+            definitions.append(
+                (
+                    "ask_page",
+                    "Put one question to the page images of a development case's scanned document and get back "
+                    "what a model reads there. Charged to the build.",
+                    {
+                        "type": "object",
+                        "properties": {
+                            "case_id": {"type": "string"},
+                            "field": {"type": "string", "enum": self.scanned_fields()},
+                            "question": {"type": "string"},
+                        },
+                        "required": ["case_id", "field", "question"],
+                        "additionalProperties": False,
+                    },
+                    self.ask_page,
                 )
             )
         return [self._tool(*definition) for definition in definitions]

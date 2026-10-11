@@ -29,7 +29,8 @@ column `mapping`, and the sizes of the development, regression and validation pa
    fetches are.
 2. **Parse.** CSV, TSV, JSON (a list of objects, or a `rows`/`data` wrapper) and JSON Lines.
    One scalar per column. Anything unclear is refused with a message that says what to change.
-3. **Map.** The answer column is found by name (`label`, `category`, `intent`, ...) or, with
+3. **Map.** Columns named `expected_<field>` are the answers, which is how a file gives more than
+   one answer field. Otherwise the answer column is found by name (`label`, `category`, `intent`, ...) or, with
    two columns, as the one that repeats. If it is not clear the request is refused and the
    caller names it. A single input column becomes the field `text`.
 4. **Clean.** Rows with no answer or no input are left out; duplicates collapse to one; rows
@@ -70,7 +71,53 @@ Known tenant credentials are removed before it is stored and again at every boun
 - With research enabled, the documents' contents are added to the outbound screen, so their
   text cannot leave in a question, query or URL.
 
-Only text is accepted. PDF and Word files must be converted first.
+Text and PDF are accepted. The browser sends a PDF to `POST /documents/text`, which returns its
+text and stores nothing, and the text is then added like any other document. Word files must be
+converted first.
+
+## PDF documents
+
+An agent is sent text. A PDF is turned into text once, at the boundary, by `factory/documents.py`
+(`pdf_text`): the text layer of each page in order, with the page layout kept so that table
+columns stay in line. Limits: 5 MB, 30 pages, 60,000 characters as a request field (200,000 as a
+context document). Password-protected and unreadable files are refused by name.
+
+A page with no text layer is a scan or a photo. So is a page whose only text is a line or two
+laid over a page-sized image, as a court or a scanner stamps on. Such a page is never passed on
+as an empty document. What happens to it depends on `DOCUMENT_READING`:
+
+- **Off (the default).** The file is refused, naming the file and the page.
+- **On.** `factory/reading.py` draws the page as an image, sends it to the model
+  (`READER_MODEL`, else `OPENAI_MODEL`) and takes back a transcription. JPEG and PNG photos are
+  read the same way. A typed page in the same file is still taken from its text layer.
+
+Reading is a model call and is accounted for as one. Before a page is sent, a `document_reader`
+usage record is committed with a reservation; the reply settles it; a call with no reply keeps
+its reservation as uncertain and is not retried. Each upload has a ceiling
+(`READING_MAX_COST`, or `reading_max_cost` on the archive upload) checked before every page.
+The text read from a page is kept per tenant under a hash of the image, the model and the
+instructions, so a page is paid for once: an upload that stops at its limit or on a provider
+failure is simply sent again and continues. Every upload that read pages writes a
+`documents_read` audit event with the page count and cost, whether or not it succeeded.
+
+What to know before turning it on: a page costs a few cents and takes ten to thirty seconds on
+a large model, so a zip of several hundred scanned pages is a request of many minutes. The
+transcription is a model's reading and can be wrong on dense, faint or sideways pages. The page
+image reaches the provider as it is: a credential printed on a scanned page cannot be filtered
+out of a picture, although the text that comes back is filtered like any other.
+
+Examples whose requests are documents go up as a zip to `POST /agents/{id}/datasets/archive`
+(multipart: `file`, `name` and the split sizes). The zip holds exactly one examples file and the
+PDFs. A cell that names a PDF in the archive, by path or by file name, is replaced with that
+document's text; an empty cell stays empty. One row can therefore hold a packet of documents, for
+example an invoice, its purchase order and its delivery note, with the correct answer in
+`expected_` columns. After that the rows are an ordinary dataset: the same mapping, cleaning,
+split and pinned shape. Limits: 25 MB packed, 100 MB unpacked, 6,000 files; declared sizes are
+checked before anything is unpacked and every read is bounded again.
+
+No PDF byte and no file name is stored in a case. The same reader serves production: a caller
+sends each PDF to `POST /documents/text` and puts the returned text in the request field.
+`demo/restaurant/` is a worked example on public documents.
 
 ## Agents without tools
 
@@ -102,7 +149,11 @@ first version, and token spend by role.
 ## Not built
 
 - Reading examples from a customer's database or other connection.
-- PDF, Word and spreadsheet files.
+- Reading as a background job with progress. It runs inside the upload request.
+- A second, independent reading of each page to catch a misread digit.
+- Reading spend on a page of its own; it is in the usage ledger and the audit log only.
+- Word and spreadsheet files.
+- A PDF attached directly to a production request: the caller converts it with `/documents/text` first.
 - A model-proposed column mapping. The guess is a fixed rule; anything unclear is asked.
 - Graded answers other than exact match (free text needs a rubric, which exists per case but
   is not generated from data).

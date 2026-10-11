@@ -295,9 +295,10 @@ audited with who made it.
 
 ### P7a. Inputs from the customer's own files and systems
 
-Context documents are text only, and examples come from a file or a public address. Build:
-PDF, Word and spreadsheet intake; examples read from a customer connection (with P4) under
-explicit authorization; a way to replace a dataset.
+Context documents are text or PDF, and examples come from a file, a public address or a zip of
+PDFs with their answers (docs/INTAKE.md). Only PDFs with a text layer are read. Build: scanned
+and photographed documents; Word and spreadsheet intake; examples read from a customer
+connection (with P4) under explicit authorization; a way to replace a dataset.
 
 ### P8. Smaller defects and limits
 

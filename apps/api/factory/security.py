@@ -9,7 +9,7 @@ from urllib.parse import quote, quote_plus, unquote, urlsplit
 import jwt
 from argon2 import PasswordHasher
 from cryptography.fernet import Fernet
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 
@@ -34,7 +34,12 @@ def token_for(user_id, org_id):
     )
 
 
-def principal(credentials: HTTPAuthorizationCredentials = Depends(bearer), db=Depends(get_db)):
+# What a member with the customer role may reach: the portal, and what signing in and joining need.
+# Everything else is the builder's side, where the agent's design and its examples live.
+CUSTOMER_PATHS = ("/portal/", "/auth/", "/organization-invitations/accept")
+
+
+def principal(request: Request, credentials: HTTPAuthorizationCredentials = Depends(bearer), db=Depends(get_db)):
     try:
         claims = jwt.decode(credentials.credentials, settings().jwt_secret, algorithms=["HS256"])
         member = db.scalar(
@@ -42,9 +47,12 @@ def principal(credentials: HTTPAuthorizationCredentials = Depends(bearer), db=De
         )
         if not member or not db.get(User, member.user_id):
             raise ValueError("Membership revoked")
-        return Principal(member.user_id, member.org_id, member.role)
     except (jwt.PyJWTError, KeyError, ValueError):
         raise HTTPException(401, "Invalid or expired authentication") from None
+    if member.role == "customer" and not request.url.path.startswith(CUSTOMER_PATHS):
+        # Checked here, where every request's member is resolved, so no endpoint can forget it.
+        raise HTTPException(403, "This account can use the customer portal only")
+    return Principal(member.user_id, member.org_id, member.role)
 
 
 def require_write(actor):

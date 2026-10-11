@@ -441,3 +441,12 @@ button.card h2 { margin-top: 12px; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* A page printed or saved as PDF is the content alone: no navigation, no controls. */
+@media print {
+  .sidebar, .topbar, .no-print, .toast { display: none !important; }
+  .workspace { margin-left: 0 !important; }
+  .content, .content-inner { padding: 0 !important; max-width: none !important; }
+  .card { break-inside: avoid; box-shadow: none !important; }
+  body { background: #fff !important; }
+}

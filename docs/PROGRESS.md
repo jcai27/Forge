@@ -921,3 +921,163 @@ Checks: Ruff; 396 SQLite tests passed (6 PG-only skips); all 402 PostgreSQL test
 migrations 0009 to 0011 upgrade, drift check, downgrade and re-upgrade on both; strict
 TypeScript; 3 Vitest tests; all 7 browser journeys with zero HTTP 429s.
 
+
+## PDF documents as input, and a first restaurant demo since removed (2026-10-11)
+
+Built: `factory/documents.py` reads the text layer of a PDF with its layout, bounded in bytes,
+pages and characters, and refuses a scan by file name and page; `POST /documents/text` returns a
+PDF's text and stores nothing; `POST /agents/{id}/datasets/archive` takes a zip of one examples
+file and the PDFs its cells name; context documents and the two upload forms accept them; whole
+number columns of a delimited file are typed as integers; a request that mentions orders or
+quotes with no connection is a custom agent, not a template. See docs/INTAKE.md.
+
+The first demo, removed later the same day in favour of the real invoices below, was a supplier
+invoice check on the public Northwind PDFs (830 orders, each
+an invoice, a purchase order and usually a shipping order; Apache 2.0). One known error is
+planted in a share of the packets by redrawing a document in the original layout; every answer
+is recomputed from the finished PDFs before anything is written.
+
+Live runs, local SQLite, hybrid mode, 60/40/60 split:
+
+- `gpt-4.1-mini`: first version 56 of 100 scored, one change rejected, 24 of 60 held back. $0.17.
+- `gpt-5.5`: the first version got 60 of 60 read, 40 of 40 unseen and 60 of 60 held back, so the
+  build ended at its target with no improvement round. $7.43. Deployed, it then decided all 147
+  invoices of the March and April 2018 batch correctly (32 of 32 problems held, no good invoice
+  held, $16,014.39 of $16,014.39 in dispute found) through the production queue for $6.35.
+
+What this does not show: the documents are digital, in one plain layout, and the rule is exact,
+so the task is easy for a large model. It says nothing about scans, varied supplier layouts or
+a real restaurant's invoices, and again the builder was not needed to improve anything. That
+agent was built before number typing, so it returns the amount as text.
+
+Checks: Ruff; 419 SQLite tests passed (6 PG-only skips); strict TypeScript; 3 Vitest tests.
+Not run: the PostgreSQL suite and the browser journeys (the dev app was running), and there is
+no browser test of the zip upload yet.
+
+## Scanned documents, and real invoices from court records (2026-10-11)
+
+Built: `factory/reading.py` reads scanned pages and photos through the model when
+`DOCUMENT_READING` is on, with a `document_reader` usage record committed before each page, a
+per-upload ceiling, a per-tenant cache keyed on the page image, waits on provider rate limits as
+new accounted calls, and an immediate stop when the provider account has no credit. A page that
+is a stamp over a page-sized image now counts as a scan instead of being read as its stamp.
+Migration 0012. See docs/INTAKE.md and docs/SECRET_BOUNDARIES.md.
+
+`demo/restaurant/` holds 101 real invoices (146 scanned pages) from three public court
+exhibits, with answers verified by arithmetic and, for 60 of them, against the supplier's own
+filed summary. Measured while labelling: 1,276 of 1,277 Gordon Food Service lines satisfy
+quantity times price equals amount.
+
+Not done: no build has run on the real set and the platform reader has not been run on it. The
+provider account ran out of credit during labelling (about $27 spent this session), which also
+left about 100 pages of the produce and Sysco exhibits unlabelled. Three real pages were read
+correctly in a manual test of the same instructions; a dense sideways Sysco page was read with
+errors.
+
+Checks: Ruff; 426 SQLite tests passed (6 PG-only skips); strict TypeScript. Not run: PostgreSQL
+suite, migration 0012 on PostgreSQL, browser journeys.
+
+The Northwind demo files were deleted on 2026-10-11; `demo/restaurant/` is now the real set only.
+The runs recorded above happened and are kept as history.
+
+## The real-invoice demo run end to end on gpt-6-luna (2026-10-11)
+
+Every role on `gpt-6-luna` (reader, agent, builder), local SQLite, hybrid mode, scan reading on.
+Reading the 116 example pages cost $0.12 in all. The build on 86 real invoices (30/20/36) ended
+at its 80% target on the first version: 30 of 36 held-back invoices fully right, 95% of fields,
+for $0.05; no improvement round ran. Deployed, it read the 15 held-back Gordon Food Service
+invoices (30 scanned pages) through the production queue and got all four fields right on all
+15, including the 5 with a price rise, for $0.05 with reading.
+
+Two earlier builds on 30 invoices gave 10 and 8 of 12 held back: on a set that small the score
+swings. Misses seen were on the produce invoices, whose dates and numbers in the answer key have
+no independent check. Found by the first real upload: PDFium crashed the API when pages were
+drawn from several threads (now one document at a time), and a five-page invoice exceeded the
+20,000 character field limit (now 60,000 for a document).
+
+Checks: Ruff; 427 SQLite tests passed (6 PG-only skips). Not run: PostgreSQL suite, migration
+0012 on PostgreSQL, browser journeys.
+
+## Reading under builder control, table answers and the invoice view (2026-10-11)
+
+Built: `spec.reading` (notes added to page transcription, questions answered from page images),
+changeable by the builder and described to it only for agents with scanned requests; page images
+of example documents kept (`document_pages`) so a version with its own reading settings has them
+read again against the build budget; an investigator tool `ask_page` for development cases only;
+`/documents/text` reads with a deployment's settings and can keep page images for a production
+run. Table answers: an examples file may give a list of rows as a correct answer, graded row by
+row (`factory/tables.py`, ops `rows_match` and `similar`), so a long invoice with one misread
+line is not scored as nothing. The run page shows the scanned pages beside the answer, with each
+line item set against the expected one. Migrations 0012 (extended) and 0013.
+
+Measured on `gpt-6-luna` for every role, 88 real invoices (30/30/28):
+
+- Four header-and-count fields, 95% target, builder with reading control: 21 of 28 held back.
+  The builder questioned pages ten times and never changed the reading settings; none of its
+  three revisions was kept. Every miss was on the two produce suppliers.
+- Full extraction (five header fields and every line, 1,475 lines in the examples): 22 of 28
+  held-back invoices right in every field and line, 96.9% of checks, on the first version; no
+  improvement round ran because the build's target was set to 50%. Build cost $0.09.
+- Batch, 15 held-back Gordon Food Service invoices, 372 lines: all 75 header fields right, 369
+  of 372 lines right, 9 of 9 price rises found, none wrongly flagged, 13 of 15 invoices right
+  throughout. $0.03 with reading.
+
+Known gaps: approval and the keep-a-change rule still count whole invoices, which is too coarse
+for table answers; the answer key's descriptions are a model's reading and are compared loosely;
+fields the key cannot vouch for (terms, representative, addresses, pack size) are not extracted.
+
+Checks: Ruff; 436 SQLite tests passed (6 PG-only skips); strict TypeScript. Not run: PostgreSQL
+suite, migrations 0012 and 0013 on PostgreSQL, browser journeys.
+
+## The customer side (2026-10-11)
+
+Built: customer workspaces as organizations of their own, opened by a builder; installing a
+deployed agent into one as a copy of its approved version; a `customer` role confined to the
+portal in `security.principal`; the portal API (inbox, document with pages and corrections,
+price watch computed in code, CSV export); channels (IMAP mailbox with a pinned TLS connection,
+an inbound address with a hashed key, a results webhook through the pinned transport); a
+Customers page on the builder side and the portal screens on the customer side. Migration 0014.
+See docs/CUSTOMERS.md.
+
+Run on `gpt-6-luna`: the invoice agent rebuilt as extraction only (19 of 28 held-back invoices
+right in every field and line, 95.9% of checks, $0.07), installed in a demo customer workspace,
+and all 60 Gordon Food Service invoices sent through the portal in date order: 60 processed,
+$0.18 in the customer's own ledger. Price watch listed 17 rises; the answer key has 15 for those
+invoices, and two of the 17 are one misread price (4.20 read where 42.00 was printed, or the
+reverse), shown as a 900% rise.
+
+Not verified: the mailbox reader against a real IMAP server, and webhook delivery against a
+real endpoint; both are tested with stand-ins only. No browser tests for the new screens
+(checked by screenshot). Checks: Ruff; 443 SQLite tests passed (6 PG-only skips); strict
+TypeScript. Not run: PostgreSQL suite, migrations 0012 to 0014 on PostgreSQL, browser journeys.
+
+## The invoice job end to end, and the owner's overview (2026-10-11)
+
+Built on the customer side: automatic checks in code (`factory/payables.py`) that decide which
+invoices need a person; approval singly, in bulk or automatically for clean ones; ledger
+accounts per supplier and bills import files for Xero and QuickBooks Online; a second kind of
+operation that reads supplier statements, reconciled against invoices received; upgrading the
+agent behind an operation and reading unapproved documents again from stored pages; tax as a
+recorded field; an Overview page for the owner that prints as a report. Migration 0015.
+
+Run on `gpt-6-luna` in the demo customer workspace:
+
+- Invoice agent rebuilt to record tax: 21 of 28 held-back invoices right in every field and
+  line, 98.4% of checks, $0.07.
+- All 60 Gordon Food Service invoices read again after the upgrade. Against the answer key:
+  number, date, total and tax right on 60 of 60, and 1,225 lines recorded where the key has
+  1,225. Before tax was recorded the checks set aside 24 of 60, every one for sales tax; after,
+  they set aside 1, for a price a quarter of the last one paid.
+- Price watch: 15 rises over 5%, the number in the answer key, costing $48.39 on $47,198 billed.
+- Statement agent built on 72 statements drawn from the real invoice figures: 24 of 24 held
+  back. On the one real statement (three scanned pages) it read 60 of 60 rows as the key has
+  them. Reconciled: 59 agree, one the supplier lists was never received ($1,521.80), one on
+  file is not listed.
+
+What this shows and does not: the value in this data is entry and checking done without a
+person, not money found. Price rises cost $48 in three weeks across ten locations. The export
+files are untested against a live Xero or QuickBooks account. The statement examples are drawn,
+not real, apart from the one. No customer has used any of it.
+
+Checks: Ruff; 452 SQLite tests passed (6 PG-only skips); strict TypeScript. Not run: PostgreSQL
+suite, migrations 0012 to 0015 on PostgreSQL, browser journeys. New screens checked by screenshot.

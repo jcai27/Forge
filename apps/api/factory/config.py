@@ -32,7 +32,13 @@ class Settings(BaseSettings):
     # Dollars per million tokens as [input, output]; output includes reasoning. Defaults are published
     # list prices as last checked and may be out of date: override with MODEL_PRICES as JSON.
     # A third number is the price of input served from the provider's prompt cache.
-    model_prices: dict[str, list[float]] = {"gpt-5.5": [5.0, 30.0, 0.5], "gpt-4.1-mini": [0.4, 1.6, 0.1]}
+    model_prices: dict[str, list[float]] = {
+        "gpt-6-astra": [10.0, 50.0, 1.0],
+        "gpt-6-sol": [2.0, 10.0, 0.2],
+        "gpt-6-luna": [0.1, 0.5, 0.01],
+        "gpt-5.5": [5.0, 30.0, 0.5],
+        "gpt-4.1-mini": [0.4, 1.6, 0.1],
+    }
     # Models the builder may move an agent to. Empty: the agent stays on the model it was created with.
     agent_models: list[str] = []
     # Reasoning effort requested from reasoning models ("low", "medium", "high"). Empty leaves the default.
@@ -43,6 +49,15 @@ class Settings(BaseSettings):
     # Largest reply to request from a model. Zero leaves it to the model's own maximum: a fixed cap
     # cuts a reasoning model off mid-answer, and time limits and budgets already bound a call.
     output_token_limit: int = 0
+    # Reading scanned pages and photos sends each page image to the model provider and is charged per
+    # page. Off unless explicitly enabled. reader_model falls back to openai_model.
+    document_reading: bool = False
+    reader_model: str = ""
+    reader_reasoning_effort: str = "low"
+    reading_concurrency: int = 4
+    # Ceiling on what one upload may spend on reading, in dollars. Pages already read are kept.
+    reading_max_cost: float = 10
+    reading_timeout_seconds: int = 180
     worker_lease_seconds: int = 360
     runtime_max_attempts: int = 3
     jwt_secret: str = "local-development-only-change-before-deployment"

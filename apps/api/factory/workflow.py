@@ -909,6 +909,7 @@ async def advance(db, job):
                 usage=usage,
                 secret_values=known_secret_values(db, job.org_id),
                 tools=investigation.tools() if investigation else None,
+                scanned=investigation.scanned_fields() if investigation else (),
                 max_turns=budget.investigator_turns + 2,
                 strategy=round_strategy(candidates) if budget.candidates_per_round > 1 else None,
                 hooks=FactoryBudgetHooks(max(0, budget.max_cost - job.spent), db, job, "optimizer", max_seconds=seconds)

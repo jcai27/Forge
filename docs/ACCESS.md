@@ -50,7 +50,7 @@ administrative actions; accepting an invitation is the explicit cross-organizati
 | Endpoint | Behavior |
 | --- | --- |
 | `GET /organizations/members?offset=0&limit=20` | Paginated current-organization members with email and role; no password hashes |
-| `PATCH /organizations/members/{id}` | Administrator assigns `{role: admin/editor/viewer}` |
+| `PATCH /organizations/members/{id}` | Administrator assigns `{role: admin/editor/viewer/customer}` |
 | `DELETE /organizations/members/{id}` | Administrator removes membership; returns HTTP 204 |
 | `GET /organizations/invitations?offset=0&limit=20` | Administrator lists recipient/role/status/expiry; no codes or hashes |
 | `POST /organizations/invitations` | Administrator creates `{email, role, ttl_hours}`; returns the code once |
@@ -63,3 +63,9 @@ Cross-tenant administrative IDs return 404. Collections accept offsets and limit
 recorded in the joined organization's audit history. The published OpenAPI document
 includes these requests and pagination parameters. Migration `0007` adds the invitation
 table without changing existing membership or business history.
+
+## The customer role
+
+`customer` is the role of a customer's own people in their workspace. It reaches the portal
+(`/portal/*`), sign-in and invitation acceptance, and is refused everywhere else with HTTP 403.
+See docs/CUSTOMERS.md.

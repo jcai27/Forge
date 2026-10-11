@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -111,6 +111,15 @@ class GeneratedTool(StrictModel):
         return checked_schema(schema)
 
 
+class Reading(StrictModel):
+    """How scanned pages are turned into the text an agent is given. Builder-authored."""
+
+    # Added to the instructions of the model that transcribes each page.
+    notes: str = Field(default="", max_length=2000)
+    # Each is answered from the page images of a document, and the answers are appended to its text.
+    questions: list[Annotated[str, Field(min_length=1, max_length=300)]] = Field(default_factory=list, max_length=4)
+
+
 class AgentSpec(StrictModel):
     schema_version: int = 1
     name: str = Field(min_length=1, max_length=200)
@@ -153,6 +162,7 @@ class AgentSpec(StrictModel):
     verifiers: list[Verifier] = Field(default_factory=list, max_length=20)
     tool_notes: dict[str, str] = Field(default_factory=dict)
     generated_tools: list[GeneratedTool] = Field(default_factory=list, max_length=6)
+    reading: Reading = Field(default_factory=Reading)
 
     @field_validator("tool_notes")
     @classmethod
@@ -185,6 +195,7 @@ class SpecPatch(StrictModel):
     verifiers: list[Verifier] | None = Field(default=None, max_length=20)
     tool_notes: dict[str, str] | None = None
     generated_tools: list[GeneratedTool] | None = Field(default=None, max_length=6)
+    reading: Reading | None = None
 
     @field_validator("output_schema")
     @classmethod
@@ -294,7 +305,9 @@ class Invoke(StrictModel):
 class Assertion(StrictModel):
     scope: Literal["output", "state", "metrics"] = "output"
     path: str = Field(default="$", max_length=500)
-    op: Literal["equals", "contains", "gte", "lte", "json_schema", "contains_record"] = "equals"
+    op: Literal["equals", "similar", "rows_match", "contains", "gte", "lte", "json_schema", "contains_record"] = (
+        "equals"
+    )
     value: Any = None
     expected_schema: dict | None = Field(default=None, alias="schema")
     category: str = Field(default="structured_accuracy", min_length=1, max_length=100, pattern=r"^[a-z_]+$")

@@ -9,10 +9,10 @@ from datetime import UTC, timedelta
 from typing import Literal
 
 from argon2.exceptions import VerificationError
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from jsonschema import Draft202012Validator, validate
 from jsonschema.exceptions import SchemaError
 from jsonschema.exceptions import ValidationError as JsonValidationError
@@ -26,8 +26,10 @@ from factory.builder import available_tools, design, enforce_spec_scope, infer_t
 from factory.config import mode_for, settings
 from factory.connectors import FileConnector, check_connection, discover_connection
 from factory.db import get_db, now
+from factory.documents import MAX_ARCHIVE_BYTES
 from factory.fixtures import fictional_data, seed_business, seed_suite
 from factory.intake import (
+    MAX_DOCUMENT_CHARS,
     IntakeError,
     add_document,
     attach_dataset,
@@ -37,7 +39,10 @@ from factory.intake import (
     truth_source,
 )
 from factory.memberships import router as membership_router
+from factory.portal import router as portal_router
 from factory.proposals import ProposalError, approve_proposal, create_proposal, openapi_to_config
+from factory.reading import MAX_IMAGE_BYTES, Reader
+from factory.reading import read_archive as read_document_archive
 from factory.release import dossier, feedback_candidates, shadow_run
 from factory.runtime import emit, resolve_approval
 from factory.schemas import (
@@ -94,6 +99,7 @@ async def lifespan(app):
 
 app = FastAPI(title="Agent Factory", version="0.1.0", lifespan=lifespan)
 app.include_router(membership_router)
+app.include_router(portal_router)
 
 
 @app.exception_handler(HTTPException)
@@ -217,7 +223,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings().cors_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "Last-Event-ID"],
 )
 
@@ -289,9 +295,11 @@ def login(body: Login, db=DB):
     query = select(m.Membership).where(m.Membership.user_id == user.id)
     if body.org_id:
         query = query.where(m.Membership.org_id == body.org_id)
-    member = db.scalar(query.order_by(m.Membership.created_at))
-    if not member:
+    members = list(db.scalars(query.order_by(m.Membership.created_at)))
+    if not members:
         raise HTTPException(403, "No organization membership")
+    # Someone invited as a customer signs in to that workspace, not to the empty one registration gave them.
+    member = next((item for item in members if item.role == "customer"), members[0])
     return {
         "token": token_for(user.id, member.org_id),
         "user": serialize(user, member.org_id),
@@ -376,7 +384,9 @@ async def create_agent(body: CreateAgent, actor=ACTOR, db=DB):
         project_id=body.project_id,
         name="New agent",
         request=body.request,
-        template=body.template or infer_template(body.request),
+        # The built-in templates work through a connection's fixture tool. A request that merely mentions
+        # orders or quotes, with nothing connected, is a task of its own.
+        template=body.template or (infer_template(body.request) if body.connection_ids else "custom"),
         no_data_reason=body.no_data_reason or "",
     )
     db.add(agent)
@@ -440,6 +450,9 @@ NO_TRUTH_SOURCE = (
 )
 
 
+DATA_LOCKED = "Data cannot change while a build is running; cancel it or wait for it to finish"
+
+
 def active_build(db, agent):
     return db.scalar(select(m.BuildJob).where(m.BuildJob.agent_id == agent.id, m.BuildJob.state.not_in(TERMINAL)))
 
@@ -455,34 +468,140 @@ async def add_dataset(agent_id: str, body: AttachDataset, actor=ACTOR, db=DB):
     require_write(actor)
     agent = owned(db, m.AgentRecord, agent_id, actor)
     if active_build(db, agent):
-        raise HTTPException(409, "Data cannot change while a build is running; cancel it or wait for it to finish")
+        raise HTTPException(409, DATA_LOCKED)
     try:
         text = body.content if body.url is None else await fetch_dataset(body.url)
         records = parse_records(text, body.format)
+    except IntakeError as error:
+        raise HTTPException(422, str(error)) from None
+    except (TimeoutError, OSError):
+        raise HTTPException(422, "The dataset address could not be reached") from None
+    sizes = {
+        "development": body.development,
+        "selection": body.development if body.selection is None else body.selection,
+        "regression": body.regression,
+        "validation": body.validation,
+    }
+    mapping = body.mapping.model_dump() if body.mapping else None
+    origin = "upload" if body.url is None else "url"
+    return attach_records(db, actor, agent, body.name, records, mapping, sizes, origin, body.url or "")
+
+
+@app.post("/agents/{agent_id}/datasets/archive", status_code=201)
+async def add_dataset_archive(
+    agent_id: str,
+    file: UploadFile = File(...),
+    name: str = Form(min_length=1, max_length=120),
+    development: int = Form(default=60, ge=1, le=2000),
+    selection: int | None = Form(default=None, ge=0, le=2000),
+    regression: int = Form(default=0, ge=0, le=2000),
+    validation: int = Form(default=60, ge=1, le=2000),
+    # Ceiling on what reading scanned pages may cost for this upload; the workspace default when absent.
+    reading_max_cost: float | None = Form(default=None, ge=0, le=1000),
+    actor=ACTOR,
+    db=DB,
+):
+    """Examples whose requests are PDF documents: a zip of one examples file and the PDFs it names."""
+    require_write(actor)
+    agent = owned(db, m.AgentRecord, agent_id, actor)
+    if active_build(db, agent):
+        raise HTTPException(409, DATA_LOCKED)
+    data = await file.read(MAX_ARCHIVE_BYTES + 1)
+    reader = Reader(db, actor.org_id, reading_max_cost)
+    try:
+        # Reading a thousand PDFs takes seconds, and scanned pages a model call each.
+        records, pdfs, _, pages = await read_document_archive(reader, data)
+    except IntakeError as error:
+        record_reading(db, actor, reader, agent.id)
+        raise HTTPException(422, str(error)) from None
+    finally:
+        await reader.close()
+    record_reading(db, actor, reader, agent.id)
+    sizes = {
+        "development": development,
+        "selection": development if selection is None else selection,
+        "regression": regression,
+        "validation": validation,
+    }
+    detail = {"pdf_documents": pdfs, **reader.summary()}
+    return {
+        **attach_records(db, actor, agent, name, records, None, sizes, "upload", "", detail, pages),
+        "reading": reader.summary(),
+    }
+
+
+def record_reading(db, actor, reader, target):
+    """Reading is paid for whether or not the upload succeeds, so it is audited either way."""
+    if reader.pages_read:
+        audit(db, actor, "documents_read", target, reader.summary())
+    db.commit()
+
+
+def attach_records(db, actor, agent, name, records, mapping, sizes, origin, source_url, detail=None, pages=None):
+    try:
         dataset, version = attach_dataset(
-            db,
-            agent,
-            body.name,
-            records,
-            mapping=body.mapping.model_dump() if body.mapping else None,
-            sizes={
-                "development": body.development,
-                "selection": body.development if body.selection is None else body.selection,
-                "regression": body.regression,
-                "validation": body.validation,
-            },
-            origin="upload" if body.url is None else "url",
-            source_url=body.url or "",
+            db, agent, name, records, mapping=mapping, sizes=sizes, origin=origin, source_url=source_url, pages=pages
         )
     except IntakeError as error:
         db.rollback()
         raise HTTPException(422, str(error)) from None
-    except (TimeoutError, OSError):
-        db.rollback()
-        raise HTTPException(422, "The dataset address could not be reached") from None
-    audit(db, actor, "dataset_attached", dataset.id, {"rows": dataset.rows, "splits": dataset.profile["splits"]})
+    audit(
+        db,
+        actor,
+        "dataset_attached",
+        dataset.id,
+        {"rows": dataset.rows, "splits": dataset.profile["splits"], **(detail or {})},
+    )
     db.commit()
     return {**serialize(dataset), "version": serialize(version)}
+
+
+@app.post("/documents/text")
+async def document_text(
+    file: UploadFile = File(...),
+    # Read the document the way this deployment's agent version was built to have it read.
+    deployment_id: str | None = Form(default=None, max_length=36),
+    # Keep the scanned page images, so the run made from this text can show the document beside its answer.
+    keep_pages: bool = Form(default=False),
+    actor=ACTOR,
+    db=DB,
+):
+    """The text of one PDF or photo, for a context document or a request field. The file is not stored;
+    with keep_pages the images of its scanned pages are."""
+    require_write(actor)
+    reading = None
+    if deployment_id:
+        deployment = owned(db, m.Deployment, deployment_id, actor)
+        reading = owned(db, m.AgentVersion, deployment.version_id, actor).spec.get("reading")
+    data = await file.read(MAX_IMAGE_BYTES + 1)
+    name = (file.filename or "document")[:200]
+    reader = Reader(db, actor.org_id)
+    try:
+        text, parts = await reader.read(data, name, MAX_DOCUMENT_CHARS, reading, keep=keep_pages)
+    except IntakeError as error:
+        record_reading(db, actor, reader, actor.org_id)
+        raise HTTPException(422, str(error)) from None
+    finally:
+        await reader.close()
+    record_reading(db, actor, reader, actor.org_id)
+    text = redact_tenant(db, actor.org_id, text)
+    if parts:
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        known = db.scalar(
+            select(m.DocumentSource).where(
+                m.DocumentSource.org_id == actor.org_id, m.DocumentSource.text_hash == digest
+            )
+        )
+        if known is None:
+            db.add(m.DocumentSource(org_id=actor.org_id, text_hash=digest, parts=parts))
+        db.commit()
+    return {
+        "name": name,
+        "text": text,
+        "characters": len(text),
+        "reading": reader.summary(),
+        "pages_kept": sum("page" in part for part in parts or []),
+    }
 
 
 @app.delete("/datasets/{dataset_id}")
@@ -1618,6 +1737,54 @@ def run_detail(run_id: str, actor=ACTOR, db=DB):
         )
     )
     return {**serialize(run), "events": [serialize(event) for event in events]}
+
+
+@app.get("/runs/{run_id}/documents")
+def run_documents(run_id: str, actor=ACTOR, db=DB):
+    """The scanned pages behind a run's request fields, and what was expected of it when it was a test."""
+    run = owned(db, m.ExecutionRun, run_id, actor)
+    fields, checks, name = {}, [], None
+    result = db.scalar(
+        select(m.EvaluationResult).where(
+            m.EvaluationResult.execution_id == run.id, m.EvaluationResult.org_id == actor.org_id
+        )
+    )
+    if result is not None:
+        case = db.get(m.EvaluationCase, result.case_id)
+        fields, name = dict(case.documents or {}), case.name
+        checks = [
+            {key: check.get(key) for key in ("path", "expected", "actual", "passed", "table", "row", "wrong")}
+            for check in result.checks
+            if check.get("path")
+        ]
+    else:
+        for field, value in (run.input or {}).items():
+            if isinstance(value, str):
+                source = db.scalar(
+                    select(m.DocumentSource).where(
+                        m.DocumentSource.org_id == actor.org_id,
+                        m.DocumentSource.text_hash == hashlib.sha256(value.encode()).hexdigest(),
+                    )
+                )
+                if source is not None:
+                    fields[field] = source.parts
+    pages = {field: [part["page"] for part in parts if "page" in part] for field, parts in fields.items()}
+    return {"name": name, "pages": {field: hashes for field, hashes in pages.items() if hashes}, "checks": checks}
+
+
+@app.get("/document-pages/{content_hash}")
+def document_page(content_hash: str, actor=ACTOR, db=DB):
+    page = db.scalar(
+        select(m.DocumentPage).where(m.DocumentPage.org_id == actor.org_id, m.DocumentPage.content_hash == content_hash)
+    )
+    if page is None:
+        raise HTTPException(404, "Not found")
+    return Response(
+        content=bytes(page.data),
+        media_type=page.mime,
+        # The address is the hash of the image: it can never show anything else.
+        headers={"Cache-Control": "private, max-age=86400, immutable", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @app.get("/approvals")

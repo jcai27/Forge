@@ -133,7 +133,16 @@ in a suite is never imported again in another split. Dataset profiles shown to t
 hold development rows only. Schemas derived from data are pinned: no designer may change
 them. Context documents go to builder roles and the investigator's read_context only, never
 to the deployed agent, and their text joins the research outbound screen. Dataset addresses
-use the pinned transport with a new origin-scoped client per hop. A custom agent with no
+use the pinned transport with a new origin-scoped client per hop. PDF input is text read once at the
+boundary by factory/documents.py: bounded bytes, pages and characters, and a page with no text
+layer (a scan) is refused by name, never passed on as empty. A zip of examples holds one table and
+the PDFs its cells name; check declared sizes before unpacking and bound every read. No PDF byte
+or file name is stored in a case. Scanned pages and photos are read by a model only through
+factory/reading.py and only when DOCUMENT_READING is on: commit a pending document_reader
+UsageRecord before each page leaves, settle it on the reply, keep an unanswered call's reservation
+as uncertain and never retry it; check the upload's ceiling before every page; keep each reading
+per tenant under a hash of image, model and instructions and bump INSTRUCTIONS_VERSION when the
+instructions change. A page image cannot be credential-filtered; the returned text always is. A custom agent with no
 connection may have no tools; tool_correctness is graded only when tools were offered. A
 build stopped at its round limit measures its best version on held-out cases and still ends
 BUDGET_EXHAUSTED; that measurement is a report, not a pass. The browser keeps one query
@@ -164,6 +173,22 @@ written from one task's result would be applied to every task. Include tool, doc
 code sections only when the agent has those. Resolve demo or
 live per agent with mode_for(template), not settings().execution_mode. The browser suite
 cannot run while `next dev` is already running in apps/web.
+
+The customer side is documented in docs/CUSTOMERS.md. A customer works in an organization of
+its own (kind "customer"), opened by a builder who stays its administrator. An installed agent
+is a copy of one approved version with its own deployment; never share a deployment, a case or
+an evaluation across organizations. The `customer` role reaches /portal/*, /auth/* and invitation
+acceptance only, enforced in security.principal; keep new builder endpoints outside those paths
+and new portal endpoints tenant-checked with `owned`. Portal documents run through the ordinary
+deployment queue as the member who installed the operation. Mailboxes: TLS on 993, read-only,
+only mail after the recorded position, public addresses only with the certificate checked
+against the name; passwords and webhook keys encrypted, inbound keys stored as hashes and shown
+once. A webhook delivery is made once, on approval, and never retried. What happens to
+an invoice after it is read is code in factory/payables.py, never a model: the checks that decide
+whether a person must look, price comparisons, account coding, export files and statement
+reconciliation. A flagged document is never approved automatically; an exported one is never
+changed or sent twice; a bill always adds up to its invoice total. Upgrading an operation copies
+the new approved version in and switches the old deployment off, never edits a version in place.
 
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require

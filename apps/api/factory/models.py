@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from factory.db import Base, now, uid
@@ -16,6 +16,11 @@ class Owned(Identity):
 class Organization(Identity, Base):
     __tablename__ = "organizations"
     name: Mapped[str] = mapped_column(String(200))
+    # "builder": a workspace where agents are built. "customer": a workspace a builder opened for a
+    # customer, who works in the portal only. A customer workspace is a tenant of its own.
+    kind: Mapped[str] = mapped_column(String(20), default="builder", server_default="builder")
+    # The builder workspace that opened a customer workspace.
+    parent_org_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 
 
 class User(Identity, Base):
@@ -119,6 +124,39 @@ class ContextDocument(Owned, Base):
     content_hash: Mapped[str] = mapped_column(String(64))
 
 
+class DocumentReading(Owned, Base):
+    """The text a model read from one scanned page or photo, kept so a page is paid for once."""
+
+    __tablename__ = "document_readings"
+    __table_args__ = (UniqueConstraint("org_id", "content_hash"),)
+    # Of the page image, the model and the reading instructions together.
+    content_hash: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(100))
+    text: Mapped[str] = mapped_column(Text)
+
+
+class DocumentPage(Owned, Base):
+    """The image of one scanned page of an example, kept so the page can be read again differently."""
+
+    __tablename__ = "document_pages"
+    __table_args__ = (UniqueConstraint("org_id", "content_hash"),)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    mime: Mapped[str] = mapped_column(String(40))
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+
+
+class DocumentSource(Owned, Base):
+    """The pages a production request's document text was read from, so a run can show the scan.
+
+    Kept only when the caller asks. Found again by a hash of the text, which is what a run holds.
+    """
+
+    __tablename__ = "document_sources"
+    __table_args__ = (UniqueConstraint("org_id", "text_hash"),)
+    text_hash: Mapped[str] = mapped_column(String(64))
+    parts: Mapped[list] = mapped_column(JSON)
+
+
 class Dataset(Owned, Base):
     """Where a set of evaluation cases came from. The rows themselves live on as cases."""
 
@@ -202,6 +240,10 @@ class EvaluationCase(Owned, Base):
     authorized_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     # Set when the case came from an attached dataset, so the dataset can be removed with its cases.
     dataset_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    # For a request field read from a document with scanned pages: its pages in order, each
+    # {"text": ...} or {"page": hash of a DocumentPage}. Lets a version with its own reading
+    # settings have the pages read again.
+    documents: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
 
 
 class EvaluationRun(Owned, Base):
@@ -334,3 +376,100 @@ class DeploymentTrigger(Owned, Base):
     next_run_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), index=True)
     encrypted_secret: Mapped[str] = mapped_column(Text, default="")
     last_error: Mapped[str | None] = mapped_column(String(100))
+
+
+class Operation(Owned, Base):
+    """A deployed agent a customer workspace uses: what its people see as one kind of work.
+
+    Documents arriving for it are processed as the member in actor_id, who must still hold write
+    access, exactly as a deployment trigger runs as the person who set it up.
+    """
+
+    __tablename__ = "portal_operations"
+    deployment_id: Mapped[str] = mapped_column(ForeignKey("deployment_versions.id"), index=True)
+    actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    name: Mapped[str] = mapped_column(String(200))
+    # The request field the document's text goes into.
+    document_field: Mapped[str] = mapped_column(String(100))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Where the agent came from: the builder's workspace, agent and version.
+    source: Mapped[dict] = mapped_column(JSON, default=dict)
+    # What the documents of this operation are: "invoice", or "statement" (a supplier's list of
+    # invoices, reconciled against the invoices received).
+    kind: Mapped[str] = mapped_column(String(20), default="invoice", server_default="invoice")
+    # The customer's own settings: whether clean documents are approved without a person, payment
+    # terms, and how lines are coded to ledger accounts.
+    settings: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+
+
+class Channel(Owned, Base):
+    """A way documents reach an operation, or results leave it.
+
+    kind "mailbox": an IMAP mailbox that is checked for attachments. "inbound": an address other
+    systems post files to, authorised by a key of which only the hash is kept. "webhook": a URL
+    each result is posted to.
+    """
+
+    __tablename__ = "portal_channels"
+    operation_id: Mapped[str] = mapped_column(ForeignKey("portal_operations.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(200))
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+    encrypted_secret: Mapped[str] = mapped_column(Text, default="")
+    token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # What a mailbox has been read up to, and when and how the last check went.
+    cursor: Mapped[dict] = mapped_column(JSON, default=dict)
+    next_check_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    last_checked_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+
+class InboxDocument(Owned, Base):
+    """One document a customer workspace received, and what became of it."""
+
+    __tablename__ = "portal_documents"
+    __table_args__ = (UniqueConstraint("operation_id", "content_hash"),)
+    operation_id: Mapped[str] = mapped_column(ForeignKey("portal_operations.id"), index=True)
+    channel_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # "upload", "mailbox" or "inbound".
+    source: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(300))
+    sender: Mapped[str] = mapped_column(String(320), default="")
+    # Of the file as received: the same file twice is one document.
+    content_hash: Mapped[str] = mapped_column(String(64))
+    # "processing", "processed", "failed".
+    status: Mapped[str] = mapped_column(String(20), default="processing", index=True)
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # The pages in order, each {"page": hash of its stored image} with "text" as well where the page
+    # was typed. Enough to show the document and to put it through the agent again.
+    pages: Mapped[list] = mapped_column(JSON, default=list)
+    # The agent's answer, and the answer as a person corrected it, if anyone did.
+    output: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    corrected: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    reviewed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cost: Mapped[float] = mapped_column(Float, default=0)
+    # How sending the result on went, per webhook channel id.
+    deliveries: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Where a processed document stands: "review" (something needs a person), "ready" (nothing found,
+    # waiting for approval), "approved", "exported" (sent to the books).
+    stage: Mapped[str] = mapped_column(String(20), default="new", server_default="new", index=True)
+    # What the automatic checks found, each {"kind", "message", ...}. Worked out in code.
+    exceptions: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
+    approved_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    approved_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    export_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+
+
+class ExportBatch(Owned, Base):
+    """Approved documents sent to the books together, as one file in an accounting system's import format."""
+
+    __tablename__ = "portal_exports"
+    operation_id: Mapped[str] = mapped_column(ForeignKey("portal_operations.id"), index=True)
+    format: Mapped[str] = mapped_column(String(30))
+    created_by: Mapped[str] = mapped_column(String(36))
+    documents: Mapped[int] = mapped_column(Integer)
+    # The file as it was produced, so the same batch can be fetched again unchanged.
+    content: Mapped[str] = mapped_column(Text)

@@ -103,6 +103,18 @@ def test_parsing_reads_csv_tsv_json_and_json_lines_alike():
     assert parse_records('﻿text,category\n"card, lost",card\n') == [{"text": "card, lost", "category": "card"}]
 
 
+def test_whole_number_columns_of_a_delimited_file_become_integers_and_nothing_else_does():
+    rows = parse_records("amount,postcode,price,note,gap\n1240,02134,1.50,7,3\n0,10001,2,x,\n-5,90210,3,9,4\n")
+    assert [row["amount"] for row in rows] == [1240, 0, -5]
+    assert [row["gap"] for row in rows] == [3, None, 4]
+    # A leading zero, a decimal and a mixed column would not survive being read as numbers.
+    assert rows[0]["postcode"] == "02134" and rows[0]["price"] == "1.50" and rows[0]["note"] == "7"
+    _, output, labels = derive_schemas([({"text": str(n)}, {"cents": n * 7, "code": n % 3}) for n in range(30)])
+    assert output["properties"]["cents"] == {"type": "integer"}
+    # A number is not a vocabulary, however often it repeats.
+    assert output["properties"]["code"] == {"type": "integer"} and labels == {}
+
+
 @pytest.mark.parametrize(
     "text,format",
     [
@@ -135,6 +147,14 @@ def test_mapping_is_guessed_only_when_the_answer_column_is_clear():
     assert guess_mapping(wide)["input"] == {"subject": "subject", "body": "body"}
     with pytest.raises(IntakeError):
         guess_mapping([{"a": n, "b": n, "c": n} for n in range(6)])
+    # Columns that begin expected_ are the answers, however many there are.
+    invoices = [{"id": 7, "packet": "INVOICE ...", "expected_decision": "hold", "expected_disputed_cents": 1240}]
+    assert guess_mapping(invoices) == {
+        "input": {"text": "packet"},
+        "expected": {"decision": "expected_decision", "disputed_cents": "expected_disputed_cents"},
+    }
+    with pytest.raises(IntakeError):
+        guess_mapping([{"expected_a": 1, "expected_b": 2}])
 
 
 def test_unusable_and_contradictory_rows_are_left_out_and_counted():
@@ -198,6 +218,9 @@ def test_schemas_are_read_off_the_data_and_a_repeating_answer_becomes_a_vocabula
 def test_a_build_cannot_start_with_nothing_to_judge_it(client, seeded, db, monkeypatch):
     created = direct_agent(client, seeded)
     assert created["template"] == "custom" and created["version"]["spec"]["tools"] == []
+    # Words like "order" pick a built-in template only when there is a connection for it to work through.
+    mentions = direct_agent(client, seeded, request="Check each supplier invoice against its purchase order")
+    assert mentions["template"] == "custom"
     assert created["version"]["spec"]["instructions"].endswith("Task: Route each support ticket to the right queue")
     assert client.get(f"/agents/{created['id']}").json()["truth_source"] is None
     refused = client.post(f"/agents/{created['id']}/builds", json={})

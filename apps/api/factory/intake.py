@@ -11,6 +11,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 from urllib.parse import urljoin, urlparse
 
 from sqlalchemy import func, select
@@ -27,6 +28,9 @@ MAX_COLUMNS = 50
 MAX_CELL_CHARS = 20_000
 MAX_SPLIT = 2_000
 MAX_LABELS = 200
+MAX_TABLE_ROWS = 500
+MAX_TABLE_FIELDS = 20
+MAX_TABLE_CELL_CHARS = 500
 FETCH_TIMEOUT = 30
 MAX_HOPS = 4
 FETCH_TYPES = ("text/", "application/json", "application/x-ndjson", "application/csv", "application/octet-stream")
@@ -41,6 +45,7 @@ CONTEXT_PAGE_CHARS = 8_000
 # reads them. regression: must never break again. validation: held back for the final judgement.
 SPLITS = ("development", "selection", "regression", "validation")
 ANSWER_COLUMNS = ("label", "labels", "category", "intent", "class", "target", "answer", "expected", "output")
+ANSWER_PREFIX = "expected_"
 IDENTIFIER_COLUMNS = ("id", "idx", "index", "uuid", "row", "row_id")
 
 
@@ -61,7 +66,29 @@ def _scalar(value, column):
         if isinstance(value, str) and len(value) > MAX_CELL_CHARS:
             raise IntakeError(f"A value in column {column!r} is longer than {MAX_CELL_CHARS} characters")
         return value
-    raise IntakeError(f"Column {column!r} holds nested values; flatten the data to one value per column")
+    if isinstance(value, list):
+        return _table(value, column)
+    raise IntakeError(
+        f"Column {column!r} holds nested values; a value is one thing, or a list of rows of single values"
+    )
+
+
+def _table(rows, column):
+    """A table as a value: a list of rows, each a flat object. The one nested shape that is accepted,
+    for answers such as the line items of an invoice."""
+    if len(rows) > MAX_TABLE_ROWS:
+        raise IntakeError(f"A table in column {column!r} has more than {MAX_TABLE_ROWS} rows")
+    for row in rows:
+        if not isinstance(row, dict) or not row or len(row) > MAX_TABLE_FIELDS:
+            raise IntakeError(
+                f"Column {column!r}: each row of a table must be an object of up to {MAX_TABLE_FIELDS} fields"
+            )
+        for field, item in row.items():
+            if not isinstance(field, str) or not field.isidentifier():
+                raise IntakeError(f"Column {column!r}: {field!r} is not a usable field name")
+            if not (item is None or isinstance(item, (str, int, float, bool))) or len(str(item)) > MAX_TABLE_CELL_CHARS:
+                raise IntakeError(f"Column {column!r}: a table cell must be one short value")
+    return rows
 
 
 def parse_records(text, format=None):
@@ -108,6 +135,7 @@ def parse_records(text, format=None):
                 rows.append(dict(zip(header, line, strict=True)))
         except csv.Error:
             raise IntakeError("The dataset is not valid CSV") from None
+        _type_numbers(rows, header)
     else:
         raise IntakeError("Supported formats are csv, tsv, json and jsonl")
     if not rows:
@@ -120,6 +148,17 @@ def parse_records(text, format=None):
     return [{column: _scalar(row.get(column), column) for column in columns} for row in rows]
 
 
+def _type_numbers(rows, columns):
+    """A delimited file holds only text. A column in which every value is a whole number written the
+    plain way becomes integers, so an amount is compared and returned as a number. Anything else stays
+    text: 02134 is a postcode and 1.50 would not survive the round trip."""
+    for column in columns:
+        values = [row[column].strip() for row in rows if row[column].strip()]
+        if values and all(re.fullmatch(r"0|-?[1-9]\d{0,17}", value) for value in values):
+            for row in rows:
+                row[column] = int(row[column]) if row[column].strip() else None
+
+
 def _blank(value):
     return value is None or (isinstance(value, str) and not value.strip())
 
@@ -127,6 +166,15 @@ def _blank(value):
 def guess_mapping(records):
     """Which column is the correct answer and which are the input. Refuses rather than guessing wrongly."""
     columns = list(records[0])
+    # A file that marks its answers says so in the column names: expected_decision, expected_amount.
+    # That is the only way to give several answer fields without naming the mapping by hand.
+    marked = {column[len(ANSWER_PREFIX) :]: column for column in columns if column.lower().startswith(ANSWER_PREFIX)}
+    if marked and all(field.isidentifier() for field in marked):
+        inputs = [c for c in columns if c not in marked.values() and c.lower() not in IDENTIFIER_COLUMNS]
+        if not inputs:
+            raise IntakeError("Every column is marked as an answer; at least one must be the request")
+        fields = {"text": inputs[0]} if len(inputs) == 1 else {column: column for column in inputs}
+        return {"input": fields, "expected": marked}
     lowered = {column.lower(): column for column in columns}
     answer = next((lowered[name] for name in ANSWER_COLUMNS if name in lowered), None)
     inputs = [column for column in columns if column != answer and column.lower() not in IDENTIFIER_COLUMNS]
@@ -158,6 +206,11 @@ def check_mapping(mapping, records):
                 raise IntakeError(f"The dataset has no column {column!r}")
     if set(mapping["input"].values()) & set(mapping["expected"].values()):
         raise IntakeError("A column cannot be both input and correct answer")
+    for column in mapping["input"].values():
+        if any(isinstance(row.get(column), list) for row in records):
+            raise IntakeError(
+                f"Column {column!r} holds a table; a table can be a correct answer but not part of the request"
+            )
     return {"input": dict(mapping["input"]), "expected": dict(mapping["expected"])}
 
 
@@ -238,6 +291,20 @@ def split_examples(examples, sizes, seed):
     return assigned
 
 
+def _table_schema(tables):
+    """The shape of a table answer: the fields its rows have, and which of them every row has."""
+    rows = [row for table in tables for row in table]
+    fields = list(dict.fromkeys(field for row in rows for field in row))
+    return {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {field: {"type": _json_type([row.get(field) for row in rows])} for field in fields},
+            "required": [field for field in fields if all(not _blank(row.get(field)) for row in rows)],
+        },
+    }
+
+
 def _json_type(values):
     kinds = {type(value) for value in values if value is not None}
     if kinds <= {bool}:
@@ -265,15 +332,37 @@ def derive_schemas(examples):
     }
     properties, labels = {}, {}
     for field, values in outputs.items():
+        if all(isinstance(value, list) for value in values):
+            properties[field] = _table_schema(values)
+            continue
         kind = _json_type(values)
         properties[field] = {"type": kind}
         distinct = sorted({value for value in values}, key=str)
         # A text answer that repeats is a fixed vocabulary: the agent must choose from it, not invent.
+        # A number is never one: a count or an amount not seen in the examples is still a valid answer.
         if kind == "string" and len(distinct) <= MAX_LABELS and len(distinct) * 2 <= len(values):
             properties[field]["enum"] = distinct
             labels[field] = distinct
     output_schema = {"type": "object", "properties": properties, "required": list(outputs)}
     return input_schema, output_schema, labels
+
+
+def answer_checks(examples, labels):
+    """How each answer field is judged. A table is judged row by row. Free text of several words is
+    judged as a reading, nearly the same being the same. Anything else must be exactly right: a label
+    from a fixed vocabulary, a number, a date, a code."""
+    ops = {}
+    for field in examples[0][1]:
+        values = [expected[field] for _, expected in examples]
+        if all(isinstance(value, list) for value in values):
+            ops[field] = "rows_match"
+        elif field not in labels and sum(isinstance(value, str) and " " in value.strip() for value in values) * 2 > len(
+            values
+        ):
+            ops[field] = "similar"
+        else:
+            ops[field] = "equals"
+    return ops
 
 
 def agent_suite(db, agent):
@@ -309,11 +398,11 @@ def truth_source(db, agent):
     return None
 
 
-def attach_dataset(db, agent, name, records, mapping=None, sizes=None, origin="upload", source_url=""):
+def attach_dataset(db, agent, name, records, mapping=None, sizes=None, origin="upload", source_url="", pages=None):
     """Turn rows into evaluation cases and pin the agent's input and output shape to the data.
 
     Returns the dataset and the new version. The caller owns authorization, the active-build check and
-    the commit.
+    the commit. pages maps a document's text to its stored pages, for documents with scanned pages.
     """
     from factory.builder import persist_version
     from factory.models import AgentVersion
@@ -352,6 +441,7 @@ def attach_dataset(db, agent, name, records, mapping=None, sizes=None, origin="u
                 labels[field] = sorted(set(values) | set(known), key=str)
                 output_schema["properties"][field]["enum"] = labels[field]
     spec.input_schema, spec.output_schema = input_schema, output_schema
+    ops = answer_checks(fresh, labels)
     content_hash = _digest(*sorted(canonical(item) for item in used))
     dataset = Dataset(
         org_id=agent.org_id,
@@ -389,12 +479,18 @@ def attach_dataset(db, agent, name, records, mapping=None, sizes=None, origin="u
                     source="dataset",
                     input=item_input,
                     assertions=[
-                        {"op": "equals", "path": field, "value": value, "category": "structured_accuracy"}
+                        {"op": ops[field], "path": field, "value": value, "category": "structured_accuracy"}
                         for field, value in expected.items()
                     ],
                     critical=False,
                     environment={},
                     dataset_id=dataset.id,
+                    # A field whose text was read from scanned pages keeps the pages it was read from.
+                    documents={
+                        field: pages[value]
+                        for field, value in item_input.items()
+                        if pages and isinstance(value, str) and value in pages
+                    },
                 )
             )
     if not existing:
