@@ -27,7 +27,9 @@ test('create a project, build and improve an agent, deploy and approve a real fi
     await page.getByRole('button',{name:'Load more build events',exact:true}).click();
     await expect(page.getByText(before!,{exact:true})).toHaveCount(0);
   }
- await expect(page.getByText(/Customer alias red toms/).first()).toBeVisible();
+ // Individual wrong answers are folded away once there are many; they are one click away.
+ await page.getByRole('checkbox',{name:/List each wrong answer/}).check();
+ await expect(page.locator('.timeline-item p').filter({hasText:/Customer alias red toms/}).first()).toBeVisible();
  await page.getByRole('link',{name:'Evaluations',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Evaluation lab',exact:true})).toBeVisible();
  await expect(page.getByRole('heading',{name:/Scenario library/})).toContainText('36');

@@ -23,14 +23,16 @@ export function useAction() {
   }
   return {act, pending, toast};
 }
-const SETTLED = /completed|connected|ready|approved|deployed|passed|verified|promoted/i, STOPPED = /failed|rejected|cancelled|revoked|error/i, WAITING = /approval|paused|budget|attention|setup|pending|proposed|below target/i;
+const SETTLED = /completed|connected|ready|approved|deployed|passed|verified|promoted/i, STOPPED = /failed|rejected|cancelled|revoked|error/i, WAITING = /approval|paused|budget|limit reached|attention|setup|pending|proposed|below target/i;
 export function tone(value: string) {return /^(not|no|un)[ _]?/i.test(value) ? 'neutral' : STOPPED.test(value) ? 'bad' : WAITING.test(value) ? 'warn' : SETTLED.test(value) ? 'good' : 'neutral';}
 /** Field and event names arrive as snake_case identifiers; show them as words. */
 export function humanize(value: string) {const text = value.replaceAll('_', ' ').trim(); return text ? text[0].toUpperCase() + text.slice(1) : text;}
 /** State names are stored as UPPER_SNAKE identifiers; anything else is prose and is left alone. */
 export function stateName(value: string) {return /^[A-Z][A-Z_]+$/.test(value) ? humanize(value.toLowerCase()) : value;}
 // The text stays lowercase in the document (it is matched exactly elsewhere); CSS capitalizes the first letter.
-export function Badge({value}: {value: string}) {return <span className={`badge ${tone(value)}`}>{value.replaceAll('_', ' ').toLowerCase()}</span>;}
+// A build that ran out of rounds, money or time: "budget exhausted" reads as money only.
+const LABELS: Record<string, string> = {BUDGET_EXHAUSTED:'limit reached'};
+export function Badge({value}: {value: string}) {const label = LABELS[value] ?? value; return <span className={`badge ${tone(label)}`}>{label.replaceAll('_', ' ').toLowerCase()}</span>;}
 export function Heading({title, subtitle, action, meta}: {title: string; subtitle?: string; action?: ReactNode; meta?: ReactNode}) {return <div className="page-heading"><div><h1>{title}</h1>{subtitle && <p className="subtitle">{subtitle}</p>}{meta && <div className="page-meta">{meta}</div>}</div>{action && <div className="page-actions">{action}</div>}</div>;}
 export function Kpis({items}: {items: {label: string; value: ReactNode; foot?: ReactNode; icon?: ReactNode; attention?: boolean; text?: boolean}[]}) {return <div className={`kpis ${items.length === 3 ? 'cols-3' : ''}`}>{items.map(item => <div className={`kpi ${item.attention ? 'attention' : ''}`} key={item.label}><div className="kpi-label">{item.icon}{item.label}</div><div className={`kpi-value ${item.text ? 'text' : ''}`}>{item.value}</div>{item.foot && <div className="kpi-foot">{item.foot}</div>}</div>)}</div>;}
 export function Empty({title, children}: {title: string; children?: ReactNode}) {return <div className="empty"><Inbox size={22}/><h3>{title}</h3><p className="small">{children}</p></div>;}

@@ -541,6 +541,23 @@ async def advance(db, job):
                 agent.name = spec.name
             except BuildInterrupted:
                 return
+            except REJECTED_PROPOSAL as error:
+                # A reply that cannot be used as a specification is one bad reply, not a broken build.
+                # Ask once more; after that, carry on from the baseline, which already states the task.
+                record_role_usage(db, job, "requirements_architect", usage)
+                attempts = checkpoint.get("design_attempts", 0) + 1
+                emit(
+                    db,
+                    job.org_id,
+                    "design_rejected",
+                    {"attempt": attempts, "reason": type(error).__name__, "using_baseline": attempts >= 2},
+                    job_id=job.id,
+                )
+                checkpoint["design_attempts"] = attempts
+                job.checkpoint = deepcopy(checkpoint)
+                if attempts < 2:
+                    return
+                usage = None
             except Exception as error:
                 record_role_usage(db, job, "requirements_architect", usage)
                 if provider_unavailable(error):
@@ -553,7 +570,8 @@ async def advance(db, job):
                     "BUDGET_EXHAUSTED" if isinstance(error, BudgetExceeded) else "FAILED",
                 )
                 return
-            record_role_usage(db, job, "requirements_architect", usage)
+            if usage is not None:
+                record_role_usage(db, job, "requirements_architect", usage)
         emit(
             db,
             job.org_id,

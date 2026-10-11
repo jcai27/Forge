@@ -5,7 +5,7 @@ import json
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import UTC, timedelta
 from typing import Literal
 
 from argon2.exceptions import VerificationError
@@ -229,6 +229,10 @@ def serialize(row, org_id=None):
             continue
         value = getattr(row, column.name)
         if hasattr(value, "isoformat"):
+            # Times are stored in UTC, and SQLite returns them without saying so. A browser reads a
+            # bare timestamp as local time, which shifts every displayed time by the viewer's offset.
+            if getattr(value, "tzinfo", "absent") is None:
+                value = value.replace(tzinfo=UTC)
             value = value.isoformat()
         result[column.name] = value
     org_id = org_id or getattr(row, "org_id", None) or (row.id if isinstance(row, m.Organization) else None)

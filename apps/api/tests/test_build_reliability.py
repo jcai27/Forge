@@ -758,3 +758,40 @@ async def test_the_build_reports_spend_by_role_and_how_often_the_held_back_rows_
     )
     assert sum(row["cost"] for row in roles.values()) == pytest.approx(detail["spent"])
     assert client.get(f"/agents/{created['id']}").json()["held_out_uses"] == 1
+
+
+@pytest.mark.asyncio
+async def test_an_unusable_first_design_is_asked_for_again_and_then_the_build_carries_on_from_the_baseline(
+    client, seeded, db, monkeypatch
+):
+    created = with_data(client, seeded)
+
+    class Rambling(Builder):
+        """An architect whose reply is never a specification."""
+
+        async def get_response(self, system_instructions, input, *args, **kwargs):
+            payload = json.loads(user_text(input))
+            if "baseline" not in payload:
+                return await super().get_response(system_instructions, input, *args, **kwargs)
+            self.requests.append({"role": "architect", "payload": payload, "tools": []})
+            return reply({"thoughts": "Here is what I would do."})
+
+    builder = Rambling()
+    live(monkeypatch, builder, TicketAgent())
+    agent = db.get(AgentRecord, created["id"])
+    job = new_job(db, agent, Budget(target_score=1, investigator_turns=0))
+    db.commit()
+    await run_to_end(db, job)
+    assert job.state == "READY_FOR_REVIEW" and job.error is None
+    assert [request["role"] for request in builder.requests][:2] == ["architect", "architect"]
+    rejected = list(db.scalars(select(ExecutionEvent).where(ExecutionEvent.kind == "design_rejected")))
+    assert [event.payload["using_baseline"] for event in rejected] == [False, True]
+    # Both calls were paid for and are on the record.
+    calls = list(
+        db.scalars(
+            select(UsageRecord).where(UsageRecord.job_id == job.id, UsageRecord.role == "requirements_architect")
+        )
+    )
+    assert len(calls) == 2
+    first = db.scalar(select(AgentVersion).where(AgentVersion.agent_id == agent.id, AgentVersion.number == 2))
+    assert "Task: Route each support ticket" in first.spec["instructions"]

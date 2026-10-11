@@ -267,7 +267,13 @@ async def test_background_architect_persists_requirements_and_accounts_success_o
     assert usage.role == "requirements_architect" and usage.tokens == 30
     assert usage.cost == job.spent == pytest.approx(30 * settings().estimated_token_cost)
     if invalid_scope:
-        assert job.state == "FAILED" and job.error == "PermissionError"
+        # A design that asks for a capability it was not given is refused and never saved. It is asked
+        # for once more, and then the build carries on from the version it already had.
+        assert job.state == "DESIGNING" and job.error is None and job.checkpoint["design_attempts"] == 1
+        await advance(db, job)
+        db.commit()
+        assert len(calls) == 2 and job.state == "BUILDING" and job.error is None
+        assert job.checkpoint["version_id"] == initial.id
         assert db.scalar(select(func.count()).select_from(AgentVersion).where(AgentVersion.agent_id == agent.id)) == 1
     else:
         assert job.state == "BUILDING"

@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>story stage</title>
+<style>
+  /* Open-licensed Google Fonts, bundled in stage/fonts so nothing loads from the network. */
+  @font-face { font-family: "Montserrat"; src: url("fonts/Montserrat.ttf"); font-weight: 100 900; }
+  @font-face { font-family: "Inter"; src: url("fonts/Inter.ttf"); font-weight: 100 900; }
+  @font-face { font-family: "Oswald"; src: url("fonts/Oswald.ttf"); font-weight: 200 700; }
+  @font-face { font-family: "Playfair Display"; src: url("fonts/PlayfairDisplay.ttf"); font-weight: 400 900; }
+  @font-face { font-family: "Playfair Display"; src: url("fonts/PlayfairDisplay-Italic.ttf"); font-weight: 400 900; font-style: italic; }
+  @font-face { font-family: "Bebas Neue"; src: url("fonts/BebasNeue.ttf"); }
+  @font-face { font-family: "Poppins"; src: url("fonts/Poppins-SemiBold.ttf"); font-weight: 600; }
+  @font-face { font-family: "Poppins"; src: url("fonts/Poppins-ExtraBold.ttf"); font-weight: 800; }
+  @font-face { font-family: "DM Sans"; src: url("fonts/DMSans.ttf"); font-weight: 100 1000; }
+  :root { --accent: #e6ad45; --accent2: #c9772e; --bg0: #0b0c0f; --bg1: #1c1a16; --ink: #f5efe4;
+    --mute: color-mix(in srgb, var(--ink) 62%, transparent); --faint: color-mix(in srgb, var(--ink) 16%, transparent);
+    --display: "Montserrat", sans-serif; --body: "Inter", sans-serif; --dw: 800; --dls: -.02em; --dtt: none; --grade: none; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #000; overflow: hidden; }
+  #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; transform-origin: 0 0;
+    font-family: var(--body); color: var(--ink); -webkit-font-smoothing: antialiased; background: #000; }
+  #bg { position: absolute; inset: 0; background: linear-gradient(140deg, var(--bg0), var(--bg1)); }
+  .blob { position: absolute; width: 1000px; height: 1000px; border-radius: 50%; filter: blur(160px); opacity: .22; will-change: transform; }
+  .light .blob { opacity: .16; }
+  #beats, .shot { position: absolute; inset: 0; }
+  .shot { display: none; overflow: hidden; will-change: transform, opacity, filter; }
+  .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0 150px; }
+
+  /* text atoms */
+  .w { display: inline-block; white-space: pre; will-change: transform, opacity; }
+  .mw { display: inline-block; overflow: hidden; vertical-align: bottom; padding: .1em .05em .2em; margin: -.1em -.05em -.2em; white-space: pre; }
+  .c { display: inline-block; will-change: transform, opacity; transform-origin: 0 100%; }
+  .hi { color: var(--accent); }
+  .display { font-family: var(--display); font-weight: var(--dw); letter-spacing: var(--dls); text-transform: var(--dtt); line-height: 1.08; }
+  .kicker { font-size: 34px; font-weight: 650; letter-spacing: .26em; text-transform: uppercase; color: var(--accent); margin-bottom: 26px; }
+  .rule { width: 160px; height: 5px; background: var(--accent); margin: 36px 0 0; border-radius: 3px; }
+  .sub { font-size: 52px; color: var(--mute); margin-top: 30px; line-height: 1.25; max-width: 1400px; }
+  .note { position: absolute; left: 0; right: 0; bottom: 70px; text-align: center; font-size: 28px; color: var(--mute); letter-spacing: .02em; }
+
+  /* image */
+  .dim { position: absolute; inset: 0; }
+  .fill { position: absolute; inset: 0; will-change: transform; }
+  .fill img { width: 100%; height: 100%; object-fit: cover; display: block; filter: var(--grade); }
+  .blurbg { position: absolute; inset: -80px; }
+  .blurbg img { width: 100%; height: 100%; object-fit: cover; filter: blur(46px) brightness(.45) saturate(.8); display: block; }
+  .card { position: absolute; left: 50%; top: 47%; will-change: transform; box-shadow: 0 40px 110px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.1); border-radius: 10px; overflow: hidden; background: #111; }
+  .card img { display: block; width: 100%; height: 100%; filter: var(--grade); }
+  .mark { position: absolute; border: 5px solid var(--accent); border-radius: 8px; box-shadow: 0 0 0 4000px rgba(0,0,0,.35), 0 0 30px color-mix(in srgb, var(--accent) 60%, transparent); }
+  .scrim { position: absolute; left: 0; right: 0; bottom: 0; height: 46%; background: linear-gradient(to top, rgba(0,0,0,.78), transparent); }
+  .lower { position: absolute; left: 110px; bottom: 120px; display: flex; gap: 22px; align-items: stretch; color: #fff; }
+  .lower .bar { width: 7px; background: var(--accent); border-radius: 4px; transform-origin: 50% 100%; }
+  .lower .label { font-size: 30px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
+  .lower .cap { font-family: var(--display); font-weight: var(--dw); font-size: 68px; line-height: 1.1; max-width: 1500px; text-shadow: 0 2px 20px rgba(0,0,0,.5); }
+  .credit { position: absolute; right: 34px; bottom: 26px; font-size: 20px; color: rgba(255,255,255,.62); text-shadow: 0 1px 4px rgba(0,0,0,.8); max-width: 900px; text-align: right; }
+
+  /* title, chapter, outro */
+  .title { font-size: 150px; }
+  .chapnum { font-family: var(--display); font-size: 300px; font-weight: 800; line-height: .9; color: transparent; -webkit-text-stroke: 3px var(--accent); opacity: .9; }
+  .chaptitle { font-size: 100px; margin-top: 10px; }
+  .cta { margin-top: 50px; font-size: 38px; font-weight: 650; padding: 18px 42px; border-radius: 999px; color: #111; background: var(--accent); }
+
+  /* quote */
+  .quote { display: flex; gap: 80px; align-items: center; justify-content: center; position: absolute; inset: 0; padding: 0 160px; }
+  .portrait { width: 420px; height: 520px; border-radius: 12px; overflow: hidden; flex: none; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+  .portrait img { width: 100%; height: 100%; object-fit: cover; filter: var(--grade); display: block; }
+  .qmark { font-family: "Playfair Display", serif; font-size: 260px; line-height: .6; color: var(--accent); height: 120px; }
+  .qtext { font-family: var(--quote); font-style: italic; font-weight: 500; line-height: 1.25; text-align: left; }
+  .qby { margin-top: 40px; font-size: 40px; font-weight: 650; text-align: left; }
+  .qby span { color: var(--mute); font-weight: 450; }
+
+  /* stat */
+  .stats { display: flex; gap: 110px; align-items: flex-start; justify-content: center; }
+  .stat { text-align: center; }
+  .num { font-family: var(--display); font-weight: 800; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; color: var(--accent); }
+  .statlabel { font-size: 52px; color: var(--ink); margin-top: 22px; max-width: 900px; line-height: 1.2; }
+  .text { font-size: 104px; max-width: 1560px; }
+
+  /* list */
+  .list { text-align: left; width: 1560px; }
+  .list .head { font-size: 92px; margin-bottom: 50px; }
+  .li { display: flex; gap: 40px; align-items: baseline; font-size: 70px; padding: 26px 0; border-top: 2px solid var(--faint); }
+  .li b { font-family: var(--display); color: var(--accent); font-size: 52px; width: 86px; flex: none; }
+
+  /* chart */
+  .chart { width: 1560px; text-align: left; }
+  .chart .head { font-size: 76px; margin-bottom: 46px; }
+  .row { display: grid; grid-template-columns: 420px 1fr; align-items: center; gap: 28px; margin: 20px 0; font-size: 44px; }
+  .row .name { text-align: right; color: var(--mute); }
+  .row.on .name { color: var(--ink); font-weight: 650; }
+  .track { position: relative; height: 74px; }
+  .fillbar { position: absolute; left: 0; top: 0; height: 100%; background: var(--faint); border-radius: 6px; transform-origin: 0 50%; }
+  .row.on .fillbar { background: linear-gradient(90deg, var(--accent2), var(--accent)); }
+  .val { position: absolute; top: 0; line-height: 74px; padding-left: 18px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  svg.line { width: 1500px; height: 560px; overflow: visible; }
+  svg.line text { fill: var(--mute); font-size: 34px; font-family: var(--body); }
+  svg.line .big { fill: var(--ink); font-size: 46px; font-weight: 700; }
+
+  /* timeline */
+  .tl { position: absolute; left: 130px; right: 130px; top: 0; bottom: 0; }
+  .tl .head { position: absolute; left: 0; right: 0; top: 130px; font-size: 84px; text-align: center; }
+  .tl .axis { position: absolute; left: 0; right: 0; top: 600px; height: 4px; background: var(--faint); }
+  .tl .prog { position: absolute; left: 0; top: 0; height: 100%; width: 100%; background: var(--accent); transform-origin: 0 50%; }
+  .ev { position: absolute; top: 600px; width: 0; }
+  .ev .dot { position: absolute; left: -13px; top: -11px; width: 26px; height: 26px; border-radius: 50%; background: var(--bg0); border: 5px solid var(--accent); }
+  .ev .year { position: absolute; left: 50%; transform: translateX(-50%); bottom: 34px; font-family: var(--display); font-weight: 800; font-size: 104px; white-space: nowrap; }
+  .ev .what { position: absolute; left: 50%; top: 48px; width: 460px; margin-left: -230px; text-align: center; font-size: 40px; line-height: 1.25; color: var(--mute); }
+
+  /* compare */
+  .cmp { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr; }
+  .side { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 90px; text-align: center; overflow: hidden; }
+  .side .pic { position: absolute; inset: 0; }
+  .side .pic img { width: 100%; height: 100%; object-fit: cover; filter: var(--grade) brightness(.55); display: block; }
+  .side .tag { position: relative; font-size: 36px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: var(--accent); margin-bottom: 18px; }
+  .side .big { position: relative; font-family: var(--display); font-weight: 800; font-size: 210px; line-height: 1; letter-spacing: -.03em; }
+  .side .txt { position: relative; font-size: 50px; margin-top: 20px; line-height: 1.25; max-width: 700px; }
+  .side .txt.lead { font-family: var(--display); font-weight: var(--dw); font-size: 96px; line-height: 1.05; text-shadow: 0 2px 24px rgba(0,0,0,.6); color: #fff; }
+  .side:has(.pic) .tag { text-shadow: 0 1px 10px rgba(0,0,0,.7); }
+  .capson .lower { bottom: 200px; }
+  .capson .note { bottom: 150px; }
+  .divide { position: absolute; left: 50%; top: 12%; width: 4px; height: 76%; margin-left: -2px; background: var(--accent); transform-origin: 50% 0; }
+
+  /* over everything */
+  #chapterlabel { position: absolute; left: 60px; top: 48px; font-size: 22px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: rgba(255,255,255,.75); text-shadow: 0 1px 8px rgba(0,0,0,.6); }
+  .light #chapterlabel { color: color-mix(in srgb, var(--ink) 70%, transparent); text-shadow: none; }
+  #progress { position: absolute; left: 0; bottom: 0; height: 5px; width: 100%; background: var(--accent); transform-origin: 0 50%; opacity: .9; }
+  #captions { position: absolute; left: 50%; bottom: 58px; max-width: 1500px; text-align: center; font-size: 38px; font-weight: 600; line-height: 1.3; color: #fff; padding: 12px 26px; border-radius: 12px; background: rgba(0,0,0,.66); }
+  #vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 46%, transparent 52%, rgba(0,0,0,.5) 100%); pointer-events: none; }
+  .light #vignette { background: radial-gradient(ellipse at 50% 46%, transparent 60%, rgba(60,40,10,.2) 100%); }
+  #grain { position: absolute; inset: 0; opacity: .07; mix-blend-mode: overlay; background-image: radial-gradient(rgba(255,255,255,.9) 1px, transparent 1.2px); background-size: 3px 3px; }
+  #dip { position: absolute; inset: 0; background: #000; opacity: 0; }
+  .band { position: absolute; left: -40%; top: -20%; width: 180%; height: 140%; display: none; }
+  #band0 { background: var(--accent2); } #band1 { background: var(--accent); }
+  .bar { position: absolute; left: 0; width: 100%; background: #000; height: 0; } #bar0 { top: 0; } #bar1 { bottom: 0; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="bg"><div class="blob" id="b0"></div><div class="blob" id="b1"></div></div>
+  <div id="beats"></div>
+  <div id="dip"></div>
+  <div class="band" id="band0"></div><div class="band" id="band1"></div>
+  <div id="vignette"></div><div id="grain"></div>
+  <div id="chapterlabel"></div>
+  <div id="captions"></div>
+  <div id="progress"></div>
+  <div class="bar" id="bar0"></div><div class="bar" id="bar1"></div>
+</div>
+<script src="story.js"></script>
+</body>
+</html>

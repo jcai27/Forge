@@ -1,0 +1,51 @@
+{
+ "hold.jpg": {
+  "title": "Lot-2947-2 (27409574723).jpg",
+  "author": "National Museum of the U.S. Navy",
+  "license": "Public domain",
+  "licenseUrl": "",
+  "source": "https://commons.wikimedia.org/wiki/File:Lot-2947-2_(27409574723).jpg",
+  "date": "2016-07-01 09:22",
+  "description": "Lot-2947-2: This is the hold (cargo space) of a Liberty ship. There are 5 such holds, having a total carrying capacity of 10,000 tons. It would take 4 freight trains of 75 cars each to carry an equal load. Longshoremen a"
+ },
+ "dockers.png": {
+  "title": "Longshoremen in loading rolls of paper in the port of Hallstavik, Sweden - 1962.png",
+  "author": "Buonasera",
+  "license": "CC BY-SA 3.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Longshoremen_in_loading_rolls_of_paper_in_the_port_of_Hallstavik,_Sweden_-_1962.png",
+  "date": "1962",
+  "description": "Longshoremen in loading rolls of paper in the port of Hallstavik, Sweden - 1962"
+ },
+ "ship-sea.jpg": {
+  "title": "Aerial photograph of a cargo ship.jpg",
+  "author": "Wilfredor",
+  "license": "CC BY-SA 3.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Aerial_photograph_of_a_cargo_ship.jpg",
+  "date": "2012-08-26",
+  "description": "Aerial photograph of a cargo ship, Mar Caribe, Venezuela"
+ },
+ "cranes.jpg": {
+  "title": "Container cranes at the MPET- MSC PSA European Terminal in Port of Antwerp (Kieldrecht, Belgium) during the sunset civil twilight (DSCF3919).jpg",
+  "author": "Trougnouf",
+  "license": "CC BY 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Container_cranes_at_the_MPET-_MSC_PSA_European_Terminal_in_Port_of_Antwerp_(Kieldrecht,_Belgium)_during_the_sunset_civil_twilight_(DSCF3919).jpg",
+  "date": "2018-02-04 17:51:19",
+  "description": "Container cranes at the MPET- MSC PSA European Terminal in Port of Antwerp (Kieldrecht, Belgium) during the sunset civil twilight"
+ },
+ "ship-clip.mp4": {
+  "title": "Container ship.webm",
+  "author": "Jan Ainali",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Container_ship.webm",
+  "date": "2016-05-19",
+  "description": "Container ship.",
+  "clip": {
+   "start": 6,
+   "dur": 8
+  }
+ }
+}
