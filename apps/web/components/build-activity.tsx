@@ -47,7 +47,7 @@ export function describeEvent(event: EventRecord): Described {
       const budget = p.budget as Record<string, number> | undefined;
       return {title: 'build started', detail: budget ? `Up to ${budget.max_iterations} rounds, ${money(budget.max_cost)} and ${Math.round(budget.max_seconds / 60)} minutes. Target score ${Math.round(budget.target_score * 100)}%.` : undefined, tone: ''};
     }
-    case 'build_state': return {title: `stage: ${words(text(p.state))}`, tone: 'state'};
+    case 'build_state': return {title: `stage: ${text(p.state) === 'BUDGET_EXHAUSTED' ? 'limit reached' : words(text(p.state))}`, tone: 'state'};
     case 'integration_discovery': {
       const tools = Array.isArray(p.tools) ? p.tools.length : 0;
       return {title: 'access checked', detail: tools ? `${tools} tools available through its connections.` : 'No connections: this agent works from the request alone.', tone: ''};
