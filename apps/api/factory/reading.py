@@ -59,6 +59,20 @@ a full stop, then the answer and nothing else."""
 ANSWERS_HEADING = "[Answers read directly from the page images]"
 
 
+# The turns tried, clockwise, when a page does not read as it lies: sideways either way is far more
+# common than upside down.
+TURNS = (90, 270, 180)
+
+
+def legibility(text):
+    """(reads well enough, how much was read) for a transcription. A page that is mostly marked
+    illegible, or that gave up after a few words, has almost certainly been read the wrong way up."""
+    unread = text.count("[illegible]")
+    words = len(text.replace("[illegible]", " ").split())
+    poor = (unread >= 4 and unread * 8 >= words) or (unread >= 1 and words < 40)
+    return not poor, words - 8 * unread
+
+
 def image_type(data):
     return next((kind for magic, kind in IMAGE_TYPES.items() if data.startswith(magic)), None)
 
@@ -125,6 +139,8 @@ class Reader:
         if scanned and not self.enabled:
             where = f"{name} page {scanned[0]} has no text: it" if not kind else name
             raise IntakeError(f"{where} is a scan or a photo. {SCANS_OFF}")
+        if scanned and not kind:
+            pages = await self._upright(data, name, pages, reading)
         parts = None
         if keep == "all":
             # Every page as an image, typed pages too, so the whole document can be shown beside its answer.
@@ -145,6 +161,43 @@ class Reader:
             self.db.commit()
         text = await self._compose([(page_kind, body, mime) for page_kind, body, mime in pages], reading, name, limit)
         return text, parts
+
+    async def _upright(self, data, name, pages, reading):
+        """Turn a scanned page the right way up when it does not read as it lies.
+
+        A page fed to a scanner sideways comes back as a list of words the model could not read.
+        Such a page is drawn again turned a quarter either way, then upside down, and the turn that
+        reads best is the page from then on: it is what is read, kept and shown. A page that reads
+        as it lies costs nothing extra; each turn tried is one more accounted request.
+        """
+        notes, _ = reading_settings(reading)
+        prompt = INSTRUCTIONS + (NOTES_HEADING + notes if notes else "")
+
+        async def settle(number, body, mime):
+            best, best_score = (
+                body,
+                legibility(await self._request(prompt, [(body, mime)], f"{name} page {number + 1}")),
+            )
+            if best_score[0]:
+                return body
+            for turn in TURNS:
+                drawn = (await asyncio.to_thread(_render, data, [number], name, turn))[number]
+                score = legibility(
+                    await self._request(prompt, [(drawn, mime)], f"{name} page {number + 1} turned {turn}")
+                )
+                if score > best_score:
+                    best, best_score = drawn, score
+                if score[0]:
+                    break
+            return best
+
+        turned = await asyncio.gather(
+            *(
+                settle(n, body, mime) if page_kind == "scan" else _done(body)
+                for n, (page_kind, body, mime) in enumerate(pages)
+            )
+        )
+        return [(page_kind, body, mime) for (page_kind, _, mime), body in zip(pages, turned, strict=True)]
 
     async def document(self, parts, reading=None, name="The document", limit=MAX_FIELD_CHARS):
         """The text of a stored example document, read with the given settings."""

@@ -101,8 +101,8 @@ def _page_image(page):
     return False
 
 
-def _render(data, numbers, name):
-    """Grey PNG images of the given pages, the long side SCAN_PIXELS."""
+def _render(data, numbers, name, rotation=0):
+    """Grey PNG images of the given pages, the long side SCAN_PIXELS, turned clockwise by rotation degrees."""
     import pypdfium2
 
     images = {}
@@ -114,7 +114,7 @@ def _render(data, numbers, name):
                 for number in numbers:
                     page = document[number]
                     width, height = page.get_size()
-                    bitmap = page.render(scale=SCAN_PIXELS / max(width, height, 1), grayscale=True)
+                    bitmap = page.render(scale=SCAN_PIXELS / max(width, height, 1), grayscale=True, rotation=rotation)
                     images[number] = _png(bitmap.buffer, bitmap.width, bitmap.height, bitmap.stride)
             finally:
                 document.close()

@@ -91,6 +91,12 @@ as an empty document. What happens to it depends on `DOCUMENT_READING`:
   (`READER_MODEL`, else `OPENAI_MODEL`) and takes back a transcription. JPEG and PNG photos are
   read the same way. A typed page in the same file is still taken from its text layer.
 
+A page scanned sideways or upside down comes back mostly marked illegible, or abandoned after a
+few words. Such a page is drawn again turned a quarter each way and then upside down, each turn
+one more accounted request, and the turn that reads best is the page from then on: what is read,
+kept and shown. A page that reads as it lies is asked about once. This works for the pages of a
+PDF; a photo sent as an image file is read as it is.
+
 Reading is a model call and is accounted for as one. Before a page is sent, a `document_reader`
 usage record is committed with a reservation; the reply settles it; a call with no reply keeps
 its reservation as uncertain and is not retried. Each upload has a ceiling

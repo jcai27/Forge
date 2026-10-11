@@ -712,3 +712,45 @@ def test_a_run_shows_its_scanned_pages_and_expected_answers_to_its_own_tenant_on
     outsider = member(db, other, "admin")
     assert client.get(f"/runs/{run.id}/documents", headers=outsider).status_code == 404
     assert client.get(f"/document-pages/{part['page']}", headers=outsider).status_code == 404
+
+
+async def test_a_page_scanned_sideways_is_turned_until_it_reads_and_kept_that_way_up(db, seeded, reading):
+    import struct
+
+    org, *_ = seeded
+
+    class Sideways(FakeModel):
+        """Reads nothing from a tall image and everything from a wide one, as if the page lay on its side."""
+
+        async def __call__(self, prompt, images):
+            self.calls += 1
+            width, height = struct.unpack(">II", images[0][0][16:24])
+            if height > width:
+                return "Case 1 Doc 2 " + "[illegible] " * 12, FakeUsage()
+            return "SYSCO INVOICE 407230113  1 CS MAYONNAISE 37.38 37.38", FakeUsage()
+
+    model = Sideways()
+    reader = Reader(db, org.id, call=model)
+    text, parts = await reader.read(blank(600), "sideways.pdf", keep=True)
+    # Read as it lay, then turned a quarter and read again; the first turn worked, so no more were tried.
+    assert text.startswith("SYSCO INVOICE") and model.calls == 2
+    page = db.scalar(select(DocumentPage).where(DocumentPage.content_hash == parts[0]["page"]))
+    width, height = struct.unpack(">II", bytes(page.data)[16:24])
+    assert width > height
+    # Both requests are on the books. A page that reads as it lies is asked about once.
+    assert db.scalar(select(func.count()).select_from(UsageRecord).where(UsageRecord.role == "document_reader")) == 2
+    upright = FakeModel()
+    await Reader(db, org.id, call=upright).read(blank(610), "upright.pdf")
+    assert upright.calls == 1
+    # A page nothing can be read from any way up is tried every way and left as it was.
+    hopeless = FakeModel()
+    hopeless.__class__ = type("Hopeless", (FakeModel,), {"__call__": lambda self, prompt, images: _illegible(self)})
+    text, _ = await Reader(db, org.id, call=hopeless).read(blank(620), "blank.pdf")
+    # Every turn was tried. This page is blank, so two of the four turns are the same image as another
+    # and are not asked about twice.
+    assert hopeless.calls == 2 and text.count("[illegible]") == 12
+
+
+async def _illegible(model):
+    model.calls += 1
+    return "[illegible] " * 12, FakeUsage()
