@@ -20,11 +20,25 @@ import zipfile
 from pathlib import Path
 
 import httpx
+from pypdf import PdfReader, PdfWriter
 from setup import sign_in
 
 HERE = Path(__file__).parent
 CUSTOMER = "Steel City Diners"
 LOGIN = "owner@steelcity-demo.example"
+# Invoices in the exhibits that have no answer in labels.json, because the reading used to write the
+# answers did not add up. The customer received them all the same, and the supplier's statement lists
+# them: left out, each would show as billed and never received, which is not what happened.
+UNKEYED = {"131877288": ("2010-10-12", "gov.uscourts.ilnb.1054045.427.5.pdf", (12, 13, 14))}
+
+
+def cut(source, pages):
+    writer = PdfWriter()
+    for index in pages:
+        writer.add_page(PdfReader(HERE / "source" / source).pages[index])
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
 
 
 def main():
@@ -44,6 +58,8 @@ def main():
             for member in archive.namelist():
                 if member.startswith("invoices/gordon_"):
                     files[member.rsplit("_", 1)[-1].removesuffix(".pdf")] = archive.read(member)
+    for number, (issued, source, pages) in UNKEYED.items():
+        dates[number], files[number] = issued, cut(source, pages)
     ordered = sorted(files, key=lambda number: (dates[number], number))
 
     with httpx.Client(base_url=os.environ.get("FACTORY_API", "http://127.0.0.1:8000"), timeout=900) as api:
@@ -155,7 +171,7 @@ def main():
             print(
                 f"  {rise['date']} {rise['customer']}: {rise['description']} {rise['last_price']} -> {rise['price']} (+{rise['rise_percent']}%)"
             )
-        print("\nPortal: http://localhost:3000/inbox  (sign in as the customer, or open it from Customers)")
+        print("\nPortal: http://localhost:3000/dashboard  (sign in as the customer, or open it from Customers)")
 
 
 if __name__ == "__main__":

@@ -43,10 +43,12 @@ from factory.models import (
     Operation,
     Organization,
     Project,
+    User,
 )
 from factory.payables import (
     EXPORT_FORMATS,
     QUICKBOOKS_BATCH,
+    analytics,
     answer,
     check,
     export_file,
@@ -325,14 +327,8 @@ def portal_me(actor=ACTOR, db=DB):
         ).all()
     )
     return {
+        "email": db.get(User, actor.user_id).email,
         "workspace": {"id": org.id, "name": org.name, "kind": org.kind},
-        # For the builder looking in on a customer: the workspace to go back to.
-        "builder_workspace": org.parent_org_id
-        if org.parent_org_id
-        and db.scalar(
-            select(Membership.id).where(Membership.org_id == org.parent_org_id, Membership.user_id == actor.user_id)
-        )
-        else None,
         "role": actor.role,
         "can_work": actor.role in ("admin", "editor", "customer"),
         "operations": [
@@ -587,6 +583,37 @@ def get_overview(operation_id: str, actor=ACTOR, db=DB):
         .where(InboxDocument.operation_id == operation.id, InboxDocument.status == "failed")
     )
     return {**overview(documents, checked), "failed": failed, "operation": operation.name}
+
+
+@router.get("/portal/analytics")
+def get_analytics(place: str | None = Query(None, max_length=300), actor=ACTOR, db=DB):
+    """The dashboard: what was bought across every invoice agent in this workspace, and where each agent stands."""
+    operations = list(
+        db.scalars(select(Operation).where(Operation.org_id == actor.org_id).order_by(Operation.created_at))
+    )
+    documents, agents = [], []
+    for operation in operations:
+        held = processed(db, operation)
+        if operation.kind == "invoice":
+            documents += held
+        failed = db.scalar(
+            select(func.count())
+            .select_from(InboxDocument)
+            .where(InboxDocument.operation_id == operation.id, InboxDocument.status == "failed")
+        )
+        agents.append(
+            {
+                "id": operation.id,
+                "name": operation.name,
+                "kind": operation.kind,
+                "enabled": operation.enabled,
+                "documents": len(held),
+                "review": sum(document.stage == "review" for document in held) if operation.kind == "invoice" else 0,
+                "ready": sum(document.stage == "ready" for document in held) if operation.kind == "invoice" else 0,
+                "failed": failed,
+            }
+        )
+    return {**analytics(documents, place), "agents": agents}
 
 
 @router.get("/portal/operations/{operation_id}/export.csv")

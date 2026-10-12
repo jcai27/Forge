@@ -5,14 +5,14 @@ import {usePathname} from 'next/navigation';
 import {QueryClient, QueryClientProvider, useQueryClient} from '@tanstack/react-query';
 import {Boxes, Building2, LayoutDashboard, Plug, ShieldCheck, Settings, Plus, LogOut, CircleCheck} from 'lucide-react';
 import type {Me, Agent, Metrics} from '../../../packages/contracts/src';
-import {api, useResource} from '@/lib/api';
+import {PORTAL, api, inPortal, sessionKey, useResource} from '@/lib/api';
 import {Button} from './ui/button';
 import {ToastContext, Loading} from './shared';
 import {Dashboard, NewAgent} from './workspace-pages';
 import {AgentWorkspace} from './agent-pages';
 import {Integrations, Approvals, RunDetail, SettingsPage} from './operations-pages';
 import {Customers} from './customers-page';
-import {Portal} from './portal';
+import {Portal, PortalLogin} from './portal';
 
 // One cache for the life of the tab. Moving between sections can remount this component, and a cache
 // created inside it was thrown away each time, so every navigation fetched everything again.
@@ -37,12 +37,16 @@ function Session() {
   // for its few seconds in session storage, so the reason for a redirect is still on screen after it.
   const show = useCallback((message: string) => {setToast(message); try {if (message) sessionStorage.setItem(TOAST_KEY, JSON.stringify({message, at:Date.now()})); else sessionStorage.removeItem(TOAST_KEY);} catch {}}, []);
   useEffect(() => {
-    setAuthenticated(!!localStorage.getItem('factory-token')); setReady(true);
+    setAuthenticated(!!localStorage.getItem(sessionKey())); setReady(true);
     try {const kept = JSON.parse(sessionStorage.getItem(TOAST_KEY) ?? 'null') as {message: string; at: number} | null; if (kept && Date.now() - kept.at < TOAST_MS) setToast(kept.message);} catch {}
   }, []);
   useEffect(() => {if (!toast) return; const timer = setTimeout(() => show(''), TOAST_MS); return () => clearTimeout(timer);}, [toast, show]);
   if (!ready) return <Loading/>;
-  return <ToastContext.Provider value={show}>{authenticated ? <Workspace path={cachePath} logout={() => {localStorage.removeItem('factory-token');cache.clear();setAuthenticated(false);}}/> : <Login onLogin={() => {cache.clear();setAuthenticated(true);}}/>} {toast && <div className="toast" role="alert">{toast}</div>}</ToastContext.Provider>;
+  // Signing out of the customer platform leaves at its front door, not on the address of a document the next person may not have.
+  const logout = () => {const portal = inPortal(); localStorage.removeItem(sessionKey());cache.clear();setAuthenticated(false); if (portal) window.history.replaceState(null, '', `${PORTAL}/dashboard`);}, onLogin = () => {cache.clear();setAuthenticated(true);};
+  // The customer platform is a place of its own: its own address, sign-in and session, and nothing of the builder's.
+  const page = inPortal() ? authenticated ? <Portal path={cachePath.slice(PORTAL.length)} logout={logout}/> : <PortalLogin onLogin={onLogin}/> : authenticated ? <Workspace path={cachePath} logout={logout}/> : <Login onLogin={onLogin}/>;
+  return <ToastContext.Provider value={show}>{page} {toast && <div className="toast" role="alert">{toast}</div>}</ToastContext.Provider>;
 }
 function Login({onLogin}: {onLogin: () => void}) {
   const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [organization, setOrganization] = useState(''), [register, setRegister] = useState(false), [error, setError] = useState(''), [pending, setPending] = useState(false);
@@ -84,17 +88,19 @@ function Workspace({path, logout}: {path: string; logout: () => void}) {
   const me = useResource<Me>('/auth/me');
   const parts = path.split('/').filter(Boolean);
   const agentId = parts[0] === 'agents' && parts[1] && parts[1] !== 'new' ? parts[1] : '';
-  const agent = useResource<Agent>(`/agents/${agentId}`, !!agentId), metrics = useResource<Metrics>('/metrics', false); // reads what the overview already fetched; a request of its own here exceeds the API request budget
+  // A session in a customer's workspace does not belong here: it is handed to the customer platform, which keeps its
+  // own session. Settings stays reachable, since switching between workspaces happens in it.
+  const kind = (me.data?.organization as {kind?: string} | undefined)?.kind, portal = (kind === 'customer' || me.data?.role === 'customer') && parts[0] !== 'settings';
+  useEffect(() => {if (!portal) return; localStorage.setItem('portal-token', localStorage.getItem('factory-token') ?? ''); localStorage.removeItem('factory-token'); window.location.replace(`${PORTAL}/dashboard`);}, [portal]);
+  // Nothing of the builder's is asked for until it is known whose workspace this is.
+  const agent = useResource<Agent>(`/agents/${agentId}`, !!agentId && !!me.data && !portal), metrics = useResource<Metrics>('/metrics', false); // reads what the overview already fetched; a request of its own here exceeds the API request budget
   const waiting = metrics.data?.pending_approvals ?? 0, mode = me.data?.execution_mode ?? 'demo', live = mode === 'live';
   const groups = [
     {label:'Build', items:[{href:'/dashboard', label:'Overview', icon:LayoutDashboard, active:parts.length === 0 || parts[0] === 'dashboard' || !!agentId || parts[0] === 'runs'}, {href:'/agents/new', label:'Create agent', icon:Plus, active:path === '/agents/new'}]},
     {label:'Operate', items:[{href:'/customers', label:'Customers', icon:Building2, active:parts[0] === 'customers'}, {href:'/approvals', label:'Approvals', icon:ShieldCheck, active:parts[0] === 'approvals', count:waiting}, {href:'/integrations', label:'Integrations', icon:Plug, active:parts[0] === 'integrations'}]},
     {label:'Administration', items:[{href:'/settings', label:'Settings', icon:Settings, active:parts[0] === 'settings'}]},
   ];
-  // A customer's workspace is a different product: their documents and results, none of the builder's tools.
-  // Settings stays reachable there, since joining a workspace and switching between them happen in it.
-  const kind = (me.data?.organization as {kind?: string} | undefined)?.kind;
-  if ((kind === 'customer' || me.data?.role === 'customer') && parts[0] !== 'settings') return <Portal path={path} logout={logout} email={me.data?.user.email ?? ''}/>;
+  if (portal || me.isLoading) return <Loading/>;
   let page;
   if (parts[0] === 'agents' && parts[1] === 'new') page = <NewAgent/>;
   else if (agentId) page = <AgentWorkspace id={agentId} section={parts[2] ?? 'overview'}/>;

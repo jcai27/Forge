@@ -629,7 +629,7 @@ def test_the_overview_says_what_the_work_added_up_to(client, seeded, db, workspa
     assert client.get(f"{url}/overview", headers=rival).status_code == 404
 
 
-def test_the_same_item_at_two_prices_in_one_week_is_found_and_money_is_added_up():
+def test_the_same_item_at_two_prices_on_one_day_is_found_and_money_is_added_up():
     from datetime import UTC, datetime
     from types import SimpleNamespace
 
@@ -667,15 +667,17 @@ def test_the_same_item_at_two_prices_in_one_week_is_found_and_money_is_added_up(
 
     documents = [
         invoice_at(1, "DINER", "2026-02-02", 33.79),
-        invoice_at(2, "CAFE", "2026-02-04", 43.75, quantity=2),
-        invoice_at(3, "EXPRESS", "2026-02-05", 34.00),
-        # The week after, at one location only: nothing to compare it with.
-        invoice_at(4, "CAFE", "2026-02-11", 44.00),
+        invoice_at(2, "CAFE", "2026-02-02", 43.75, quantity=2),
+        invoice_at(3, "EXPRESS", "2026-02-02", 34.00),
+        # Two days later at a higher price: that is a price moving, not one location charged more than
+        # another, and it is not compared with Monday's.
+        invoice_at(4, "TRUCK STOP", "2026-02-04", 45.00),
+        invoice_at(5, "CAFE", "2026-02-11", 44.00),
     ]
     (gap,) = price_gaps(documents)
-    # The cafe paid $9.96 a case more than the diner that week, on two cases. Under 2% apart is not a gap.
+    # The cafe paid $9.96 a case more than the diner the same day, on two cases. Under 2% apart is not a gap.
     assert (gap["customer"], gap["lowest_at"], gap["price"], gap["lowest_price"]) == ("CAFE", "DINER", 43.75, 33.79)
-    assert (gap["above_percent"], gap["extra_cents"], gap["week"]) == (29.5, 1992, "2026-02-02")
+    assert (gap["above_percent"], gap["extra_cents"], gap["day"]) == (29.5, 1992, "2026-02-02")
     statement = {
         "counts": {"matched": 3, "not_received": 1, "amount_differs": 1, "not_on_statement": 0},
         "rows": [
@@ -688,3 +690,87 @@ def test_the_same_item_at_two_prices_in_one_week_is_found_and_money_is_added_up(
     found = {row["kind"]: (row["cents"], row["count"]) for row in seen["found"]}
     assert found == {"billed_not_received": (152180, 1), "statement_overbilled": (1000, 1), "price_gaps": (1992, 1)}
     assert seen["found_cents"] == 155172 and seen["days"] == 10 and seen["price_gap_count"] == 1
+    # The cafe's own last price was $40.00, so the same two cases are also a rise of $7.50. That is the
+    # same overpayment seen a second way: it stays with the gap and adds nothing to the total. The
+    # truck stop's rise, on a day nobody else bought, is counted on its own.
+    earlier = [invoice_at(6, "CAFE", "2026-02-01", 40.00), invoice_at(7, "TRUCK STOP", "2026-02-01", 40.00)]
+    seen = overview(earlier + documents, [statement])
+    found = {row["kind"]: (row["cents"], row["count"]) for row in seen["found"]}
+    assert seen["extra_cents"] == 750 + 2500
+    assert found["price_gaps"] == (1992, 1) and found["price_rises"] == (2500, 2)
+    assert seen["found_cents"] == 155172 + 2500
+
+
+def test_the_dashboard_adds_up_what_came_in_by_day_location_and_item():
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from factory.payables import analytics
+
+    def invoice(number, place, day, lines):
+        items = [
+            {"code": code, "description": name, "quantity": quantity, "unit_price": price, "amount": quantity * price}
+            for code, name, quantity, price in lines
+        ]
+        data = {
+            "supplier": "Gordon Food Service",
+            "customer": place,
+            "invoice_number": str(number),
+            "invoice_date": day,
+            "total_cents": round(sum(item["amount"] for item in items) * 100),
+            "items": items,
+        }
+        return SimpleNamespace(
+            id=str(number),
+            output=data,
+            corrected=None,
+            approved_by=None,
+            exceptions=[],
+            created_at=datetime(2026, 2, 1, tzinfo=UTC),
+        )
+
+    documents = [
+        invoice(1, "DINER", "2026-02-02", [("50200", "CASE KETCHUP", 2, 30.0), ("70001", "CASE EGGS", 5, 10.0)]),
+        invoice(2, "CAFE", "2026-02-02", [("50200", "CASE KETCHUP", 1, 32.0)]),
+        invoice(3, "DINER", "2026-02-05", [("70001", "CASE EGGS", 4, 12.0)]),
+    ]
+    seen = analytics(documents)
+    assert (seen["invoices"], seen["spend_cents"], seen["lines"], seen["quantity"], seen["items"]) == (
+        3,
+        19000,
+        4,
+        12,
+        2,
+    )
+    # Every day in the range is there, including the two on which nothing came in.
+    assert [(row["start"], row["total_cents"], row["quantity"]) for row in seen["series"]] == [
+        ("2026-02-02", 14200, 8),
+        ("2026-02-03", 0, 0),
+        ("2026-02-04", 0, 0),
+        ("2026-02-05", 4800, 4),
+    ]
+    assert (seen["days"], seen["delivery_days"], seen["bucket"]) == (4, 2, "day")
+    assert [(row["name"], row["total_cents"], row["invoices"]) for row in seen["by_place"]] == [
+        ("DINER", 15800, 2),
+        ("CAFE", 3200, 1),
+    ]
+    eggs, ketchup = seen["top_items"]
+    assert (eggs["description"], eggs["quantity"], eggs["total_cents"], eggs["times"], eggs["places"]) == (
+        "CASE EGGS",
+        9,
+        9800,
+        2,
+        1,
+    )
+    assert (eggs["low_price"], eggs["high_price"], eggs["last_price"]) == (10.0, 12.0, 12.0)
+    assert (ketchup["quantity"], ketchup["total_cents"], ketchup["places"]) == (3, 9200, 2)
+    # The diner's eggs went from $10 to $12: one rise, on four cases.
+    assert (seen["price_rises"], seen["price_rise_cents"]) == (1, 800)
+    # One location alone: its own figures, with the whole list of locations still offered.
+    cafe = analytics(documents, "CAFE")
+    assert (cafe["invoices"], cafe["spend_cents"], cafe["places"], cafe["place"]) == (
+        1,
+        3200,
+        ["CAFE", "DINER"],
+        "CAFE",
+    )

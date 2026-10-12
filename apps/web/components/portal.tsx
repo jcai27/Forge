@@ -1,8 +1,8 @@
 'use client';
 import {useEffect, useRef, useState} from 'react';
 import Link from 'next/link';
-import {ArrowLeft, BookOpen, LayoutDashboard, Check, Download, FileSpreadsheet, Inbox as InboxIcon, LogOut, Mail, Pencil, Plug, Trash2, TrendingUp, TriangleAlert, Upload} from 'lucide-react';
-import {API_URL, api, token, useResource} from '@/lib/api';
+import {ArrowLeft, ArrowRight, Building2, LayoutDashboard, Check, DollarSign, Download, Package, Tags, TrendingUp, Truck, FileSpreadsheet, LogOut, Mail, Pencil, ReceiptText, Trash2, TriangleAlert, Upload} from 'lucide-react';
+import {API_URL, PORTAL, token, useResource} from '@/lib/api';
 import {Button} from './ui/button';
 import {Badge, Card, Empty, ErrorState, Heading, Loading, humanize, useAction} from './shared';
 import {StoredPage} from './stored-page';
@@ -10,7 +10,7 @@ import {StoredPage} from './stored-page';
 type Row = Record<string, unknown>;
 type Fields = {single: string[]; tables: Record<string, string[]>};
 type Operation = {id: string; name: string; enabled: boolean; kind: 'invoice' | 'statement'; documents: number; fields: Fields};
-type PortalMe = {workspace: {id: string; name: string; kind: string}; builder_workspace: string | null; role: string; can_work: boolean; operations: Operation[]};
+type PortalMe = {email: string; workspace: {id: string; name: string; kind: string}; role: string; can_work: boolean; operations: Operation[]};
 type Stage = 'review' | 'ready' | 'approved' | 'exported';
 type Exception = {kind: string; message: string; document_id?: string};
 type DocumentSummary = {id: string; name: string; source: string; sender: string; status: string; stage: Stage | 'new'; exceptions: number; error: string | null; received_at: string; reviewed: boolean; corrected: boolean; pages: number; fields: Row; rows: Record<string, number>};
@@ -40,46 +40,53 @@ const label = (field: string) => humanize(field.replace(/_cents$/, ''));
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 function initials(value: string) {return value.split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || '–';}
 
-/** The customer's side of the product: their documents, what was read from them, and where they come from. */
-export function Portal({path, logout, email}: {path: string; logout: () => void; email: string}) {
+/** The tabs an agent's page has. A statement reader has no prices or books of its own. */
+const TABS: Record<Operation['kind'], {value: string; label: string}[]> = {
+  invoice: [{value: 'documents', label: 'Documents'}, {value: 'results', label: 'Results'}, {value: 'prices', label: 'Prices'}, {value: 'books', label: 'Books'}, {value: 'channels', label: 'Channels'}],
+  statement: [{value: 'documents', label: 'Documents'}, {value: 'channels', label: 'Channels'}],
+};
+const DASHBOARD = `${PORTAL}/dashboard`;
+const home = (operation: Operation, tab = 'documents') => `${PORTAL}/agents/${operation.id}${tab === 'documents' ? '' : `/${tab}`}`;
+const open = (id: string) => `${PORTAL}/documents/${id}`;
+
+/** The customer's side of the product: a dashboard of the agents at work for them, and a page for each agent. */
+export function Portal({path, logout}: {path: string; logout: () => void}) {
   const me = useResource<PortalMe>('/portal/me');
-  const [chosen, setChosen] = useState('');
-  useEffect(() => {try {setChosen(localStorage.getItem('portal-operation') ?? '');} catch {}}, []);
-  const parts = path.split('/').filter(Boolean), section = parts[0] && parts[0] !== 'dashboard' ? parts[0] : 'overview';
+  const parts = path.split('/').filter(Boolean);
   if (me.isLoading) return <Loading/>;
   if (!me.data) return <div style={{padding:32}}><ErrorState error={me.error}/><Button variant="secondary" onClick={logout}>Sign out</Button></div>;
-  const all = me.data.operations, operations = all.filter(item => item.kind !== 'statement'), statements = all.find(item => item.kind === 'statement');
-  const operation = operations.find(item => item.id === chosen) ?? operations[0];
-  const pick = (id: string) => {setChosen(id); try {localStorage.setItem('portal-operation', id);} catch {}};
-  async function back() {const result = await api<{token: string}>('/auth/switch-organization', {org_id: me.data?.builder_workspace}); localStorage.setItem('factory-token', result.token); window.location.assign('/customers');}
-  const nav = [{href:'/overview', label:'Overview', icon:LayoutDashboard, active:section === 'overview'}, {href:'/inbox', label:'Inbox', icon:InboxIcon, active:section === 'inbox' || section === 'documents'}, {href:'/prices', label:'Price watch', icon:TrendingUp, active:section === 'prices'}, {href:'/books', label:'Books', icon:BookOpen, active:section === 'books'}, ...(statements ? [{href:'/statements', label:'Statements', icon:FileSpreadsheet, active:section === 'statements'}] : []), {href:'/channels', label:'Channels', icon:Plug, active:section === 'channels'}];
-  let page;
-  if (!operation) page = <Card><Empty title="Nothing is set up yet">Your provider has not put an agent to work in this workspace yet. Documents can be received once they have.</Empty></Card>;
-  else if (section === 'documents' && parts[1]) page = <DocumentPage id={parts[1]} operations={all} canWork={me.data.can_work}/>;
-  else if (section === 'books') page = <Books operation={operation} canWork={me.data.can_work}/>;
-  else if (section === 'statements' && statements) page = <InboxPage operation={statements} canWork={me.data.can_work} statement/>;
-  else if (section === 'prices') page = <Prices operation={operation}/>;
-  else if (section === 'channels') page = <Channels operation={operation} canWork={me.data.can_work}/>;
-  else if (section === 'inbox') page = <InboxPage operation={operation} canWork={me.data.can_work}/>;
-  else page = <Overview operation={operation}/>;
-  // A deep green rail instead of the builder's navy: the same product family, plainly a different place.
-  const rail = {'--nav': '#0f2e2b', '--nav-line': '#1d4641', '--nav-ink': '#a9c4bf', '--nav-ink-strong': '#f1f7f6'} as React.CSSProperties;
-  return <div className="shell" style={rail}>
+  const all = me.data.operations, canWork = me.data.can_work, statements = all.find(item => item.kind === 'statement');
+  // This place is for a customer's workspace only. Any other session is turned away, not shown an empty platform.
+  if (me.data.workspace.kind !== 'customer') return <div className="login"><main className="login-main"><div className="login-card"><h1>No customer workspace</h1><p className="muted small" style={{margin:'8px 0 20px'}}>This account is not signed in to a customer workspace.</p><Button className="full" onClick={logout}>Sign in with another account</Button></div></main></div>;
+  const operation = parts[0] === 'agents' ? all.find(item => item.id === parts[1]) : undefined;
+  const tab = operation ? TABS[operation.kind].find(item => item.value === (parts[2] ?? 'documents')) : undefined;
+  let page, here = 'Dashboard';
+  if (parts[0] === 'documents' && parts[1]) {page = <DocumentPage id={parts[1]} operations={all} canWork={canWork}/>; here = 'Document';}
+  else if (operation && tab) {
+    here = tab.label;
+    page = <>
+      <nav className="tabs no-print" aria-label={operation.name}>{TABS[operation.kind].map(item => <Link key={item.value} className={`tab ${item.value === tab.value ? 'active' : ''}`} aria-current={item.value === tab.value ? 'page' : undefined} href={home(operation, item.value)}>{item.label}</Link>)}</nav>
+      {tab.value === 'results' ? <Results operation={operation} statements={statements}/> : tab.value === 'prices' ? <Prices operation={operation}/> : tab.value === 'books' ? <Books operation={operation} canWork={canWork}/> : tab.value === 'channels' ? <Channels operation={operation} canWork={canWork}/> : <InboxPage operation={operation} canWork={canWork} statement={operation.kind === 'statement'}/>}
+    </>;
+  }
+  else if (parts[0] === 'agents') page = <Card><Empty title="This agent is not here">It may have been removed from your workspace. <Link className="link" href={DASHBOARD}>Back to the dashboard</Link></Empty></Card>;
+  else page = <Dashboard operations={all}/>;
+  return <div className="shell portal">
     <aside className="sidebar">
-      <Link href="/overview" className="brand"><span className="brand-icon"><InboxIcon size={16}/></span>{me.data.workspace.name}</Link>
+      <Link href={DASHBOARD} className="brand"><span className="brand-icon"><Building2 size={16}/></span>{me.data.workspace.name}</Link>
       <nav className="nav" aria-label="Primary">
-        <div className="nav-label">{operations.length > 1 ? 'Work' : operation?.name ?? 'Work'}</div>
-        {operations.length > 1 && <div style={{padding:'0 12px 8px'}}><select aria-label="Operation" className="input" value={operation?.id ?? ''} onChange={event => pick(event.target.value)}>{operations.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>}
-        {nav.map(item => <Link key={item.href} className={`nav-link ${item.active ? 'active' : ''}`} aria-current={item.active ? 'page' : undefined} href={item.href}><item.icon size={16}/>{item.label}</Link>)}
+        <Link className={`nav-link ${here === 'Dashboard' ? 'active' : ''}`} aria-current={here === 'Dashboard' ? 'page' : undefined} href={DASHBOARD}><LayoutDashboard size={16}/>Dashboard</Link>
+        <div className="nav-label">Agents</div>
+        {all.map(item => {const Icon = item.kind === 'statement' ? FileSpreadsheet : ReceiptText, active = item.id === operation?.id; return <Link key={item.id} className={`nav-link ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} href={home(item)}><Icon size={16}/>{item.name}</Link>;})}
+        {!all.length && <div className="muted small" style={{padding:'4px 10px'}}>None yet</div>}
       </nav>
-      <div className="sidebar-bottom"><span className="avatar">{initials(me.data.workspace.name)}</span><div style={{minWidth:0}}><div className="org-name">{me.data.workspace.name}</div><div className="org-role">{me.data.role === 'customer' ? 'Member' : `Provider ${me.data.role}`}</div></div></div>
+      <div className="sidebar-bottom"><span className="avatar">{initials(me.data.workspace.name)}</span><div style={{minWidth:0}}><div className="org-name">{me.data.workspace.name}</div><div className="org-role">Operations platform</div></div></div>
     </aside>
     <div className="workspace">
       <header className="topbar">
-        <nav className="breadcrumbs" aria-label="Breadcrumb"><span className="root">{me.data.workspace.name}</span><span className="sep root">/</span><span className="here">{section === 'documents' ? 'Document' : nav.find(item => item.active)?.label ?? 'Overview'}</span></nav>
+        <nav className="breadcrumbs" aria-label="Breadcrumb"><span className="root">{me.data.workspace.name}</span>{operation && <><span className="sep root">/</span><span className="root">{operation.name}</span></>}<span className="sep root">/</span><span className="here">{here}</span></nav>
         <div className="topbar-right">
-          {me.data.builder_workspace && <Button variant="secondary" onClick={() => void back()}><ArrowLeft size={14}/>Back to Agent Factory</Button>}
-          <span className="userchip"><span className="avatar light">{initials(email)}</span><span className="who">{email}</span></span>
+          <span className="userchip"><span className="avatar light">{initials(me.data.email)}</span><span className="who">{me.data.email}</span></span>
           <Button variant="ghost" className="icon" aria-label="Sign out" title="Sign out" onClick={logout}><LogOut size={15}/></Button>
         </div>
       </header>
@@ -88,13 +95,122 @@ export function Portal({path, logout, email}: {path: string; logout: () => void;
   </div>;
 }
 
+/** The customer platform's own way in: sign in, or join with the invitation code the provider sent. Nothing here builds agents. */
+export function PortalLogin({onLogin}: {onLogin: () => void}) {
+  const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [code, setCode] = useState(''), [joining, setJoining] = useState(false), [error, setError] = useState(''), [pending, setPending] = useState(false);
+  const post = async (path: string, body: unknown, bearer = '') => {
+    const response = await fetch(API_URL + path, {method: 'POST', headers: {'Content-Type': 'application/json', ...(bearer ? {Authorization: `Bearer ${bearer}`} : {})}, body: JSON.stringify(body)}), data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message ?? 'Sign in failed');
+    return data as {token: string};
+  };
+  async function submit() {
+    setPending(true); setError('');
+    try {
+      let session;
+      if (joining) {
+        // An invitation is tied to an email. Someone new gets an account first; someone who has one signs in to it.
+        const account = await post('/auth/register', {email, password, organization: 'Personal'}).catch(() => post('/auth/login', {email, password}));
+        session = await post('/organization-invitations/accept', {token: code.trim()}, account.token);
+      } else session = await post('/auth/login', {email, password});
+      localStorage.setItem('portal-token', session.token); onLogin();
+    } catch (problem) {setError(problem instanceof Error ? problem.message : 'Sign in failed');} finally {setPending(false);}
+  }
+  return <div className="login portal-login">
+    <aside className="login-aside">
+      <div className="brand"><span className="brand-icon"><Building2 size={16}/></span>Operations platform</div>
+      <div><h2>Your documents, read and checked for you.</h2><p>See what each agent has handled, what it caught, and what is waiting for you.</p></div>
+      <div className="login-legal">Access is by invitation from your provider.</div>
+    </aside>
+    <main className="login-main"><div className="login-card">
+      <h1>{joining ? 'Join your workspace' : 'Sign in'}</h1>
+      <p className="muted small" style={{marginBottom:24}}>{joining ? 'Use the email your invitation was sent to, choose a password, and enter the code.' : 'Use the account your workspace invitation was accepted with.'}</p>
+      {error && <div role="alert" className="error">{error}</div>}
+      <form onSubmit={event => {event.preventDefault(); void submit();}}>
+        <div className="field"><label htmlFor="portal-email">Email</label><input id="portal-email" className="input" type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)}/></div>
+        <div className="field"><label htmlFor="portal-password">Password</label><input id="portal-password" className="input" type="password" autoComplete={joining ? 'new-password' : 'current-password'} required minLength={joining ? 10 : 1} value={password} onChange={event => setPassword(event.target.value)}/></div>
+        {joining && <div className="field"><label htmlFor="portal-code">Invitation code</label><input id="portal-code" className="input" type="password" required minLength={32} maxLength={128} autoComplete="off" value={code} onChange={event => setCode(event.target.value)}/></div>}
+        <Button className="full" disabled={pending}>{pending ? 'Connecting…' : joining ? 'Join workspace' : 'Sign in'}</Button>
+      </form>
+      <Button variant="ghost" className="full" style={{marginTop:8}} onClick={() => {setJoining(!joining); setError('');}}>{joining ? 'Already joined? Sign in' : 'I have an invitation code'}</Button>
+    </div></main>
+  </div>;
+}
+
+type Analytics = {places: string[]; place: string | null; invoices: number; spend_cents: number; lines: number; quantity: number; items: number; from: string | null; to: string | null; days: number; delivery_days: number; bucket: 'day' | 'week';
+  series: {start: string; total_cents: number; invoices: number; quantity: number}[]; by_place: Slice[]; by_supplier: Slice[]; top_items: Good[]; most_received: Good[];
+  price_rises: number; price_rise_cents: number; movers: OverviewData['movers']; threshold_percent: number;
+  agents: {id: string; name: string; kind: Operation['kind']; enabled: boolean; documents: number; review: number; ready: number; failed: number}[]};
+type Slice = {name: string; total_cents: number; invoices: number; quantity: number};
+type Good = {code: string | null; description: string | null; supplier: string; quantity: number; total_cents: number; times: number; places: number; low_price: number | null; high_price: number | null; last_price: number | null};
+const count = (value: number) => value.toLocaleString(undefined, {maximumFractionDigits: 1});
+const short = (day: string) => new Date(day + 'T12:00:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+
+/** Upright bars over time, to one scale: what came in on each day, or in each week of a longer run. */
+function Columns({series, measure, bucket}: {series: Analytics['series']; measure: 'total_cents' | 'quantity'; bucket: 'day' | 'week'}) {
+  const most = Math.max(1, ...series.map(row => row[measure])), say = (value: number) => measure === 'total_cents' ? dollars(value) : `${count(value)} cases and pieces`;
+  // A label under every bar is unreadable past a couple of weeks: every nth, and always the first.
+  const every = Math.ceil(series.length / 10);
+  return <div role="img" aria-label={`${measure === 'total_cents' ? 'Purchases' : 'Quantity received'} by ${bucket}, highest ${say(most)}`}>
+    <div className="muted small" style={{textAlign:'right',marginBottom:6}}><span style={{display:'inline-block',width:9,height:9,borderRadius:3,background:'#e0a100',marginRight:6}}/>busiest {bucket}: {say(most)}</div>
+    <div className="columns" style={{gap:series.length > 40 ? 2 : 8,padding:'0 4px'}}>{series.map(row => <div key={row.start} className={`column ${row[measure] === most ? 'peak' : ''}`}><span style={{height:`${row[measure] / most * 100}%`,minHeight:row[measure] > 0 ? 3 : 0}}/><em><b>{bucket === 'week' ? 'Week of ' : ''}{short(row.start)}</b><br/>{say(row[measure])} · {row.invoices} invoice{row.invoices === 1 ? '' : 's'}</em></div>)}</div>
+    <div style={{display:'flex',gap:series.length > 40 ? 2 : 8,marginTop:8,padding:'0 4px'}}>{series.map((row, index) => <div key={row.start} className="muted" style={{flex:1,minWidth:2,fontSize:11.5,textAlign:'center',whiteSpace:'nowrap',overflow:'visible'}}>{index % every === 0 ? short(row.start) : ''}</div>)}</div>
+  </div>;
+}
+
+/** Ranked bars to one scale: who the money went to, largest first. */
+function Ranked({rows}: {rows: Slice[]}) {
+  const most = Math.max(1, ...rows.map(row => row.total_cents));
+  return <div>{rows.map((row, index) => <div key={row.name} className="rank-row"><span className="rank">{index + 1}</span><span className="small" title={row.name} style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',fontWeight:500}}>{row.name}</span><span className="track"><span style={{width:`${Math.max(1.5, row.total_cents / most * 100)}%`}}/></span><span className="small" style={{fontWeight:600}}>{dollars(row.total_cents)}</span></div>)}</div>;
+}
+
+/** The first page: what was bought. How much came in, when, where it went, what the money went on and which prices moved. */
+function Dashboard({operations}: {operations: Operation[]}) {
+  const [place, setPlace] = useState(''), [measure, setMeasure] = useState<'total_cents' | 'quantity'>('total_cents'), [order, setOrder] = useState<'top_items' | 'most_received'>('top_items');
+  const analytics = useResource<Analytics>(`/portal/analytics${place ? `?place=${encodeURIComponent(place)}` : ''}`, operations.length > 0, 30000);
+  if (!operations.length) return <><Heading title="Dashboard" subtitle="What you buy, as your invoices record it."/><Card><Empty title="Nothing is set up yet">Your provider has not put an agent to work in this workspace yet. Documents can be received once they have.</Empty></Card></>;
+  const data = analytics.data;
+  if (!data) return analytics.isLoading ? <Loading/> : <ErrorState error={analytics.error}/>;
+  const agent = (id: string) => operations.find(item => item.id === id), invoiceAgent = operations.find(item => item.kind === 'invoice');
+  const waiting = data.agents.filter(item => item.review + item.failed > 0), goods = data[order];
+  const span = data.from && data.to ? `${short(data.from)} to ${new Date(data.to + 'T12:00:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'})}` : '';
+  const pick = <select aria-label="Location" className="input" style={{minWidth:220}} value={place} onChange={event => setPlace(event.target.value)}><option value="">All locations</option>{data.places.map(name => <option key={name} value={name}>{name}</option>)}</select>;
+  const toggle = <T extends string>(value: T, set: (next: T) => void, options: [T, string][], name: string) => <div className="segmented" role="group" aria-label={name}>{options.map(([option, text]) => <button type="button" key={option} aria-pressed={value === option} onClick={() => set(option)}>{text}</button>)}</div>;
+  return <>
+    <section className="hero">
+      <div className="hero-top"><div><h1>Dashboard</h1><p className="hero-sub">{data.invoices ? `What came in${data.place ? ` at ${data.place}` : ' across all locations'}, from invoices dated ${span}.` : 'What you buy, as your invoices record it.'}</p></div>{data.places.length > 1 && pick}</div>
+      {data.invoices > 0 && <div className="hero-figure"><span className="amount">{dollars(data.spend_cents)}</span><span className="caption">purchased in {data.days} days</span><span className="hero-chip"><TrendingUp size={13}/>{dollars(Math.round(data.spend_cents / Math.max(1, data.days) * 7))} a week</span><span className="hero-chip">{data.by_place.length} location{data.by_place.length === 1 ? '' : 's'}</span></div>}
+    </section>
+    {waiting.map(item => {const operation = agent(item.id); return operation && <div key={item.id} className="notice" style={{marginBottom:16}} role="status"><TriangleAlert size={15} style={{verticalAlign:'-2px',marginRight:8}}/>{item.name}: {[item.review ? `${item.review} need${item.review === 1 ? 's' : ''} a person` : '', item.failed ? `${item.failed} could not be read` : ''].filter(Boolean).join(', ')}. <Link className="link" href={home(operation)}>Open</Link></div>;})}
+    {!data.invoices ? <Card><Empty title="No invoices yet">Once invoices arrive, this page shows what came in: how much, when, to which location, and which items the money went on. {invoiceAgent && <Link className="link" href={home(invoiceAgent)}>Upload some</Link>}</Empty></Card> : <>
+      <div className="tiles">{[
+        {label:'Deliveries invoiced', value:count(data.invoices), sub:`on ${data.delivery_days} of ${data.days} days`, icon:Truck, tint:'#0b7a6b', soft:'#e4f5f1'},
+        {label:'Average invoice', value:dollars(Math.round(data.spend_cents / data.invoices)), sub:`${Math.round(data.lines / data.invoices)} lines each on average`, icon:DollarSign, tint:'#1f4fd1', soft:'#edf2fe'},
+        {label:'Cases and pieces received', value:count(data.quantity), sub:`${count(data.lines)} invoice lines`, icon:Package, tint:'#a8500a', soft:'#fff3e0'},
+        {label:'Different items bought', value:count(data.items), sub:`${data.price_rises} price rise${data.price_rises === 1 ? '' : 's'} over ${data.threshold_percent}%`, icon:Tags, tint:'#7a3fc4', soft:'#f3ecfd'},
+      ].map(stat => <div className="tile" key={stat.label}><span className="tile-icon" style={{'--tint': stat.tint, '--tint-soft': stat.soft} as React.CSSProperties}><stat.icon size={19}/></span><div style={{minWidth:0}}><div className="tile-label">{stat.label}</div><div className="tile-value">{stat.value}</div><div className="tile-sub">{stat.sub}</div></div></div>)}</div>
+      <Card><div className="row between wrap" style={{marginBottom:12,gap:12}}><h2>What came in, by {data.bucket}</h2>{toggle(measure, setMeasure, [['total_cents', 'Dollars'], ['quantity', 'Quantity']], 'Measure')}</div><Columns series={data.series} measure={measure} bucket={data.bucket}/></Card>
+      <div className="grid grid-2" style={{alignItems:'start',margin:'24px 0'}}>
+        <Card><h2 style={{marginBottom:4}}>By location</h2><p className="muted small" style={{marginBottom:12}}>Purchases invoiced to each location.</p><Ranked rows={data.by_place.slice(0, 12)}/></Card>
+        <Card><h2 style={{marginBottom:4}}>By supplier</h2><p className="muted small" style={{marginBottom:12}}>{data.by_supplier.length === 1 ? 'Every invoice so far is from one supplier.' : 'Purchases from each supplier.'}</p><Ranked rows={data.by_supplier.slice(0, 12)}/>
+          <table className="table" style={{marginTop:12}}><thead><tr><th>Supplier</th><th className="num">Invoices</th><th className="num">Received</th><th className="num">Average invoice</th></tr></thead><tbody>{data.by_supplier.slice(0, 6).map(row => <tr key={row.name}><td>{row.name}</td><td className="num">{row.invoices}</td><td className="num">{count(row.quantity)}</td><td className="num">{dollars(Math.round(row.total_cents / row.invoices))}</td></tr>)}</tbody></table></Card>
+      </div>
+      <Card className="flush table-wrap"><div className="row between wrap" style={{padding:'16px 20px 8px',gap:12}}><div><h2>What you bought</h2><p className="muted small">{order === 'top_items' ? 'The items the most money went on.' : 'The items that came in in the greatest quantity.'} {data.items} different items in all.</p></div>{toggle(order, setOrder, [['top_items', 'By dollars'], ['most_received', 'By quantity']], 'Order')}</div>
+        <table className="table"><thead><tr><th>Item</th><th className="num">Received</th><th className="num">Times bought</th><th className="num">Locations</th><th className="num">Price paid</th><th className="num">Spent</th><th className="num">Share</th></tr></thead><tbody>{goods.map((item, index) => <tr key={index}><td>{item.description}<div className="cell-sub">{[item.code, item.supplier].filter(Boolean).join(' · ')}</div></td><td className="num">{count(item.quantity)}</td><td className="num">{item.times}</td><td className="num">{item.places}</td><td className="num" style={{whiteSpace:'nowrap'}}>{item.low_price === null ? '—' : item.low_price === item.high_price ? item.low_price.toFixed(2) : `${item.low_price.toFixed(2)} – ${item.high_price?.toFixed(2)}`}</td><td className="num"><b>{dollars(item.total_cents)}</b></td><td className="num">{data.spend_cents ? <span className="share">{(item.total_cents / data.spend_cents * 100).toFixed(1)}%<span><i style={{width:`${Math.min(100, item.total_cents / Math.max(1, goods[0]?.total_cents ?? 1) * 100)}%`}}/></span></span> : '—'}</td></tr>)}</tbody></table></Card>
+      <div style={{height:24}}/>
+      <Card className="flush table-wrap"><div style={{padding:'16px 20px 4px'}}><h2>Prices that moved</h2><p className="muted small">Items that rose more than {data.threshold_percent}% against the last price the same location paid, by what the rise cost on the invoices where it rose: {dollars(data.price_rise_cents)} in all.</p></div>{data.movers.length ? <table className="table"><thead><tr><th>Item</th><th>Supplier</th><th className="num">From</th><th className="num">To</th><th className="num">Up</th><th className="num">Times</th><th className="num">Cost</th></tr></thead><tbody>{data.movers.map((mover, index) => <tr key={index}><td>{mover.description}{mover.code && <div className="cell-sub">{mover.code}</div>}</td><td>{mover.supplier}</td><td className="num">{mover.from.toFixed(2)}</td><td className="num"><b>{mover.to.toFixed(2)}</b></td><td className="num"><span className="up-pill"><TrendingUp size={12}/>{mover.from > 0 ? ((mover.to / mover.from - 1) * 100).toFixed(0) : '—'}%</span></td><td className="num">{mover.times}</td><td className="num">{dollars(mover.extra_cents)}</td></tr>)}</tbody></table> : <div style={{padding:'8px 20px 20px'}} className="muted small">No item rose by more than {data.threshold_percent}% between two invoices.</div>}{invoiceAgent && <div style={{padding:'0 20px 16px'}}><Link className="link" href={home(invoiceAgent, 'prices')}>See every price rise</Link></div>}</Card>
+    </>}
+    <div className="section-title"><h2>Your agents</h2></div>
+    <Card className="flush table-wrap"><table className="table"><thead><tr><th>Agent</th><th>State</th><th className="num">Documents read</th><th className="num">Waiting for you</th><th className="num">Ready to approve</th><th/></tr></thead><tbody>{data.agents.map(item => {const operation = agent(item.id); return <tr key={item.id}><td><b>{item.name}</b><div className="cell-sub">{item.kind === 'statement' ? 'Checks supplier statements against your invoices' : 'Reads supplier invoices line by line and checks them'}</div></td><td><Badge value={item.enabled ? 'working' : 'paused'}/></td><td className="num">{item.documents}</td><td className={`num ${item.review + item.failed ? 'fail' : ''}`}>{item.review + item.failed}</td><td className="num">{item.kind === 'invoice' ? item.ready : '—'}</td><td>{operation && <Link className="link" href={home(operation)} aria-label={`Open ${item.name}`} style={{display:'inline-flex',alignItems:'center',gap:6}}>Open<ArrowRight size={14}/></Link>}</td></tr>;})}</tbody></table></Card>
+  </>;
+}
+
 type OverviewData = {operation: string; invoices: number; lines: number; pages: number; clean: number; flagged: number; corrected: number; failed: number; stages: Record<Stage, number>; caught: Record<string, number>; from: string | null; to: string | null; billed_cents: number; by_place: {name: string; total_cents: number}[]; by_week: {week: string; total_cents: number}[]; by_supplier: {supplier: string; documents: number; total_cents: number}[]; price_rises: number; extra_cents: number; movers: {description: string | null; code: string | null; supplier: string; times: number; extra_cents: number; from: number; to: number}[]; threshold_percent: number; statements: {count: number; matched: number; not_received: number; amount_differs: number; not_on_statement: number}; found: {kind: string; cents: number; count: number}[]; found_cents: number; days: number; price_gaps: Gap[]; price_gap_count: number};
-type Gap = {week: string; supplier: string; code: string | null; description: string | null; customer: string; price: number; lowest_price: number; lowest_at: string; above_percent: number; extra_cents: number; document_id: string};
+type Gap = {day: string; supplier: string; code: string | null; description: string | null; customer: string; price: number; lowest_price: number; lowest_at: string; above_percent: number; extra_cents: number; document_id: string};
 const FOUND: Record<string, (count: number) => string> = {
   billed_not_received: count => `${count} invoice${count === 1 ? '' : 's'} on a supplier's statement that you never received`,
   statement_overbilled: count => `${count} invoice${count === 1 ? '' : 's'} a supplier has for more than the invoice you hold`,
   duplicates: count => `${count} invoice${count === 1 ? '' : 's'} that arrived twice`,
-  price_gaps: count => `${count} time${count === 1 ? '' : 's'} one location paid more than another for the same item in the same week`,
+  price_gaps: count => `${count} time${count === 1 ? '' : 's'} one location paid more than another for the same item on the same day`,
   price_rises: count => `${count} price rise${count === 1 ? '' : 's'} against the last price you paid`,
 };
 const CAUGHT: Record<string, string> = {lines_do_not_add_up: 'had a total that did not match its lines and tax', duplicate: 'had been received before', price_looks_misread: 'had a price far from the last one paid', missing_field: 'had a field that could not be read', unreadable_line: 'had a line that could not be read', line_arithmetic: 'had a line whose quantity and price did not make its amount', bad_date: 'had a date that could not be right', no_lines: 'had no lines'};
@@ -106,11 +222,11 @@ function Bars({rows}: {rows: {name: string; total_cents: number}[]}) {
 }
 
 function GapTable({gaps}: {gaps: Gap[]}) {
-  return <table className="table"><thead><tr><th>Week of</th><th>Item</th><th>Paid more</th><th className="num">Price</th><th>Paid least</th><th className="num">Price</th><th className="num">Above</th><th className="num">Cost you</th><th className="no-print"/></tr></thead><tbody>{gaps.map((gap, index) => <tr key={index}><td style={{whiteSpace:'nowrap'}}>{new Date(gap.week + 'T12:00:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}</td><td>{gap.description}{gap.code && <div className="cell-sub">{gap.code} · {gap.supplier}</div>}</td><td>{gap.customer}</td><td className="num"><b>{gap.price.toFixed(2)}</b></td><td>{gap.lowest_at}</td><td className="num">{gap.lowest_price.toFixed(2)}</td><td className="num fail">{gap.above_percent}%</td><td className="num">{dollars(gap.extra_cents)}</td><td className="no-print"><Link className="link" href={`/documents/${gap.document_id}`}>Open</Link></td></tr>)}</tbody></table>;
+  return <table className="table"><thead><tr><th>Date</th><th>Item</th><th>Paid more</th><th className="num">Price</th><th>Paid least</th><th className="num">Price</th><th className="num">Above</th><th className="num">Cost you</th><th className="no-print"/></tr></thead><tbody>{gaps.map((gap, index) => <tr key={index}><td style={{whiteSpace:'nowrap'}}>{new Date(gap.day + 'T12:00:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}</td><td>{gap.description}{gap.code && <div className="cell-sub">{gap.code} · {gap.supplier}</div>}</td><td>{gap.customer}</td><td className="num"><b>{gap.price.toFixed(2)}</b></td><td>{gap.lowest_at}</td><td className="num">{gap.lowest_price.toFixed(2)}</td><td className="num fail">{gap.above_percent}%</td><td className="num">{dollars(gap.extra_cents)}</td><td className="no-print"><Link className="link" href={open(gap.document_id)}>Open</Link></td></tr>)}</tbody></table>;
 }
 
-/** The first thing an owner sees: what was handled for them, what it caught, and where prices and money moved. */
-function Overview({operation}: {operation: Operation}) {
+/** What one invoice agent's work has added up to: what was handled, what it caught, and where the money went. */
+function Results({operation, statements}: {operation: Operation; statements?: Operation}) {
   const overview = useResource<OverviewData>(`/portal/operations/${operation.id}/overview`, true, 15000);
   const [minutes, setMinutes] = useState(5), [wage, setWage] = useState(20);
   useEffect(() => {try {const kept = Number(localStorage.getItem('portal-minutes')), paid = Number(localStorage.getItem('portal-wage')); if (kept > 0) setMinutes(kept); if (paid > 0) setWage(paid);} catch {}}, []);
@@ -119,19 +235,15 @@ function Overview({operation}: {operation: Operation}) {
   const data = overview.data, hours = data.invoices * minutes / 60, noOne = data.invoices ? Math.round(data.clean / data.invoices * 100) : 0;
   const span = data.from && data.to ? `${new Date(data.from + 'T12:00:00').toLocaleDateString(undefined, {month: 'long', day: 'numeric'})} to ${new Date(data.to + 'T12:00:00').toLocaleDateString(undefined, {month: 'long', day: 'numeric', year: 'numeric'})}` : '';
   const caught = Object.entries(data.caught).sort((a, b) => b[1] - a[1]), found = data.statements.not_received + data.statements.amount_differs + data.statements.not_on_statement;
-  const recurring = data.found.filter(row => row.kind === 'price_gaps' || row.kind === 'price_rises').reduce((sum, row) => sum + row.cents, 0);
-  // Only what repeats is carried to a year. An invoice missing from one statement is found once.
+  const recurring = data.found.filter(row => row.kind === 'price_gaps').reduce((sum, row) => sum + row.cents, 0);
+  // Only a difference between locations is carried to a year: it comes from the price list a location is on, so it
+  // repeats. A price rise is counted once, on the invoice where it rose, and a missing invoice is found once.
   const yearly = data.days >= 7 ? Math.round(recurring * 365 / data.days / 100) : 0, monthlyHours = data.days >= 7 ? hours * 30 / data.days : hours;
-  if (!data.invoices) return <><Heading title="Overview" subtitle="What has been handled for you."/><Card><Empty title="Nothing to report yet">Once invoices arrive, this page shows how many were handled, what was caught, and where prices and money moved. Upload some from the inbox, or connect a mailbox under Channels.</Empty></Card></>;
+  if (!data.invoices) return <><Heading title="Results" subtitle="What has been handled for you."/><Card><Empty title="Nothing to report yet">Once invoices arrive, this page shows how many were handled, what was caught, and where prices and money moved. Upload some under Documents, or connect a mailbox under Channels.</Empty></Card></>;
   return <div className="report">
-    <Heading title="Overview" subtitle={`${data.operation}${span ? `, invoices dated ${span}` : ''}.`} action={<Button variant="secondary" className="no-print" onClick={() => window.print()}><Download size={15}/>Print or save as PDF</Button>}/>
+    <Heading title="Results" subtitle={`${data.operation}${span ? `, invoices dated ${span}` : ''}.`} action={<Button variant="secondary" className="no-print" onClick={() => window.print()}><Download size={15}/>Print or save as PDF</Button>}/>
     <Card><p style={{fontSize:18,lineHeight:1.5,margin:0,maxWidth:'70ch'}}><b>{data.invoices} invoices</b> were read and <b>{data.lines.toLocaleString()} lines</b> entered for you, from {data.pages} pages. <b>{data.clean} needed no one</b> ({noOne}%): their lines and tax added up to the total, their prices were in line, and they had not been seen before. {data.flagged ? <><b>{data.flagged} {data.flagged === 1 ? 'was' : 'were'} set aside</b> for a person to look at.</> : 'None had to be set aside.'}</p></Card>
     <div style={{height:24}}/>
-    <Card><div className="row between wrap" style={{alignItems:'flex-start',gap:24}}>
-      <div style={{minWidth:220}}><span className="muted small">Worth taking up with your suppliers</span><div className="stat" style={{fontSize:34,lineHeight:1.15}}>{dollars(data.found_cents)}</div><p className="muted small" style={{marginTop:4}}>in {data.days} day{data.days === 1 ? '' : 's'} of invoices{yearly > 0 && <>. The price differences alone, at this rate, are about <b>${yearly.toLocaleString()}</b> a year</>}.</p></div>
-      <div style={{flex:1,minWidth:280}}>{data.found.length ? <table className="table"><tbody>{data.found.map(row => <tr key={row.kind}><td>{FOUND[row.kind]?.(row.count) ?? row.kind}</td><td className="num"><b>{dollars(row.cents)}</b></td></tr>)}</tbody></table> : <p className="muted small">Nothing was found that is worth money: no statement differences, no duplicates, no prices out of line.</p>}</div>
-    </div><p className="help" style={{marginTop:12}}>These are amounts to raise with a supplier or put right, not money already returned. The yearly figure counts only the price differences, and assumes the rest of the year looks like these {data.days} days, which it may not.</p></Card>
-    <div className="grid grid-4" style={{margin:'24px 0'}}>{[{label:'Billed in total', value:dollars(data.billed_cents)}, {label:`Price rises over ${data.threshold_percent}%`, value:String(data.price_rises)}, {label:'Same item, different price', value:String(data.price_gap_count)}, {label:'Statement differences', value:data.statements.count ? String(found) : '—'}].map(stat => <Card key={stat.label}><span className="muted small">{stat.label}</span><div className="stat" style={{fontSize:24}}>{stat.value}</div></Card>)}</div>
     <div className="grid grid-2" style={{alignItems:'start'}}>
       <Card><h2>Typing you did not do</h2>
         <p className="muted small" style={{margin:'6px 0 12px'}}>Entering an invoice by hand means keying every line. Put in how long one takes you; the count is ours, the minutes are yours.</p>
@@ -144,19 +256,21 @@ function Overview({operation}: {operation: Operation}) {
         {caught.length ? <ul style={{margin:'10px 0 0',paddingLeft:20}} className="stack">{caught.map(([kind, count]) => <li key={kind}><b>{count}</b> {count === 1 ? 'invoice' : 'invoices'} {CAUGHT[kind] ?? kind.replaceAll('_', ' ')}</li>)}</ul> : <p className="muted small" style={{marginTop:10}}>Nothing was flagged: no totals that did not add up, no duplicates, no prices out of line.</p>}
         {data.corrected > 0 && <p className="muted small" style={{marginTop:10}}>A person corrected {data.corrected} of them.</p>}
         {data.failed > 0 && <p className="muted small" style={{marginTop:10}}>{data.failed} could not be read at all.</p>}
-        <Link className="link no-print" href="/inbox" style={{display:'inline-block',marginTop:12}}>Open the inbox</Link>
+        <Link className="link no-print" href={home(operation)} style={{display:'inline-block',marginTop:12}}>Open the documents</Link>
       </Card>
     </div>
     <div style={{height:24}}/>
-    {data.price_gaps.length > 0 && <><Card className="flush table-wrap"><div style={{padding:'16px 20px 4px'}}><h2>Same item, different price</h2><p className="muted small">In the same week, from the same supplier, one of your locations paid more than another for the same item.</p></div><GapTable gaps={data.price_gaps.slice(0, 8)}/><div className="no-print" style={{padding:'0 20px 16px'}}><Link className="link" href="/prices">See all {data.price_gap_count}</Link></div></Card><div style={{height:24}}/></>}
-    <Card className="flush table-wrap"><div style={{padding:'16px 20px 4px'}}><h2>Where prices moved</h2><p className="muted small">Items whose price rose more than {data.threshold_percent}% against the last time you bought them, by what the rise has cost so far.</p></div>{data.movers.length ? <table className="table"><thead><tr><th>Item</th><th>Supplier</th><th className="num">From</th><th className="num">To</th><th className="num">Times</th><th className="num">Cost you</th></tr></thead><tbody>{data.movers.map((mover, index) => <tr key={index}><td>{mover.description}{mover.code && <div className="cell-sub">{mover.code}</div>}</td><td>{mover.supplier}</td><td className="num">{mover.from.toFixed(2)}</td><td className="num"><b>{mover.to.toFixed(2)}</b></td><td className="num">{mover.times}</td><td className="num">{dollars(mover.extra_cents)}</td></tr>)}</tbody></table> : <div style={{padding:'8px 20px 20px'}} className="muted small">No item rose by more than {data.threshold_percent}% between two invoices.</div>}<div className="no-print" style={{padding:'0 20px 16px'}}><Link className="link" href="/prices">See every price rise</Link></div></Card>
-    <div style={{height:24}}/>
+    <Card><div className="row between wrap" style={{alignItems:'flex-start',gap:24}}>
+      <div style={{minWidth:220}}><span className="muted small">Worth taking up with your suppliers</span><div className="stat" style={{fontSize:34,lineHeight:1.15}}>{dollars(data.found_cents)}</div><p className="muted small" style={{marginTop:4}}>in {data.days} day{data.days === 1 ? '' : 's'} of invoices{yearly > 0 && <>. The differences between your locations alone, at this rate, are about <b>${yearly.toLocaleString()}</b> a year</>}.</p></div>
+      <div style={{flex:1,minWidth:280}}>{data.found.length ? <table className="table"><tbody>{data.found.map(row => <tr key={row.kind}><td>{FOUND[row.kind]?.(row.count) ?? row.kind}</td><td className="num"><b>{dollars(row.cents)}</b></td></tr>)}</tbody></table> : <p className="muted small">Nothing was found that is worth money: no statement differences, no duplicates, no prices out of line.</p>}</div>
+    </div><p className="help" style={{marginTop:12}}>These are amounts to raise with a supplier or put right, not money already returned. A price rise is what you paid above the last price on the invoice where it rose; a supplier may have good reason for it. The yearly figure counts only the differences between locations, and assumes the rest of the year looks like these {data.days} days, which it may not.</p><Link className="link no-print" href={home(operation, 'prices')} style={{display:'inline-block',marginTop:8}}>See every price behind these figures</Link></Card>
+    <div className="grid grid-4" style={{margin:'24px 0'}}>{[{label:'Billed in total', value:dollars(data.billed_cents)}, {label:`Price rises over ${data.threshold_percent}%`, value:String(data.price_rises)}, {label:'Same item, different price', value:String(data.price_gap_count)}, {label:'Statement differences', value:data.statements.count ? String(found) : '—'}].map(stat => <Card key={stat.label}><span className="muted small">{stat.label}</span><div className="stat" style={{fontSize:24}}>{stat.value}</div></Card>)}</div>
     <div className="grid grid-2" style={{alignItems:'start'}}>
       <Card><h2 style={{marginBottom:12}}>Billed by location</h2><Bars rows={data.by_place.slice(0, 12)}/></Card>
       <Card><h2 style={{marginBottom:12}}>Billed by week</h2><Bars rows={data.by_week.map(row => ({name: `Week of ${new Date(row.week + 'T12:00:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}`, total_cents: row.total_cents}))}/>
         {data.by_supplier.length > 1 && <><h3 style={{margin:'20px 0 12px'}}>By supplier</h3><Bars rows={data.by_supplier.map(row => ({name: row.supplier, total_cents: row.total_cents}))}/></>}</Card>
     </div>
-    {data.statements.count > 0 && <><div style={{height:24}}/><Card><h2>Supplier statements</h2><p style={{margin:'8px 0 0',maxWidth:'70ch'}}>{data.statements.count === 1 ? 'One statement was' : `${data.statements.count} statements were`} checked against your invoices. <b>{data.statements.matched}</b> invoices agreed. {found ? <><b>{data.statements.not_received}</b> the supplier lists but you never received, <b>{data.statements.amount_differs}</b> where the amounts differ, and <b>{data.statements.not_on_statement}</b> you hold that the supplier does not list.</> : 'Nothing was out of place.'}</p><Link className="link no-print" href="/statements" style={{display:'inline-block',marginTop:12}}>Open statements</Link></Card></>}
+    {data.statements.count > 0 && <><div style={{height:24}}/><Card><h2>Supplier statements</h2><p style={{margin:'8px 0 0',maxWidth:'70ch'}}>{data.statements.count === 1 ? 'One statement was' : `${data.statements.count} statements were`} checked against your invoices. <b>{data.statements.matched}</b> invoices agreed. {found ? <><b>{data.statements.not_received}</b> the supplier lists but you never received, <b>{data.statements.amount_differs}</b> where the amounts differ, and <b>{data.statements.not_on_statement}</b> you hold that the supplier does not list.</> : 'Nothing was out of place.'}</p>{statements && <Link className="link no-print" href={home(statements)} style={{display:'inline-block',marginTop:12}}>Open {statements.name}</Link>}</Card></>}
   </div>;
 }
 
@@ -193,7 +307,7 @@ function InboxPage({operation, canWork, statement = false}: {operation: Operatio
     <div className="control-group" role="tablist" aria-label="Where documents stand" style={{marginBottom:16,flexWrap:'wrap'}}>{tabs.map(tab => <Button key={tab.value} role="tab" aria-selected={stage === tab.value} variant={stage === tab.value ? 'default' : 'secondary'} onClick={() => setStage(tab.value)}>{tab.label}{tab.count !== undefined && <span style={{marginLeft:6,opacity:.75}}>{tab.count}</span>}</Button>)}</div>
     <Card className="flush table-wrap">{items.length ? <table className="table"><thead><tr><th>Received</th><th>Document</th>{columns.map(column => <th key={column}>{label(column)}</th>)}{table && <th className="num">{statement ? 'Invoices listed' : humanize(table)}</th>}<th>Status</th></tr></thead><tbody>{items.map(item => <tr key={item.id}>
       <td className="muted" style={{whiteSpace:'nowrap'}}>{new Date(item.received_at).toLocaleDateString()}<div className="cell-sub">{SOURCES[item.source] ?? item.source}{item.sender ? ` · ${item.sender}` : ''}</div></td>
-      <td><Link className="link" href={`/documents/${item.id}`}><b>{item.name}</b></Link>{item.error && <div className="cell-sub">{item.error}</div>}</td>
+      <td><Link className="link" href={open(item.id)}><b>{item.name}</b></Link>{item.error && <div className="cell-sub">{item.error}</div>}</td>
       {columns.map(column => <td key={column}>{display(column, item.fields[column])}</td>)}
       {table && <td className="num">{item.rows[table] ?? '—'}</td>}
       <td style={{whiteSpace:'nowrap'}}>{statement ? <Badge value={item.status === 'processed' ? 'read' : item.status}/> : <><Badge value={standing(item)}/>{item.exceptions > 0 && item.stage === 'review' && <div className="cell-sub">{item.exceptions} to check</div>}{item.corrected && <div className="cell-sub">corrected</div>}</>}</td>
@@ -211,7 +325,7 @@ function DocumentPage({id, operations, canWork}: {id: string; operations: Operat
   const document = useResource<DocumentDetail & {operation_id: string}>(`/portal/documents/${id}`, true, 4000);
   const {act, pending, toast} = useAction(), [draft, setDraft] = useState<Row | null>(null);
   if (document.isLoading) return <Loading/>;
-  if (!document.data) return <><ErrorState error={document.error}/><Link className="link" href="/inbox">Back to the inbox</Link></>;
+  if (!document.data) return <><ErrorState error={document.error}/><Link className="link" href={DASHBOARD}>Back to the dashboard</Link></>;
   const data = document.data, operation = operations.find(item => item.id === data.operation_id) ?? operations[0], statement = operation?.kind === 'statement';
   const current = draft ?? data.answer ?? {}, agent = data.agent_answer ?? {};
   const single = Object.keys(current).filter(field => !Array.isArray(current[field])), tables = Object.keys(current).filter(field => Array.isArray(current[field]));
@@ -219,13 +333,12 @@ function DocumentPage({id, operations, canWork}: {id: string; operations: Operat
   const setField = (field: string, text: string) => setDraft({...current, [field]: coerce(text, (data.answer ?? {})[field])});
   const setCell = (table: string, index: number, column: string, text: string) => setDraft({...current, [table]: (current[table] as Row[]).map((row, position) => position === index ? {...row, [column]: coerce(text, ((data.answer ?? {})[table] as Row[])[index]?.[column])} : row)});
   async function save(corrected: Row | null) {const saved = await act<DocumentDetail>(`/portal/documents/${id}/review`, corrected ? {corrected, approve: true} : {approve: true}); if (saved) {setDraft(null); toast(corrected ? 'Correction saved and approved.' : 'Approved.');}}
-  const back = statement ? '/statements' : '/inbox';
   return <>
     <Heading title={data.name} subtitle={`${SOURCES[data.source] ?? data.source}${data.sender ? ` from ${data.sender}` : ''} · received ${new Date(data.received_at).toLocaleString()}`} action={<Badge value={statement ? data.status === 'processed' ? 'read' : data.status : standing(data)}/>}/>
-    <Link className="link" href={back} style={{display:'inline-flex',alignItems:'center',gap:6,marginBottom:16}}><ArrowLeft size={14}/>{statement ? 'Statements' : 'Inbox'}</Link>
+    <Link className="link" href={operation ? home(operation) : DASHBOARD} style={{display:'inline-flex',alignItems:'center',gap:6,marginBottom:16}}><ArrowLeft size={14}/>{operation?.name ?? 'Dashboard'}</Link>
     {data.status === 'failed' && <div className="error" role="alert">This document could not be read. {data.error}</div>}
     {data.status === 'processing' && <div className="notice" role="status">Reading this document…</div>}
-    {data.exception_list.length > 0 && <div className="notice" style={{marginBottom:16}} role="status"><div className="row" style={{gap:8,alignItems:'center',marginBottom:6}}><TriangleAlert size={16}/><b>{data.stage === 'review' ? 'This needs a person before it is approved' : 'The checks raised these; a person approved it anyway'}</b></div><ul style={{margin:0,paddingLeft:22}}>{data.exception_list.map((item, index) => <li key={index}>{item.message}{item.document_id && <> <Link className="link" href={`/documents/${item.document_id}`}>Open it</Link></>}</li>)}</ul></div>}
+    {data.exception_list.length > 0 && <div className="notice" style={{marginBottom:16}} role="status"><div className="row" style={{gap:8,alignItems:'center',marginBottom:6}}><TriangleAlert size={16}/><b>{data.stage === 'review' ? 'This needs a person before it is approved' : 'The checks raised these; a person approved it anyway'}</b></div><ul style={{margin:0,paddingLeft:22}}>{data.exception_list.map((item, index) => <li key={index}>{item.message}{item.document_id && <> <Link className="link" href={open(item.document_id)}>Open it</Link></>}</li>)}</ul></div>}
     {data.status === 'processed' && !statement && data.exception_list.length === 0 && data.stage !== 'review' && <p className="muted small" style={{marginBottom:12}}>{data.stage === 'ready' ? 'The checks found nothing wrong: the lines add up to the total, the prices are in line with the last ones paid, and this invoice has not been seen before.' : data.approved_automatically ? 'Approved automatically: the checks found nothing wrong.' : sent ? 'Sent to the books.' : 'Approved by a person.'}</p>}
     {statement && data.status === 'processed' && <StatementCheck id={id}/>}
     <Card><div style={{display:'grid',gridTemplateColumns:'minmax(0, 5fr) minmax(0, 7fr)',gap:24,alignItems:'start'}}>
@@ -254,8 +367,8 @@ function StatementCheck({id}: {id: string}) {
     <p className="muted small" style={{marginBottom:12}}>Each invoice the statement lists, matched by number to the invoices you have received{data.supplier ? ` from ${data.supplier}` : ''}.</p>
     <div className="grid grid-4" style={{marginBottom:16}}>{[{label:'Agree', value:counts.matched}, {label:'Amount differs', value:counts.amount_differs}, {label:'Listed, never received', value:counts.not_received}, {label:'Received, not listed', value:counts.not_on_statement}].map(stat => <div key={stat.label}><span className="muted small">{stat.label}</span><div className="stat" style={{fontSize:22}}>{stat.value}</div></div>)}</div>
     <div className="table-wrap" style={{maxHeight:420,overflow:'auto'}}><table className="table"><thead><tr><th>Invoice</th><th>Date</th><th className="num">Statement says</th><th className="num">Your invoice says</th><th>Result</th><th/></tr></thead><tbody>
-      {data.rows.filter(row => row.status !== 'matched').concat(data.rows.filter(row => row.status === 'matched')).map((row, index) => <tr key={index}><td><b>{row.invoice_number}</b></td><td>{row.invoice_date ?? '—'}</td><td className="num">{money(row.amount)}</td><td className="num">{row.status === 'not_received' ? '—' : money(row.our_amount)}</td><td className={row.status === 'matched' ? 'check' : 'fail'}>{MATCH[row.status]}</td><td>{row.document_id && <Link className="link" href={`/documents/${row.document_id}`}>Open</Link>}</td></tr>)}
-      {data.not_on_statement.map(row => <tr key={row.document_id}><td><b>{row.invoice_number}</b></td><td>{row.invoice_date}</td><td className="num">—</td><td className="num">{money(row.our_amount)}</td><td className="fail">not on the statement</td><td><Link className="link" href={`/documents/${row.document_id}`}>Open</Link></td></tr>)}
+      {data.rows.filter(row => row.status !== 'matched').concat(data.rows.filter(row => row.status === 'matched')).map((row, index) => <tr key={index}><td><b>{row.invoice_number}</b></td><td>{row.invoice_date ?? '—'}</td><td className="num">{money(row.amount)}</td><td className="num">{row.status === 'not_received' ? '—' : money(row.our_amount)}</td><td className={row.status === 'matched' ? 'check' : 'fail'}>{MATCH[row.status]}</td><td>{row.document_id && <Link className="link" href={open(row.document_id)}>Open</Link>}</td></tr>)}
+      {data.not_on_statement.map(row => <tr key={row.document_id}><td><b>{row.invoice_number}</b></td><td>{row.invoice_date}</td><td className="num">—</td><td className="num">{money(row.our_amount)}</td><td className="fail">not on the statement</td><td><Link className="link" href={open(row.document_id)}>Open</Link></td></tr>)}
     </tbody></table></div>
   </Card></div>;
 }
@@ -267,12 +380,12 @@ function Prices({operation}: {operation: Operation}) {
   if (insights.isLoading) return <Loading/>;
   const data = insights.data, rises = data?.price_rises ?? [], spend = data?.spend ?? [];
   return <>
-    <Heading title="Price watch" subtitle={`Every line of every invoice, compared with the last price paid for the same item. A price more than ${data?.threshold_percent ?? 5}% higher is listed here. A price that looks misread is not: it waits in the inbox for a person.`} action={<Button variant="secondary" disabled={saving} onClick={() => void exportCsv()}><Download size={15}/>Export every line (CSV)</Button>}/>
+    <Heading title="Price watch" subtitle={`Every line of every invoice, compared with the last price paid for the same item. A price more than ${data?.threshold_percent ?? 5}% higher is listed here. A price that looks misread is not: it waits under Documents for a person.`} action={<Button variant="secondary" disabled={saving} onClick={() => void exportCsv()}><Download size={15}/>Export every line (CSV)</Button>}/>
     <ErrorState error={insights.error}/>
     {!data?.applies ? <Card><Empty title="Nothing to compare yet">Price watch works on documents with priced lines, such as invoices. It fills in once two or more have been read.</Empty></Card> : <>
       <div className="grid grid-4" style={{marginBottom:24}}>{[{label:'Invoices compared', value:String(data.documents)}, {label:'Price rises found', value:String(rises.length)}, {label:'Paid above the last price', value:dollars(data.extra_cents)}, {label:'Total billed', value:dollars(spend.reduce((sum, row) => sum + row.total_cents, 0))}].map(stat => <Card key={stat.label}><span className="muted small">{stat.label}</span><div className="stat" style={{fontSize:24}}>{stat.value}</div></Card>)}</div>
-      <Card className="flush table-wrap"><div style={{padding:'16px 20px 4px'}}><h2>Prices that went up</h2></div>{rises.length ? <table className="table"><thead><tr><th>Date</th><th>Supplier</th><th>Location</th><th>Item</th><th className="num">Was</th><th className="num">Now</th><th className="num">Up</th><th className="num">Cost you</th><th/></tr></thead><tbody>{rises.map((rise, index) => <tr key={index}><td style={{whiteSpace:'nowrap'}}>{rise.date}</td><td>{rise.supplier}</td><td>{rise.customer}</td><td>{rise.description}{rise.code && <div className="cell-sub">{rise.code}</div>}</td><td className="num">{rise.last_price.toFixed(2)}<div className="cell-sub">{rise.last_date}</div></td><td className="num"><b>{rise.price.toFixed(2)}</b></td><td className="num fail">{rise.rise_percent}%</td><td className="num">{dollars(rise.extra_cents)}</td><td><Link className="link" href={`/documents/${rise.document_id}`}>Open</Link></td></tr>)}</tbody></table> : <div style={{padding:'8px 20px 20px'}} className="muted small">No item has gone up by more than {data.threshold_percent}% between two invoices.</div>}</Card>
-      {(data.price_gaps?.length ?? 0) > 0 && <><div style={{height:24}}/><Card className="flush table-wrap"><div style={{padding:'16px 20px 4px'}}><h2>Same item, different price</h2><p className="muted small">In the same week, from the same supplier, one location paid more than another for the same item. {data.price_gaps.length} in all, costing {dollars(data.price_gaps.reduce((sum, gap) => sum + gap.extra_cents, 0))} above the lowest price paid.</p></div><GapTable gaps={data.price_gaps}/></Card></>}
+      <Card className="flush table-wrap"><div style={{padding:'16px 20px 4px'}}><h2>Prices that went up</h2></div>{rises.length ? <table className="table"><thead><tr><th>Date</th><th>Supplier</th><th>Location</th><th>Item</th><th className="num">Was</th><th className="num">Now</th><th className="num">Up</th><th className="num">Cost you</th><th/></tr></thead><tbody>{rises.map((rise, index) => <tr key={index}><td style={{whiteSpace:'nowrap'}}>{rise.date}</td><td>{rise.supplier}</td><td>{rise.customer}</td><td>{rise.description}{rise.code && <div className="cell-sub">{rise.code}</div>}</td><td className="num">{rise.last_price.toFixed(2)}<div className="cell-sub">{rise.last_date}</div></td><td className="num"><b>{rise.price.toFixed(2)}</b></td><td className="num fail">{rise.rise_percent}%</td><td className="num">{dollars(rise.extra_cents)}</td><td><Link className="link" href={open(rise.document_id)}>Open</Link></td></tr>)}</tbody></table> : <div style={{padding:'8px 20px 20px'}} className="muted small">No item has gone up by more than {data.threshold_percent}% between two invoices.</div>}</Card>
+      {(data.price_gaps?.length ?? 0) > 0 && <><div style={{height:24}}/><Card className="flush table-wrap"><div style={{padding:'16px 20px 4px'}}><h2>Same item, different price</h2><p className="muted small">On the same day, from the same supplier, one location paid more than another for the same item. {data.price_gaps.length} in all, costing {dollars(data.price_gaps.reduce((sum, gap) => sum + gap.extra_cents, 0))} above the lowest price paid.</p></div><GapTable gaps={data.price_gaps}/></Card></>}
       <div style={{height:24}}/>
       <Card className="flush table-wrap"><div style={{padding:'16px 20px 4px'}}><h2>Billed by supplier</h2></div><table className="table"><thead><tr><th>Supplier</th><th className="num">Invoices</th><th className="num">Total billed</th></tr></thead><tbody>{spend.map(row => <tr key={row.supplier}><td>{row.supplier || '—'}</td><td className="num">{row.documents}</td><td className="num">{dollars(row.total_cents)}</td></tr>)}</tbody></table></Card>
     </>}
@@ -355,7 +468,7 @@ function Channels({operation, canWork}: {operation: Operation; canWork: boolean}
       <td className="muted">{channel.last_checked_at ? new Date(channel.last_checked_at).toLocaleString() : channel.kind === 'mailbox' ? 'Not yet' : '—'}</td>
       <td><Badge value={channel.enabled ? channel.last_error && channel.kind === 'mailbox' ? 'attention' : 'connected' : 'paused'}/></td>
       <td>{canWork && <div className="control-group">{channel.kind === 'mailbox' && <Button variant="secondary" disabled={pending} onClick={async () => {const result = await act<{taken_in: number}>(`/portal/channels/${channel.id}/check`, {}); if (result) toast(result.taken_in ? `${result.taken_in} new document${result.taken_in === 1 ? '' : 's'}.` : 'Nothing new.');}}><Mail size={14}/>Check now</Button>}<Button variant="secondary" disabled={pending} onClick={() => void act(`/portal/channels/${channel.id}`, {enabled: !channel.enabled}, 'PATCH')}>{channel.enabled ? 'Pause' : 'Resume'}</Button><Button variant="ghost" className="icon" aria-label={`Remove ${channel.name}`} disabled={pending} onClick={() => void act(`/portal/channels/${channel.id}`, undefined, 'DELETE')}><Trash2 size={14}/></Button></div>}</td>
-    </tr>)}</tbody></table> : channels.isLoading ? <Loading/> : <Empty title="No channels yet">Documents can always be uploaded from the inbox. Connect a mailbox to have them arrive by themselves.</Empty>}</Card>
+    </tr>)}</tbody></table> : channels.isLoading ? <Loading/> : <Empty title="No channels yet">Documents can always be uploaded under Documents. Connect a mailbox to have them arrive by themselves.</Empty>}</Card>
     {canWork && <><div style={{height:24}}/><Card>
       <h2>Add a channel</h2>
       <div className="control-group" style={{margin:'12px 0'}} role="radiogroup" aria-label="Kind of channel">{(Object.keys(KINDS) as Channel['kind'][]).map(value => <label className="inline-check" key={value} style={{margin:0}}><input type="radio" name="channel-kind" checked={kind === value} onChange={() => setKind(value)}/>{KINDS[value].title}</label>)}</div>

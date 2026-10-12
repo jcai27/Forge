@@ -483,16 +483,17 @@ def reconcile(statement, invoices):
     }
 
 
-# Two prices for the same item in the same week are called different when they are this far apart.
+# Two prices for the same item on the same day are called different when they are this far apart.
 PRICE_GAP = Decimal("0.02")
 
 
 def price_gaps(documents):
-    """The same item from the same supplier, bought in the same week by different locations at
-    different prices. What each location paid above the lowest price paid that week is the gap.
+    """The same item from the same supplier, invoiced on the same day to different locations at
+    different prices. What a location paid above the lowest price that day is the gap.
 
-    A business with several sites is often charged several prices for one thing, and nobody sees it
-    because nobody sees two sites' invoices side by side. A price that looks misread is left out.
+    The same day, not the same week: a supplier's prices move during a week, so two prices a few days
+    apart are as likely a price change as a difference between locations, and a change is already
+    counted as a price rise. A price that looks misread is left out.
     """
     from datetime import date as day_of
 
@@ -503,14 +504,14 @@ def price_gaps(documents):
             issued = day_of.fromisoformat(str(data.get("invoice_date") or ""))
         except ValueError:
             continue
-        week = (issued - timedelta(days=issued.weekday())).isoformat()
+        day = issued.isoformat()
         supplier, place = str(data.get("supplier") or "").strip().upper(), str(data.get("customer") or "").strip()
         for item in items_of(data) or []:
             price, units = number(item.get("unit_price")), line_units(item)
             name = str(item.get("code") or item.get("description") or "").strip().upper()
             if not name or not place or price is None or price <= 0 or units is None:
                 continue
-            bought.setdefault((supplier, name, week), []).append(
+            bought.setdefault((supplier, name, day), []).append(
                 {
                     "place": place,
                     "price": price,
@@ -521,16 +522,20 @@ def price_gaps(documents):
                 }
             )
     gaps = []
-    for (_, _, week), lines in bought.items():
+    for (_, _, day), lines in bought.items():
         if len({line["place"] for line in lines}) < 2:
             continue
         low = min(line["price"] for line in lines)
         cheapest = next(line["place"] for line in lines if line["price"] == low)
+        at_low = {line["place"] for line in lines if line["price"] == low}
         for line in lines:
+            # A location that paid both prices that day is not being charged more than another.
+            if line["place"] in at_low:
+                continue
             if line["price"] > low * (1 + PRICE_GAP) and not implausible(line["price"], low):
                 gaps.append(
                     {
-                        "week": week,
+                        "day": day,
                         "supplier": line["supplier"],
                         "code": line["item"].get("code"),
                         "description": line["item"].get("description"),
@@ -544,6 +549,163 @@ def price_gaps(documents):
                     }
                 )
     return sorted(gaps, key=lambda gap: -gap["extra_cents"])
+
+
+def movers(rises):
+    """Price rises gathered by item: how often each rose, from what to what, and what the rises cost."""
+    found = {}
+    for rise in rises:
+        entry = found.setdefault(
+            (rise["supplier"], rise["code"] or rise["description"]),
+            {
+                "description": rise["description"],
+                "code": rise["code"],
+                "supplier": rise["supplier"],
+                "times": 0,
+                "extra_cents": 0,
+                "from": rise["last_price"],
+                "to": rise["price"],
+            },
+        )
+        entry["times"] += 1
+        entry["extra_cents"] += rise["extra_cents"]
+        entry["from"], entry["to"] = min(entry["from"], rise["last_price"]), max(entry["to"], rise["price"])
+    return sorted(found.values(), key=lambda row: -row["extra_cents"])
+
+
+# Past this many days of invoices, what came in is charted by week instead of by day.
+DAILY_SPAN = 45
+
+
+def analytics(documents, place=None):
+    """What was bought, for the person who runs the business: how much came in, when, to which location,
+    from whom, which items the money went on and which prices moved.
+
+    Sums and counts over recorded lines. place narrows everything to one location; the list of locations
+    is always the whole one. Quantity is what the invoice gives as the quantity of a line: cases or pieces,
+    not pounds.
+    """
+    invoices = [document for document in documents if items_of(answer(document) or {})]
+    places = sorted({str((answer(document) or {}).get("customer") or "Not stated") for document in invoices})
+    if place:
+        invoices = [d for d in invoices if str((answer(d) or {}).get("customer") or "Not stated") == place]
+    by_day, by_place, by_supplier, goods = {}, {}, {}, {}
+    spend = lines = 0
+    units = Decimal(0)
+    for document in invoices:
+        data = answer(document) or {}
+        total = int(number(data.get("total_cents")) or 0)
+        where, supplier = str(data.get("customer") or "Not stated"), str(data.get("supplier") or "Not stated")
+        try:
+            issued = date.fromisoformat(str(data.get("invoice_date") or ""))
+        except ValueError:
+            issued = None
+        received = Decimal(0)
+        for item in items_of(data) or []:
+            quantity, amount, price = (
+                number(item.get("quantity")),
+                number(item.get("amount")),
+                number(item.get("unit_price")),
+            )
+            name = str(item.get("code") or item.get("description") or "").strip().upper()
+            lines += 1
+            received += quantity if quantity is not None and quantity > 0 else 0
+            if not name:
+                continue
+            entry = goods.setdefault(
+                (supplier.upper(), name),
+                {
+                    "code": item.get("code"),
+                    "description": item.get("description"),
+                    "supplier": supplier,
+                    "quantity": Decimal(0),
+                    "cents": 0,
+                    "times": 0,
+                    "places": set(),
+                    "prices": [],
+                },
+            )
+            entry["quantity"] += quantity if quantity is not None and quantity > 0 else 0
+            entry["cents"] += int((amount or 0) * 100)
+            entry["times"] += 1
+            entry["places"].add(where)
+            if price is not None and price > 0:
+                entry["prices"].append((issued or date.min, price))
+        spend += total
+        units += received
+        for table, key in ((by_place, where), (by_supplier, supplier)):
+            row = table.setdefault(key, {"name": key, "total_cents": 0, "invoices": 0, "quantity": Decimal(0)})
+            row["total_cents"] += total
+            row["invoices"] += 1
+            row["quantity"] += received
+        if issued:
+            row = by_day.setdefault(issued, {"total_cents": 0, "invoices": 0, "quantity": Decimal(0)})
+            row["total_cents"] += total
+            row["invoices"] += 1
+            row["quantity"] += received
+    days = sorted(by_day)
+    span = (days[-1] - days[0]).days + 1 if days else 0
+    weekly = span > DAILY_SPAN
+    series = {}
+    if days:
+        # Every day in the range, bought on or not: a gap in deliveries should look like one.
+        for offset in range(span):
+            day = days[0] + timedelta(days=offset)
+            start = day - timedelta(days=day.weekday()) if weekly else day
+            row = series.setdefault(
+                start, {"start": start.isoformat(), "total_cents": 0, "invoices": 0, "quantity": 0.0}
+            )
+            if day in by_day:
+                row["total_cents"] += by_day[day]["total_cents"]
+                row["invoices"] += by_day[day]["invoices"]
+                row["quantity"] += float(by_day[day]["quantity"])
+    items = []
+    for entry in goods.values():
+        prices = [price for _, price in sorted(entry["prices"], key=lambda pair: pair[0])]
+        items.append(
+            {
+                "code": entry["code"],
+                "description": entry["description"],
+                "supplier": entry["supplier"],
+                "quantity": float(entry["quantity"]),
+                "total_cents": entry["cents"],
+                "times": entry["times"],
+                "places": len(entry["places"]),
+                "low_price": float(min(prices)) if prices else None,
+                "high_price": float(max(prices)) if prices else None,
+                "last_price": float(prices[-1]) if prices else None,
+            }
+        )
+    seen = insights(invoices)
+
+    def ranked(table):
+        return sorted(
+            ({**row, "quantity": float(row["quantity"])} for row in table.values()), key=lambda r: -r["total_cents"]
+        )
+
+    return {
+        "places": places,
+        "place": place if place in places else None,
+        "invoices": len(invoices),
+        "spend_cents": spend,
+        "lines": lines,
+        "quantity": float(units),
+        "items": len(goods),
+        "from": days[0].isoformat() if days else None,
+        "to": days[-1].isoformat() if days else None,
+        "days": span,
+        "delivery_days": len(days),
+        "bucket": "week" if weekly else "day",
+        "series": list(series.values()),
+        "by_place": ranked(by_place),
+        "by_supplier": ranked(by_supplier),
+        "top_items": sorted(items, key=lambda row: -row["total_cents"])[:15],
+        "most_received": sorted(items, key=lambda row: -row["quantity"])[:15],
+        "price_rises": len(seen["price_rises"]),
+        "price_rise_cents": seen["extra_cents"],
+        "movers": movers(seen["price_rises"])[:8],
+        "threshold_percent": seen["threshold_percent"],
+    }
 
 
 def overview(documents, statements=()):
@@ -577,24 +739,6 @@ def overview(documents, statements=()):
         days.append(issued)
         week = (issued - timedelta(days=issued.weekday())).isoformat()
         by_week[week] = by_week.get(week, 0) + int(total)
-    movers = {}
-    for rise in seen["price_rises"]:
-        key = (rise["supplier"], rise["code"] or rise["description"])
-        entry = movers.setdefault(
-            key,
-            {
-                "description": rise["description"],
-                "code": rise["code"],
-                "supplier": rise["supplier"],
-                "times": 0,
-                "extra_cents": 0,
-                "from": rise["last_price"],
-                "to": rise["price"],
-            },
-        )
-        entry["times"] += 1
-        entry["extra_cents"] += rise["extra_cents"]
-        entry["from"], entry["to"] = min(entry["from"], rise["last_price"]), max(entry["to"], rise["price"])
     listed = {"not_received": 0, "amount_differs": 0, "not_on_statement": 0, "matched": 0}
     billed_not_received = overbilled = Decimal(0)
     for result in statements:
@@ -606,6 +750,17 @@ def overview(documents, statements=()):
             elif row["status"] == "amount_differs" and row["amount"] and row.get("our_amount") is not None:
                 overbilled += max(Decimal(0), Decimal(str(row["amount"])) - Decimal(str(row["our_amount"])))
     gaps = price_gaps(invoices)
+    # A line can be both dearer than the location's own last price and dearer than another location's
+    # price that day. It is one overpayment: counted with the gaps, and taken out of the rises.
+    also_gap, rises_only = {}, 0
+    for gap in gaps:
+        line = (gap["document_id"], gap["code"] or gap["description"])
+        also_gap[line] = also_gap.get(line, 0) + gap["extra_cents"]
+    for rise in seen["price_rises"]:
+        line = (rise["document_id"], rise["code"] or rise["description"])
+        shared = min(rise["extra_cents"], also_gap.get(line, 0))
+        also_gap[line] = also_gap.get(line, 0) - shared
+        rises_only += rise["extra_cents"] - shared
     twice = sum(
         int(number((answer(document) or {}).get("total_cents")) or 0)
         for document in flagged
@@ -618,7 +773,7 @@ def overview(documents, statements=()):
         {"kind": "statement_overbilled", "cents": int(overbilled * 100), "count": listed["amount_differs"]},
         {"kind": "duplicates", "cents": twice, "count": caught.get("duplicate", 0)},
         {"kind": "price_gaps", "cents": sum(gap["extra_cents"] for gap in gaps), "count": len(gaps)},
-        {"kind": "price_rises", "cents": seen["extra_cents"], "count": len(seen["price_rises"])},
+        {"kind": "price_rises", "cents": rises_only, "count": len(seen["price_rises"])},
     ]
     span = (max(days) - min(days)).days + 1 if days else 0
     return {
@@ -644,7 +799,7 @@ def overview(documents, statements=()):
         "by_supplier": seen["spend"],
         "price_rises": len(seen["price_rises"]),
         "extra_cents": seen["extra_cents"],
-        "movers": sorted(movers.values(), key=lambda row: -row["extra_cents"])[:8],
+        "movers": movers(seen["price_rises"])[:8],
         "threshold_percent": seen["threshold_percent"],
         "statements": {"count": len(statements), **listed},
         "found": [row for row in found if row["cents"] > 0],

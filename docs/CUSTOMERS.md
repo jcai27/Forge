@@ -33,16 +33,16 @@ set it up.
 
 ## The customer role
 
-The customer's people are invited with the role `customer` (`POST /customers/{id}/invitations`,
-or Settings in the customer's workspace). That role reaches `/portal/*`, `/auth/*` and the
+The customer's people are invited with the role `customer` (`POST /customers/{id}/invitations`). That role reaches `/portal/*`, `/auth/*` and the
 invitation acceptance endpoint, and nothing else. The check is made in `security.principal`,
 where every request's membership is resolved, so no endpoint can omit it. In their own
 workspace a customer cannot read the installed agent's instructions, its runs' internals, the
 member list or the audit log.
 
-An invited person registers with the invited email and enters the code under Settings → Join an
-invited workspace. Registration still asks for an organization name and gives them a workspace
-of their own beside the customer's; that is a rough edge, noted under Not built.
+An invited person joins at `/portal`: "I have an invitation code", then the invited email, a
+password and the code. Behind that form an account is registered (or signed in to, if the email
+has one) and the invitation accepted. Registration still gives them an empty workspace of their
+own beside the customer's, which they never see; that is a rough edge, noted under Not built.
 
 ## How documents arrive
 
@@ -113,17 +113,40 @@ person has approved. A page read before is not paid for again.
 
 ## What the customer sees
 
-- **Overview.** How many invoices were read and lines entered, how many needed nobody, what was
-  caught, where prices moved and what that cost, where the money went by location and week, and
-  what the supplier statements showed. Hours saved are the customer's own minutes per invoice
-  times the count. Prints as a one-page report.
-- **Inbox.** Every document by where it stands: needs a person, ready, approved, sent.
-- **Document.** The pages beside the answer, what the checks raised, approve or correct.
-- **Price watch.** Each line against the last price paid for the same item by the same location
-  from the same supplier. More than 5% up is listed, with what it cost.
-- **Books.** Accounts, automatic approval, and sending approved invoices on.
-- **Statements.** Each statement set against the invoices received.
-- **Channels.** Connect a mailbox, create an inbound address, or have results posted on.
+The customer platform is a place of its own, at `/portal`. It has its own sign-in page and its
+own browser session (`portal-token`), separate from Agent Factory's (`factory-token`), and shows
+nothing of the builder's: no agents under construction, no evaluations, no way back. A person
+joins there with the invitation code the provider sent. From Customers, "Open customer platform"
+opens it in a new tab as the customer sees it and leaves the builder signed in where they were.
+A customer-workspace session that turns up at a builder address is handed to `/portal`.
+
+- **Dashboard.** Purchasing analytics over every invoice agent in the workspace
+  (`GET /portal/analytics`, worked out in `payables.analytics`): purchases, deliveries invoiced,
+  cases and pieces received and different items bought; what came in by day (by week past 45
+  days) in dollars or quantity; purchases by location and supplier; the items the most money
+  went on or that came in in the greatest quantity, with the range of prices paid; and prices
+  that moved. One location can be picked. Below it, each agent with what is waiting for a
+  person. Quantity is the invoice's own line quantity, cases or pieces, not pounds. There are
+  no product categories: the agent does not record one.
+- **A page for each agent** (`/portal/agents/{operation}`), with tabs. An invoice agent has:
+  - **Documents.** Every document by where it stands: needs a person, ready, approved, sent.
+  - **Results.** How many invoices were read and lines entered, how many needed nobody, what was
+    caught, what is worth raising with a supplier, and where the money went by location and
+    week. Hours saved are the customer's own minutes per invoice times the count. Prints as a
+    report.
+  - **Prices.** Each line against the last price paid for the same item by the same location
+    from the same supplier; more than 5% up is listed, with what it cost. And the same item
+    invoiced to two locations on the same day at different prices.
+  - **Books.** Accounts, automatic approval, and sending approved invoices on.
+  - **Channels.** Connect a mailbox, create an inbound address, or have results posted on.
+
+  A statement agent has Documents and Channels.
+- **Document.** The pages beside the answer, what the checks raised, approve or correct; for a
+  statement, each listed invoice set against the invoices received.
+
+What is "worth raising" is counted conservatively. A line that is both a price rise and a
+difference between locations is counted once. Only differences between locations are carried to
+a yearly figure, because a rise is counted once on the invoice where it rose.
 
 ## Where results go
 

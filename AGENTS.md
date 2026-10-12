@@ -189,6 +189,11 @@ whether a person must look, price comparisons, account coding, export files and 
 reconciliation. A flagged document is never approved automatically; an exported one is never
 changed or sent twice; a bill always adds up to its invoice total. Upgrading an operation copies
 the new approved version in and switches the old deployment off, never edits a version in place.
+The customer platform is served under `/portal` in the web app with its own session key
+(`portal-token`) and sign-in; it shows nothing of the builder's and has no way back. Opening a
+customer from Agent Factory opens a new tab and must not replace the builder's session. Scope its
+styles to `.portal`. Money "worth raising" is counted conservatively in payables: same-day price
+gaps only, a line counted once, and never a yearly figure from one-off findings.
 
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require

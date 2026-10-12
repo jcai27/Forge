@@ -1081,3 +1081,23 @@ not real, apart from the one. No customer has used any of it.
 
 Checks: Ruff; 452 SQLite tests passed (6 PG-only skips); strict TypeScript. Not run: PostgreSQL
 suite, migrations 0012 to 0015 on PostgreSQL, browser journeys. New screens checked by screenshot.
+
+## Customer platform apart, purchasing dashboard, and the savings sums corrected
+
+- Correction to the entry above: the invoice "never received ($1,521.80)" is in the court exhibit
+  (document 427-5, pages 13 to 15), signed for. It had been left out of the demo set because its
+  first reading did not add up, so the statement check reported it missing. `customer.py` now
+  sends it in. The real statement reconciles 60 of 60, with one 2-cent sample invoice on file
+  that the supplier does not list.
+- "Same item, different price" compared prices across a week, which mostly caught the supplier's
+  price moving mid-week. It now compares the same day only and leaves out a location that itself
+  paid the low price. A line that is both a rise and a gap is counted once. Only gaps are carried
+  to a year. On the demo data what is "worth raising" went from $1,829.14 to $71.71.
+- The customer platform lives at `/portal` with its own sign-in, session and look, and nothing of
+  the builder's. Customers → "Open customer platform" opens it in a new tab; the builder stays
+  signed in. A person joins there with an invitation code.
+- Its dashboard is purchasing analytics (`GET /portal/analytics`): what came in by day, location,
+  supplier and item, and prices that moved. Each agent has a page with tabs.
+
+Checks: Ruff; 455 SQLite tests passed (6 PG-only skips); strict TypeScript; 3 Vitest. New pages
+walked in a browser with no failed requests. Not run: the browser suite, PostgreSQL suite.
