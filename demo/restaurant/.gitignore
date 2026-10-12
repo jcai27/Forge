@@ -5,3 +5,5 @@ data/*.zip
 data/batch-answer-key.json
 data/batch-report.html
 data/price-findings.csv
+.login
+data/live/

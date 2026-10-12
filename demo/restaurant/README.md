@@ -70,9 +70,22 @@ Approve and deploy each agent from its build page. Then:
     uv run python ../../demo/restaurant/run_batch.py INVOICE_AGENT_ID
     uv run python ../../demo/restaurant/customer.py INVOICE_AGENT_ID --statements STATEMENT_AGENT_ID
 
+## Showing it
+
+    bash demo/restaurant/start.sh     # the app, with agents and page reading on the live model
+    bash demo/restaurant/reset.sh     # the customer back to its starting state; prints the login
+
+`start.sh` is `scripts/dev.sh` with `live.env` laid over `.env`. `reset.sh` undoes a showing in the
+local database without reading a page again, takes the three invoices kept for uploading live back
+out (they are written to `data/live/`), and keeps the customer login in `.login`. CALL.md is the
+script for a call. To rehearse it in a browser, with the app running:
+
+    bash demo/restaurant/reset.sh && (cd apps/web && node tests/demo/rehearse.mjs)
+
 `run_batch.py` runs the held-back week through the deployed agent on the builder's side and writes
 `data/batch-report.html`. `customer.py` opens a customer workspace, installs both agents, sends the
-60 Gordon Food Service invoices through the portal in date order, reconciles the real statement
+Gordon Food Service invoices through the portal in date order, except the three kept back to
+upload in front of someone, reconciles the real statement
 and prints a local login for the customer. `prepare.py --examples 30 --batch 8` builds a smaller set.
 
 Measured results are in docs/PROGRESS.md.

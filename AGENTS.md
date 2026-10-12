@@ -193,7 +193,11 @@ The customer platform is served under `/portal` in the web app with its own sess
 (`portal-token`) and sign-in; it shows nothing of the builder's and has no way back. Opening a
 customer from Agent Factory opens a new tab and must not replace the builder's session. Scope its
 styles to `.portal`. Money "worth raising" is counted conservatively in payables: same-day price
-gaps only, a line counted once, and never a yearly figure from one-off findings.
+gaps only, a line counted once, and never a yearly figure from one-off findings. An invoice a statement lists that is not on file is
+reported, never counted as money found. The demo for a call is documented in demo/restaurant/CALL.md:
+start with demo/restaurant/start.sh, run demo/restaurant/reset.sh before every showing, and rehearse
+with apps/web/tests/demo/rehearse.mjs. The reset edits the local database directly; the product has
+no way to un-send an invoice and must not gain one.
 
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require

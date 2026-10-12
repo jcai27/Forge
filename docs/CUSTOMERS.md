@@ -144,9 +144,10 @@ A customer-workspace session that turns up at a builder address is handed to `/p
 - **Document.** The pages beside the answer, what the checks raised, approve or correct; for a
   statement, each listed invoice set against the invoices received.
 
-What is "worth raising" is counted conservatively. A line that is both a price rise and a
-difference between locations is counted once. Only differences between locations are carried to
-a yearly figure, because a rise is counted once on the invoice where it rose.
+What is "worth raising" is counted conservatively. An invoice a statement lists that is not on
+file is reported as that, with its amount, and is not counted as money: it has usually not been
+sent in yet. Price gaps are grouped into findings by item, day, location and price. A line that is both a price rise and a
+difference between locations is counted once. No yearly figure is shown: three weeks of invoices do not support one.
 
 ## Where results go
 

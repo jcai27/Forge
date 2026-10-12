@@ -553,3 +553,19 @@ button.card h2 { margin-top: 12px; }
 @media print { .hero { color: #000; background: none; box-shadow: none; } .hero h1, .hero-figure .amount { color: #000; } }
 .hero .input { width: auto; min-width: 230px; flex: none; }
 .portal .notice > svg { display: inline; }
+
+/* A stored page: a thumbnail that opens over the page at a size its print can be read at. */
+.page-thumb { display: block; width: 100%; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: #fff; overflow: hidden; cursor: zoom-in; transition: border-color 0.12s, box-shadow 0.12s; }
+.page-thumb:hover { border-color: var(--accent-line); box-shadow: 0 4px 14px rgb(16 24 40 / 0.1); }
+.page-thumb img { width: 100%; display: block; }
+.page-zoom { position: fixed; inset: 0; z-index: 100; background: rgb(8 20 18 / 0.78); overflow: auto; padding: 56px 24px 40px; cursor: zoom-out; text-align: center; }
+.page-zoom img { width: min(1100px, 100%); background: #fff; border-radius: 6px; box-shadow: var(--shadow-pop); cursor: default; }
+.page-zoom-close { position: fixed; top: 14px; right: 20px; height: 32px; padding: 0 14px; border-radius: 16px; border: 1px solid rgb(255 255 255 / 0.4); background: rgb(255 255 255 / 0.12); color: #fff; font-size: 13px; font-weight: 500; }
+.table tr.flagged td { background: var(--warn-soft); }
+.table tr.flagged td:first-child { box-shadow: inset 3px 0 0 #e0a100; }
+.reading { display: flex; align-items: center; gap: 12px; padding: 14px 16px; margin-bottom: 16px; border-radius: 12px; border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--ink); font-size: 14px; }
+.reading b { font-weight: 600; }
+.reading .bar { flex: 1; height: 4px; border-radius: 2px; background: rgb(11 122 107 / 0.15); overflow: hidden; min-width: 80px; }
+.reading .bar::after { content: ""; display: block; width: 35%; height: 100%; border-radius: 2px; background: var(--accent); animation: reading-slide 1.4s ease-in-out infinite; }
+@keyframes reading-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+.portal .control-group select.input { width: auto; }

@@ -678,6 +678,9 @@ def test_the_same_item_at_two_prices_on_one_day_is_found_and_money_is_added_up()
     # The cafe paid $9.96 a case more than the diner the same day, on two cases. Under 2% apart is not a gap.
     assert (gap["customer"], gap["lowest_at"], gap["price"], gap["lowest_price"]) == ("CAFE", "DINER", 43.75, 33.79)
     assert (gap["above_percent"], gap["extra_cents"], gap["day"]) == (29.5, 1992, "2026-02-02")
+    # The cafe's second delivery that day at the same price is the same finding, on two lines.
+    (gap,) = price_gaps([*documents, invoice_at(8, "CAFE", "2026-02-02", 43.75, quantity=1)])
+    assert (gap["lines"], gap["extra_cents"]) == (2, 2988)
     statement = {
         "counts": {"matched": 3, "not_received": 1, "amount_differs": 1, "not_on_statement": 0},
         "rows": [
@@ -688,8 +691,10 @@ def test_the_same_item_at_two_prices_on_one_day_is_found_and_money_is_added_up()
     }
     seen = overview(documents, [statement])
     found = {row["kind"]: (row["cents"], row["count"]) for row in seen["found"]}
-    assert found == {"billed_not_received": (152180, 1), "statement_overbilled": (1000, 1), "price_gaps": (1992, 1)}
-    assert seen["found_cents"] == 155172 and seen["days"] == 10 and seen["price_gap_count"] == 1
+    # An invoice the statement lists that is not on file is reported, with its amount, but is not money found.
+    assert found == {"statement_overbilled": (1000, 1), "price_gaps": (1992, 1)}
+    assert (seen["statements"]["not_received"], seen["statements"]["not_received_cents"]) == (1, 152180)
+    assert seen["found_cents"] == 2992 and seen["days"] == 10 and seen["price_gap_count"] == 1
     # The cafe's own last price was $40.00, so the same two cases are also a rise of $7.50. That is the
     # same overpayment seen a second way: it stays with the gap and adds nothing to the total. The
     # truck stop's rise, on a day nobody else bought, is counted on its own.
@@ -698,7 +703,7 @@ def test_the_same_item_at_two_prices_on_one_day_is_found_and_money_is_added_up()
     found = {row["kind"]: (row["cents"], row["count"]) for row in seen["found"]}
     assert seen["extra_cents"] == 750 + 2500
     assert found["price_gaps"] == (1992, 1) and found["price_rises"] == (2500, 2)
-    assert seen["found_cents"] == 155172 + 2500
+    assert seen["found_cents"] == 2992 + 2500
 
 
 def test_the_dashboard_adds_up_what_came_in_by_day_location_and_item():

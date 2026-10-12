@@ -1101,3 +1101,28 @@ suite, migrations 0012 to 0015 on PostgreSQL, browser journeys. New screens chec
 
 Checks: Ruff; 455 SQLite tests passed (6 PG-only skips); strict TypeScript; 3 Vitest. New pages
 walked in a browser with no failed requests. Not run: the browser suite, PostgreSQL suite.
+
+## The demo made ready to show on a call
+
+- `demo/restaurant/start.sh` starts the app on the live model (`live.env` laid over `.env` by
+  `scripts/dev.sh`'s new `ENV_OVERLAY`). `demo/restaurant/reset.sh` returns Steel City Diners to
+  its starting state in the local database without reading a page again, and keeps the login.
+- Three invoices are kept out of the workspace to upload live (`customer.HELD_BACK`). Read cold,
+  each came out right against the key on every field and line: 16 s, 22 s and 23 s; $0.0065.
+- `apps/web/tests/demo/rehearse.mjs` walks the seven steps of `demo/restaurant/CALL.md` in a
+  browser. Run twice in a row with a reset between: no response of 400 or above, no page error.
+- Found while looking at every page: an invoice a statement lists that is not on file was counted
+  as money found, so the three kept-back invoices showed as $912.85 "never received". It is now
+  reported as not on file, with its amount, and is no longer in the money figure. Price gaps are
+  grouped into findings (3, not 13 lines). The yearly figure and an unverified sentence about
+  Xero drafts are gone. Page scans enlarge on a click; the line a check points at is marked; a
+  read in progress says so.
+- The held invoice in the demo is a real misreading (one case at $71.40 read as four at $17.85)
+  that the price check caught.
+- The invoice browser journey, its seed and the separate `.next-e2e` build directory, written
+  outside this work, pass and are now in the repository.
+
+Checks: `bash scripts/test.sh` (Ruff, 455 SQLite tests with 6 PG-only skips, TypeScript, Vitest,
+8 browser journeys). Not run: PostgreSQL suite. Not verified: export files in a live Xero or
+QuickBooks account, a real mailbox.
+

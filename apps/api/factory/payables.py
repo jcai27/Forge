@@ -487,7 +487,7 @@ def reconcile(statement, invoices):
 PRICE_GAP = Decimal("0.02")
 
 
-def price_gaps(documents):
+def gap_lines(documents):
     """The same item from the same supplier, invoiced on the same day to different locations at
     different prices. What a location paid above the lowest price that day is the gap.
 
@@ -549,6 +549,22 @@ def price_gaps(documents):
                     }
                 )
     return sorted(gaps, key=lambda gap: -gap["extra_cents"])
+
+
+def price_gaps(documents):
+    """The gaps as findings: one for each item, day, location and price, however many lines it was bought on.
+
+    A case of chicken sold by weight is a line of its own for every case, so twelve cases at one price are
+    one finding with twelve lines, not twelve findings.
+    """
+    found = {}
+    for gap in gap_lines(documents):
+        key = (gap["day"], gap["supplier"], gap["code"] or gap["description"], gap["customer"], gap["price"])
+        if key not in found:
+            found[key] = {**gap, "lines": 0, "extra_cents": 0}
+        found[key]["lines"] += 1
+        found[key]["extra_cents"] += gap["extra_cents"]
+    return sorted(found.values(), key=lambda gap: -gap["extra_cents"])
 
 
 def movers(rises):
@@ -753,7 +769,7 @@ def overview(documents, statements=()):
     # A line can be both dearer than the location's own last price and dearer than another location's
     # price that day. It is one overpayment: counted with the gaps, and taken out of the rises.
     also_gap, rises_only = {}, 0
-    for gap in gaps:
+    for gap in gap_lines(invoices):
         line = (gap["document_id"], gap["code"] or gap["description"])
         also_gap[line] = also_gap.get(line, 0) + gap["extra_cents"]
     for rise in seen["price_rises"]:
@@ -767,9 +783,9 @@ def overview(documents, statements=()):
         if any(item["kind"] == "duplicate" for item in document.exceptions)
     )
     # What looking at every invoice turned up, in money. Each line is something to take up with a supplier
-    # or put right, not money already recovered.
+    # or put right, not money already recovered. An invoice a statement lists that is not on file is not
+    # among them: far more often it has simply not been sent in yet, and what to do is ask for a copy.
     found = [
-        {"kind": "billed_not_received", "cents": int(billed_not_received * 100), "count": listed["not_received"]},
         {"kind": "statement_overbilled", "cents": int(overbilled * 100), "count": listed["amount_differs"]},
         {"kind": "duplicates", "cents": twice, "count": caught.get("duplicate", 0)},
         {"kind": "price_gaps", "cents": sum(gap["extra_cents"] for gap in gaps), "count": len(gaps)},
@@ -801,7 +817,7 @@ def overview(documents, statements=()):
         "extra_cents": seen["extra_cents"],
         "movers": movers(seen["price_rises"])[:8],
         "threshold_percent": seen["threshold_percent"],
-        "statements": {"count": len(statements), **listed},
+        "statements": {"count": len(statements), **listed, "not_received_cents": int(billed_not_received * 100)},
         "found": [row for row in found if row["cents"] > 0],
         "found_cents": sum(row["cents"] for row in found),
         "days": span,

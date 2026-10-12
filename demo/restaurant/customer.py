@@ -30,6 +30,10 @@ LOGIN = "owner@steelcity-demo.example"
 # answers did not add up. The customer received them all the same, and the supplier's statement lists
 # them: left out, each would show as billed and never received, which is not what happened.
 UNKEYED = {"131877288": ("2010-10-12", "gov.uscourts.ilnb.1054045.427.5.pdf", (12, 13, 14))}
+# Kept out of the customer's workspace so they can be uploaded in front of someone: three invoices from
+# the last days of the set, of one and two pages. reset.py takes them back out after each showing.
+HELD_BACK = ("132029719", "821095277", "132011648")
+STATEMENT = ("GFS statement October 2010.pdf", "gov.uscourts.ilnb.1054045.427.1.pdf")
 
 
 def cut(source, pages):
@@ -41,12 +45,8 @@ def cut(source, pages):
     return buffer.getvalue()
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("agent", help="the builder-side agent's id, from its address in the browser")
-    parser.add_argument("--limit", type=int, default=0, help="only the first N invoices")
-    parser.add_argument("--statements", help="the builder-side statement-reading agent's id, to install it as well")
-    options = parser.parse_args()
+def invoice_files():
+    """Every Gordon Food Service invoice in the exhibits as (date, PDF bytes), by invoice number."""
     dates = {
         invoice["invoice_number"]: invoice["invoice_date"]
         for invoice in json.loads((HERE / "labels.json").read_text())
@@ -60,7 +60,21 @@ def main():
                     files[member.rsplit("_", 1)[-1].removesuffix(".pdf")] = archive.read(member)
     for number, (issued, source, pages) in UNKEYED.items():
         dates[number], files[number] = issued, cut(source, pages)
-    ordered = sorted(files, key=lambda number: (dates[number], number))
+    return {number: (dates[number], files[number]) for number in files}
+
+
+def file_name(number):
+    return f"GFS invoice {number}.pdf"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("agent", help="the builder-side agent's id, from its address in the browser")
+    parser.add_argument("--limit", type=int, default=0, help="only the first N invoices")
+    parser.add_argument("--statements", help="the builder-side statement-reading agent's id, to install it as well")
+    options = parser.parse_args()
+    invoices = invoice_files()
+    ordered = sorted((n for n in invoices if n not in HELD_BACK), key=lambda number: (invoices[number][0], number))
 
     with httpx.Client(base_url=os.environ.get("FACTORY_API", "http://127.0.0.1:8000"), timeout=900) as api:
 
@@ -120,10 +134,10 @@ def main():
         operation = next(item for item in operations if item["kind"] == "invoice")
         chosen = ordered[: options.limit or None]
         for position, number in enumerate(chosen, 1):
-            upload = {"file": (f"GFS invoice {number}.pdf", io.BytesIO(files[number]), "application/pdf")}
+            upload = {"file": (file_name(number), io.BytesIO(invoices[number][1]), "application/pdf")}
             made = call("POST", f"/portal/operations/{operation['id']}/documents", files=upload)
             print(
-                f"{position}/{len(chosen)} {dates[number]} invoice {number}: {made['status']}"
+                f"{position}/{len(chosen)} {invoices[number][0]} invoice {number}: {made['status']}"
                 + (" (already here)" if made["duplicate"] else "")
                 + (f" {made['error']}" if made.get("error") else ""),
                 flush=True,
@@ -148,10 +162,7 @@ def main():
         statements = next((item for item in operations if item["kind"] == "statement"), None)
         if statements:
             # The one real statement: Gordon Food Service's own summary of its invoices, as filed with the court.
-            name = "gov.uscourts.ilnb.1054045.427.1.pdf"
-            upload = {
-                "file": ("GFS statement October 2010.pdf", (HERE / "source" / name).read_bytes(), "application/pdf")
-            }
+            upload = {"file": (STATEMENT[0], (HERE / "source" / STATEMENT[1]).read_bytes(), "application/pdf")}
             made = call("POST", f"/portal/operations/{statements['id']}/documents", files=upload)
             if made["status"] == "processed":
                 found = call("GET", f"/portal/documents/{made['id']}/reconciliation")
@@ -171,7 +182,7 @@ def main():
             print(
                 f"  {rise['date']} {rise['customer']}: {rise['description']} {rise['last_price']} -> {rise['price']} (+{rise['rise_percent']}%)"
             )
-        print("\nPortal: http://localhost:3000/dashboard  (sign in as the customer, or open it from Customers)")
+        print("\nPortal: http://localhost:3000/portal  (sign in as the customer, or open it from Customers)")
 
 
 if __name__ == "__main__":

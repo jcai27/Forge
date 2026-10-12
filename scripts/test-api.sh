@@ -19,6 +19,7 @@ export CORS_ORIGINS='["http://127.0.0.1:3100"]'
   .venv/bin/alembic upgrade head
 )
 PYTHONPATH=apps/api apps/api/.venv/bin/python apps/api/tests/helpers/seed_browser_proposals.py
+PYTHONPATH=apps/api apps/api/.venv/bin/python apps/api/tests/helpers/seed_browser_invoice.py
 apps/api/.venv/bin/uvicorn factory.api:app --app-dir apps/api --host 127.0.0.1 --port 8100 &
 api_pid=$!
 apps/api/.venv/bin/python services/worker/main.py &

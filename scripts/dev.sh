@@ -8,6 +8,12 @@ if [[ -f .env ]]; then
   source .env
   set +a
 fi
+# Settings laid over .env for one run, such as the live-model settings of a demo.
+if [[ -n "${ENV_OVERLAY:-}" ]]; then
+  set -a
+  source "$ENV_OVERLAY"
+  set +a
+fi
 uv sync --project apps/api
 corepack pnpm install --frozen-lockfile
 (cd apps/api && .venv/bin/alembic upgrade head)
