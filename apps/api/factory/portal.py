@@ -52,6 +52,7 @@ from factory.payables import (
     export_file,
     insights,
     overview,
+    price_gaps,
     reconcile,
     uncoded,
 )
@@ -569,7 +570,7 @@ def get_insights(operation_id: str, actor=ACTOR, db=DB):
         .select_from(InboxDocument)
         .where(InboxDocument.operation_id == operation.id, InboxDocument.status == "failed")
     )
-    return {**insights(documents), "stages": stages, "failed": failed}
+    return {**insights(documents), "price_gaps": price_gaps(documents), "stages": stages, "failed": failed}
 
 
 @router.get("/portal/operations/{operation_id}/overview")

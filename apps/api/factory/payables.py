@@ -483,6 +483,69 @@ def reconcile(statement, invoices):
     }
 
 
+# Two prices for the same item in the same week are called different when they are this far apart.
+PRICE_GAP = Decimal("0.02")
+
+
+def price_gaps(documents):
+    """The same item from the same supplier, bought in the same week by different locations at
+    different prices. What each location paid above the lowest price paid that week is the gap.
+
+    A business with several sites is often charged several prices for one thing, and nobody sees it
+    because nobody sees two sites' invoices side by side. A price that looks misread is left out.
+    """
+    from datetime import date as day_of
+
+    bought = {}
+    for document in documents:
+        data = answer(document) or {}
+        try:
+            issued = day_of.fromisoformat(str(data.get("invoice_date") or ""))
+        except ValueError:
+            continue
+        week = (issued - timedelta(days=issued.weekday())).isoformat()
+        supplier, place = str(data.get("supplier") or "").strip().upper(), str(data.get("customer") or "").strip()
+        for item in items_of(data) or []:
+            price, units = number(item.get("unit_price")), line_units(item)
+            name = str(item.get("code") or item.get("description") or "").strip().upper()
+            if not name or not place or price is None or price <= 0 or units is None:
+                continue
+            bought.setdefault((supplier, name, week), []).append(
+                {
+                    "place": place,
+                    "price": price,
+                    "units": units,
+                    "item": item,
+                    "document": document,
+                    "supplier": data.get("supplier"),
+                }
+            )
+    gaps = []
+    for (_, _, week), lines in bought.items():
+        if len({line["place"] for line in lines}) < 2:
+            continue
+        low = min(line["price"] for line in lines)
+        cheapest = next(line["place"] for line in lines if line["price"] == low)
+        for line in lines:
+            if line["price"] > low * (1 + PRICE_GAP) and not implausible(line["price"], low):
+                gaps.append(
+                    {
+                        "week": week,
+                        "supplier": line["supplier"],
+                        "code": line["item"].get("code"),
+                        "description": line["item"].get("description"),
+                        "customer": line["place"],
+                        "price": float(line["price"]),
+                        "lowest_price": float(low),
+                        "lowest_at": cheapest,
+                        "above_percent": round(float((line["price"] / low - 1) * 100), 1),
+                        "extra_cents": int(((line["price"] - low) * line["units"] * 100).to_integral_value()),
+                        "document_id": line["document"].id,
+                    }
+                )
+    return sorted(gaps, key=lambda gap: -gap["extra_cents"])
+
+
 def overview(documents, statements=()):
     """What the work added up to, for the person who owns the business: how much was handled, how much of
     it needed nobody, what was caught, where prices moved and where the money went.
@@ -533,9 +596,31 @@ def overview(documents, statements=()):
         entry["extra_cents"] += rise["extra_cents"]
         entry["from"], entry["to"] = min(entry["from"], rise["last_price"]), max(entry["to"], rise["price"])
     listed = {"not_received": 0, "amount_differs": 0, "not_on_statement": 0, "matched": 0}
+    billed_not_received = overbilled = Decimal(0)
     for result in statements:
         for key in listed:
             listed[key] += result["counts"].get(key, 0)
+        for row in result["rows"]:
+            if row["status"] == "not_received" and row["amount"]:
+                billed_not_received += Decimal(str(row["amount"]))
+            elif row["status"] == "amount_differs" and row["amount"] and row.get("our_amount") is not None:
+                overbilled += max(Decimal(0), Decimal(str(row["amount"])) - Decimal(str(row["our_amount"])))
+    gaps = price_gaps(invoices)
+    twice = sum(
+        int(number((answer(document) or {}).get("total_cents")) or 0)
+        for document in flagged
+        if any(item["kind"] == "duplicate" for item in document.exceptions)
+    )
+    # What looking at every invoice turned up, in money. Each line is something to take up with a supplier
+    # or put right, not money already recovered.
+    found = [
+        {"kind": "billed_not_received", "cents": int(billed_not_received * 100), "count": listed["not_received"]},
+        {"kind": "statement_overbilled", "cents": int(overbilled * 100), "count": listed["amount_differs"]},
+        {"kind": "duplicates", "cents": twice, "count": caught.get("duplicate", 0)},
+        {"kind": "price_gaps", "cents": sum(gap["extra_cents"] for gap in gaps), "count": len(gaps)},
+        {"kind": "price_rises", "cents": seen["extra_cents"], "count": len(seen["price_rises"])},
+    ]
+    span = (max(days) - min(days)).days + 1 if days else 0
     return {
         "invoices": len(invoices),
         "lines": lines,
@@ -562,4 +647,9 @@ def overview(documents, statements=()):
         "movers": sorted(movers.values(), key=lambda row: -row["extra_cents"])[:8],
         "threshold_percent": seen["threshold_percent"],
         "statements": {"count": len(statements), **listed},
+        "found": [row for row in found if row["cents"] > 0],
+        "found_cents": sum(row["cents"] for row in found),
+        "days": span,
+        "price_gaps": gaps[:12],
+        "price_gap_count": len(gaps),
     }

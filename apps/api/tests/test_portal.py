@@ -627,3 +627,64 @@ def test_the_overview_says_what_the_work_added_up_to(client, seeded, db, workspa
     other = client.post("/customers", json={"name": "Another Cafe"}).json()
     rival = member(db, db.get(Organization, other["id"]), "customer")
     assert client.get(f"{url}/overview", headers=rival).status_code == 404
+
+
+def test_the_same_item_at_two_prices_in_one_week_is_found_and_money_is_added_up():
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from factory.payables import overview, price_gaps
+
+    def invoice_at(number, place, day, price, quantity=5):
+        line = {
+            "code": "50200",
+            "description": "CASE KETCHUP",
+            "quantity": quantity,
+            "unit_price": price,
+            "amount": round(price * quantity, 2),
+        }
+        data = {
+            "supplier": "Gordon Food Service",
+            "customer": place,
+            "invoice_number": str(number),
+            "invoice_date": day,
+            "total_cents": round(price * quantity * 100),
+            "tax_cents": 0,
+            "items": [line],
+        }
+        return SimpleNamespace(
+            id=str(number),
+            name=f"{number}.pdf",
+            output=data,
+            corrected=None,
+            status="processed",
+            stage="ready",
+            exceptions=[],
+            pages=[{}],
+            approved_by=None,
+            created_at=datetime(2026, 2, 1, tzinfo=UTC),
+        )
+
+    documents = [
+        invoice_at(1, "DINER", "2026-02-02", 33.79),
+        invoice_at(2, "CAFE", "2026-02-04", 43.75, quantity=2),
+        invoice_at(3, "EXPRESS", "2026-02-05", 34.00),
+        # The week after, at one location only: nothing to compare it with.
+        invoice_at(4, "CAFE", "2026-02-11", 44.00),
+    ]
+    (gap,) = price_gaps(documents)
+    # The cafe paid $9.96 a case more than the diner that week, on two cases. Under 2% apart is not a gap.
+    assert (gap["customer"], gap["lowest_at"], gap["price"], gap["lowest_price"]) == ("CAFE", "DINER", 43.75, 33.79)
+    assert (gap["above_percent"], gap["extra_cents"], gap["week"]) == (29.5, 1992, "2026-02-02")
+    statement = {
+        "counts": {"matched": 3, "not_received": 1, "amount_differs": 1, "not_on_statement": 0},
+        "rows": [
+            {"status": "not_received", "amount": 1521.8},
+            {"status": "amount_differs", "amount": 60.0, "our_amount": 50.0},
+            {"status": "matched", "amount": 10.0, "our_amount": 10.0},
+        ],
+    }
+    seen = overview(documents, [statement])
+    found = {row["kind"]: (row["cents"], row["count"]) for row in seen["found"]}
+    assert found == {"billed_not_received": (152180, 1), "statement_overbilled": (1000, 1), "price_gaps": (1992, 1)}
+    assert seen["found_cents"] == 155172 and seen["days"] == 10 and seen["price_gap_count"] == 1
