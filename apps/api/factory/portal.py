@@ -41,10 +41,12 @@ from factory.models import (
     InboxDocument,
     Membership,
     Operation,
+    OperationsRecord,
     Organization,
     Project,
     User,
 )
+from factory.operations import AREAS, view
 from factory.payables import (
     EXPORT_FORMATS,
     QUICKBOOKS_BATCH,
@@ -326,8 +328,22 @@ def portal_me(actor=ACTOR, db=DB):
             .group_by(InboxDocument.operation_id)
         ).all()
     )
+    recorded = set(db.scalars(select(OperationsRecord.area).where(OperationsRecord.org_id == actor.org_id).distinct()))
     return {
         "email": db.get(User, actor.user_id).email,
+        # The operations areas this workspace has records for, in the order the pages list them.
+        "areas": [
+            {"area": area, "title": title}
+            for area, (title, _) in AREAS.items()
+            if recorded and (area in recorded or area == "overview")
+        ],
+        "sample": bool(
+            db.scalar(
+                select(OperationsRecord.id)
+                .where(OperationsRecord.org_id == actor.org_id, OperationsRecord.source == "sample")
+                .limit(1)
+            )
+        ),
         "workspace": {"id": org.id, "name": org.name, "kind": org.kind},
         "role": actor.role,
         "can_work": actor.role in ("admin", "editor", "customer"),
@@ -583,6 +599,23 @@ def get_overview(operation_id: str, actor=ACTOR, db=DB):
         .where(InboxDocument.operation_id == operation.id, InboxDocument.status == "failed")
     )
     return {**overview(documents, checked), "failed": failed, "operation": operation.name}
+
+
+@router.get("/portal/areas/{area}")
+def get_area(
+    area: str,
+    location: str | None = Query(None, max_length=200),
+    weeks: int = Query(8, ge=1, le=52),
+    actor=ACTOR,
+    db=DB,
+):
+    """One operations area for this workspace, worked out from its records."""
+    if area not in AREAS:
+        raise HTTPException(404, "Not found")
+    rows = list(db.scalars(select(OperationsRecord).where(OperationsRecord.org_id == actor.org_id).limit(50000)))
+    if not rows:
+        raise HTTPException(404, "This workspace has no operations records")
+    return view(area, rows, location, weeks)
 
 
 @router.get("/portal/analytics")

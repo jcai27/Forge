@@ -149,6 +149,20 @@ file is reported as that, with its amount, and is not counted as money: it has u
 sent in yet. Price gaps are grouped into findings by item, day, location and price. A line that is both a price rise and a
 difference between locations is counted once. No yearly figure is shown: three weeks of invoices do not support one.
 
+## Operations areas
+
+Beyond documents, a workspace can hold `OperationsRecord` rows (`portal_records`): a day's sales
+at a location, a week's stock count, a platform's payout, a certificate. `GET /portal/areas/{area}`
+works one area out from them in `factory/operations.py`: sales, purchasing, stock and food cost,
+labour, cash and banking, delivery platforms, catering, profit and loss, compliance, and an
+overview of all of them. Each returns tiles, a chart, ranked bars, tables and what its rules say
+needs somebody; the rules and their limits are constants at the top of that file. A workspace with
+records gets an Operations group in the sidebar and opens on the overview.
+
+No agent writes these records yet. The only ones that exist are generated (`source = "sample"`) by
+`demo/operations/`, for an invented restaurant group. A workspace holding sample records says so on
+every page and in the top bar; that mark comes from the data and must not be removable in the UI.
+
 ## Where results go
 
 - **Books export.** As above.

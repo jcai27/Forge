@@ -1126,3 +1126,16 @@ Checks: `bash scripts/test.sh` (Ruff, 455 SQLite tests with 6 PG-only skips, Typ
 8 browser journeys). Not run: PostgreSQL suite. Not verified: export files in a live Xero or
 QuickBooks account, a real mailbox.
 
+## Operations areas, shown on sample data
+
+- New: `portal_records` (migration 0016) and `factory/operations.py`: nine operations areas and an
+  overview, each worked out in code from recorded facts, with rules for what needs somebody.
+- `demo/operations/` generates an invented four-location restaurant group over eight weeks (2,229
+  records) and opens it as a customer workspace. Every page carries a "Sample data" mark.
+- What this is not: no agent fills these areas, and no figure in that workspace is a real
+  business's. Only supplier invoices and statements run on real documents.
+
+Checks: Ruff; 458 SQLite tests passed (6 PG-only skips); strict TypeScript. All ten pages walked in
+a browser at 1440 and 1280 wide with no refused request or page error. Not run: PostgreSQL suite,
+migration 0016 on PostgreSQL.
+

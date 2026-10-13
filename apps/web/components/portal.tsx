@@ -1,16 +1,17 @@
 'use client';
 import {useEffect, useRef, useState} from 'react';
 import Link from 'next/link';
-import {ArrowLeft, ArrowRight, Building2, LayoutDashboard, LoaderCircle, Check, DollarSign, Download, Package, Tags, TrendingUp, Truck, FileSpreadsheet, LogOut, Mail, Pencil, ReceiptText, Trash2, TriangleAlert, Upload} from 'lucide-react';
+import {ArrowLeft, ArrowRight, Building2, LayoutDashboard, LoaderCircle, Banknote, CalendarHeart, ClipboardCheck, Bike, FlaskConical, Landmark, ShoppingCart, Users, Utensils, Warehouse, Check, DollarSign, Download, Package, Tags, TrendingUp, Truck, FileSpreadsheet, LogOut, Mail, Pencil, ReceiptText, Trash2, TriangleAlert, Upload} from 'lucide-react';
 import {API_URL, PORTAL, token, useResource} from '@/lib/api';
 import {Button} from './ui/button';
 import {Badge, Card, Empty, ErrorState, Heading, Loading, humanize, useAction} from './shared';
 import {StoredPage} from './stored-page';
+import {AreaPage} from './portal-areas';
 
 type Row = Record<string, unknown>;
 type Fields = {single: string[]; tables: Record<string, string[]>};
 type Operation = {id: string; name: string; enabled: boolean; kind: 'invoice' | 'statement'; documents: number; fields: Fields};
-type PortalMe = {email: string; workspace: {id: string; name: string; kind: string}; role: string; can_work: boolean; operations: Operation[]};
+type PortalMe = {email: string; areas: {area: string; title: string}[]; sample: boolean; workspace: {id: string; name: string; kind: string}; role: string; can_work: boolean; operations: Operation[]};
 type Stage = 'review' | 'ready' | 'approved' | 'exported';
 type Exception = {kind: string; message: string; document_id?: string; lines?: number[]};
 type DocumentSummary = {id: string; name: string; source: string; sender: string; status: string; stage: Stage | 'new'; exceptions: number; error: string | null; received_at: string; reviewed: boolean; corrected: boolean; pages: number; fields: Row; rows: Record<string, number>};
@@ -46,6 +47,7 @@ const TABS: Record<Operation['kind'], {value: string; label: string}[]> = {
   statement: [{value: 'documents', label: 'Documents'}, {value: 'channels', label: 'Channels'}],
 };
 const DASHBOARD = `${PORTAL}/dashboard`;
+const AREA_ICONS: Record<string, typeof ReceiptText> = {sales: Utensils, purchasing: ShoppingCart, inventory: Warehouse, labour: Users, cash: Banknote, delivery: Bike, catering: CalendarHeart, accounting: Landmark, compliance: ClipboardCheck};
 const home = (operation: Operation, tab = 'documents') => `${PORTAL}/agents/${operation.id}${tab === 'documents' ? '' : `/${tab}`}`;
 const open = (id: string) => `${PORTAL}/documents/${id}`;
 
@@ -60,6 +62,7 @@ export function Portal({path, logout}: {path: string; logout: () => void}) {
   if (me.data.workspace.kind !== 'customer') return <div className="login"><main className="login-main"><div className="login-card"><h1>No customer workspace</h1><p className="muted small" style={{margin:'8px 0 20px'}}>This account is not signed in to a customer workspace.</p><Button className="full" onClick={logout}>Sign in with another account</Button></div></main></div>;
   const operation = parts[0] === 'agents' ? all.find(item => item.id === parts[1]) : undefined;
   const tab = operation ? TABS[operation.kind].find(item => item.value === (parts[2] ?? 'documents')) : undefined;
+  const areas = me.data.areas.filter(item => item.area !== 'overview'), area = parts[0] === 'areas' ? areas.find(item => item.area === parts[1]) : undefined;
   let page, here = 'Dashboard';
   if (parts[0] === 'documents' && parts[1]) {page = <DocumentPage id={parts[1]} operations={all} canWork={canWork}/>; here = 'Document';}
   else if (operation && tab) {
@@ -69,16 +72,19 @@ export function Portal({path, logout}: {path: string; logout: () => void}) {
       {tab.value === 'results' ? <Results operation={operation} statements={statements}/> : tab.value === 'prices' ? <Prices operation={operation}/> : tab.value === 'books' ? <Books operation={operation} canWork={canWork}/> : tab.value === 'channels' ? <Channels operation={operation} canWork={canWork}/> : <InboxPage operation={operation} canWork={canWork} statement={operation.kind === 'statement'}/>}
     </>;
   }
-  else if (parts[0] === 'agents') page = <Card><Empty title="This agent is not here">It may have been removed from your workspace. <Link className="link" href={DASHBOARD}>Back to the dashboard</Link></Empty></Card>;
-  else page = <Dashboard operations={all}/>;
+  else if (area) {here = area.title; page = <AreaPage key={area.area} area={area.area}/>;}
+  else if (parts[0] === 'agents' || parts[0] === 'areas') page = <Card><Empty title="This page is not here">It may have been removed from your workspace. <Link className="link" href={DASHBOARD}>Back to the dashboard</Link></Empty></Card>;
+  // A workspace with operations records opens on all of them together; one with only documents, on what its agents bought.
+  else page = areas.length ? <AreaPage key="overview" area="overview"/> : <Dashboard operations={all}/>;
   return <div className="shell portal">
     <aside className="sidebar">
       <Link href={DASHBOARD} className="brand"><span className="brand-icon"><Building2 size={16}/></span>{me.data.workspace.name}</Link>
       <nav className="nav" aria-label="Primary">
         <Link className={`nav-link ${here === 'Dashboard' ? 'active' : ''}`} aria-current={here === 'Dashboard' ? 'page' : undefined} href={DASHBOARD}><LayoutDashboard size={16}/>Dashboard</Link>
-        <div className="nav-label">Agents</div>
+        {areas.length > 0 && <><div className="nav-label">Operations</div>{areas.map(item => {const Icon = AREA_ICONS[item.area] ?? ReceiptText, active = item.area === area?.area; return <Link key={item.area} className={`nav-link ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} href={`${PORTAL}/areas/${item.area}`}><Icon size={16}/>{item.title}</Link>;})}</>}
+        {(all.length > 0 || !areas.length) && <div className="nav-label">Agents</div>}
         {all.map(item => {const Icon = item.kind === 'statement' ? FileSpreadsheet : ReceiptText, active = item.id === operation?.id; return <Link key={item.id} className={`nav-link ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} href={home(item)}><Icon size={16}/>{item.name}</Link>;})}
-        {!all.length && <div className="muted small" style={{padding:'4px 10px'}}>None yet</div>}
+        {!all.length && !areas.length && <div className="muted small" style={{padding:'4px 10px'}}>None yet</div>}
       </nav>
       <div className="sidebar-bottom"><span className="avatar">{initials(me.data.workspace.name)}</span><div style={{minWidth:0}}><div className="org-name">{me.data.workspace.name}</div><div className="org-role">Operations platform</div></div></div>
     </aside>
@@ -86,6 +92,7 @@ export function Portal({path, logout}: {path: string; logout: () => void}) {
       <header className="topbar">
         <nav className="breadcrumbs" aria-label="Breadcrumb"><span className="root">{me.data.workspace.name}</span>{operation && <><span className="sep root">/</span><span className="root">{operation.name}</span></>}<span className="sep root">/</span><span className="here">{here}</span></nav>
         <div className="topbar-right">
+          {me.data.sample && <span className="sample-pill" title="This workspace holds generated records, not a real business's."><FlaskConical size={13}/>Sample data</span>}
           <span className="userchip"><span className="avatar light">{initials(me.data.email)}</span><span className="who">{me.data.email}</span></span>
           <Button variant="ghost" className="icon" aria-label="Sign out" title="Sign out" onClick={logout}><LogOut size={15}/></Button>
         </div>

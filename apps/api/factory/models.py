@@ -473,3 +473,23 @@ class ExportBatch(Owned, Base):
     documents: Mapped[int] = mapped_column(Integer)
     # The file as it was produced, so the same batch can be fetched again unchanged.
     content: Mapped[str] = mapped_column(Text)
+
+
+class OperationsRecord(Owned, Base):
+    """One recorded fact about a customer's operations outside its documents: a day's sales at a location,
+    a week's stock count, a delivery platform's payout, a certificate and its expiry.
+
+    Every figure on the operations pages is worked out in code from these. source says where a record came
+    from; "sample" marks generated records, which the pages must always say they are showing.
+    """
+
+    __tablename__ = "portal_records"
+    # "sales", "purchasing", "inventory", "labour", "cash", "delivery", "catering", "accounting", "compliance".
+    area: Mapped[str] = mapped_column(String(30), index=True)
+    kind: Mapped[str] = mapped_column(String(40))
+    # The day the record is about, as YYYY-MM-DD: the start of the week for a weekly record.
+    day: Mapped[str] = mapped_column(String(10))
+    location: Mapped[str] = mapped_column(String(200), default="")
+    # Amounts in cents.
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    source: Mapped[str] = mapped_column(String(20), default="sample")
