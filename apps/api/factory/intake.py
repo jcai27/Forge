@@ -28,6 +28,7 @@ MAX_COLUMNS = 50
 MAX_CELL_CHARS = 20_000
 MAX_SPLIT = 2_000
 MAX_LABELS = 200
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 MAX_TABLE_ROWS = 500
 MAX_TABLE_FIELDS = 20
 MAX_TABLE_CELL_CHARS = 500
@@ -340,7 +341,9 @@ def derive_schemas(examples):
         distinct = sorted({value for value in values}, key=str)
         # A text answer that repeats is a fixed vocabulary: the agent must choose from it, not invent.
         # A number is never one: a count or an amount not seen in the examples is still a valid answer.
-        if kind == "string" and len(distinct) <= MAX_LABELS and len(distinct) * 2 <= len(values):
+        # Nor is a date: a week not among the examples is as valid as one that is.
+        dated = all(isinstance(value, str) and ISO_DATE.fullmatch(value) for value in distinct)
+        if kind == "string" and not dated and len(distinct) <= MAX_LABELS and len(distinct) * 2 <= len(values):
             properties[field]["enum"] = distinct
             labels[field] = distinct
     output_schema = {"type": "object", "properties": properties, "required": list(outputs)}

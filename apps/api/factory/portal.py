@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile
 from jsonschema import ValidationError, validate
 from pydantic import Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from factory.db import get_db, now
 from factory.deployment_runtime import actor_for, enqueue, execute_job
@@ -61,6 +61,9 @@ from factory.payables import (
     uncoded,
 )
 from factory.reading import MAX_IMAGE_BYTES, Reader, image_type
+from factory.recording import KINDS, Masters, kind_of
+from factory.recording import check as check_record
+from factory.recording import records as records_of_answer
 from factory.schemas import StrictModel
 from factory.security import Principal, audit, decrypt, encrypt, owned, principal, redact_tenant, require_admin
 
@@ -142,6 +145,40 @@ def processed(db, operation):
     )
 
 
+def workspace_records(db, org_id):
+    return list(db.scalars(select(OperationsRecord).where(OperationsRecord.org_id == org_id).limit(50000)))
+
+
+# What a person may approve over: the document is a second copy, or its own figures disagree. What they may
+# not: a place, dish or platform the workspace does not know, since there is nowhere to record it.
+OVERRULED = {"duplicate", "does_not_add_up"}
+
+
+def record(db, operation, document, masters):
+    """Write a document's answer into the operations records, replacing whatever it wrote before.
+
+    A document the checks found nothing wrong with is recorded as it is read. One they doubt writes
+    nothing until a person approves it, and nothing at all while what is wrong leaves it nowhere to go.
+    """
+    db.execute(delete(OperationsRecord).where(OperationsRecord.document_id == document.id))
+    found = {item["kind"] for item in document.exceptions or []}
+    if document.stage not in ("ready", "approved") or (found - OVERRULED):
+        return
+    for area, kind, day, place, data in records_of_answer(operation.kind, answer(document), masters):
+        db.add(
+            OperationsRecord(
+                org_id=operation.org_id,
+                area=area,
+                kind=kind,
+                day=str(day),
+                location=place or "",
+                data=data,
+                source="agent",
+                document_id=document.id,
+            )
+        )
+
+
 def assess(db, operation, document):
     """Run the automatic checks on a processed document and say where it stands.
 
@@ -149,6 +186,18 @@ def assess(db, operation, document):
     customer has chosen to let clean documents through. A document a person has already approved or
     that has gone to the books keeps its place; only what the checks say about it is refreshed.
     """
+    if operation.kind in KINDS:
+        masters = Masters(workspace_records(db, operation.org_id))
+        earlier = [
+            answer(other)
+            for other in processed(db, operation)
+            if other.id != document.id and other.created_at <= document.created_at and answer(other)
+        ]
+        document.exceptions = check_record(operation.kind, answer(document) or {}, masters, earlier)
+        if document.stage != "approved":
+            document.stage = "review" if document.exceptions else "ready"
+        record(db, operation, document, masters)
+        return
     if operation.kind != "invoice":
         document.exceptions = []
         if document.stage in ("new", "review", "ready"):
@@ -353,6 +402,9 @@ def portal_me(actor=ACTOR, db=DB):
                 "name": operation.name,
                 "enabled": operation.enabled,
                 "kind": operation.kind,
+                # For an operations agent: what it reads, and the area its documents fill.
+                "reads": KINDS[operation.kind][2] if operation.kind in KINDS else None,
+                "area": KINDS[operation.kind][3] if operation.kind in KINDS else None,
                 "documents": counts.get(operation.id, 0),
                 "fields": output_fields(db, operation),
             }
@@ -419,6 +471,31 @@ class Review(StrictModel):
     corrected: dict | None = None
     # Approve the document: a person has looked, and whatever the checks raised is accepted.
     approve: bool = True
+
+
+@router.get("/portal/documents/{document_id}/records")
+def get_document_records(document_id: str, actor=ACTOR, db=DB):
+    """The operations records a document was written into, for showing what became of it."""
+    document = owned(db, InboxDocument, document_id, actor)
+    rows = db.scalars(
+        select(OperationsRecord)
+        .where(OperationsRecord.org_id == actor.org_id, OperationsRecord.document_id == document.id)
+        .order_by(OperationsRecord.day, OperationsRecord.kind)
+        .limit(500)
+    )
+    return {
+        "items": [
+            {
+                "area": row.area,
+                "area_title": AREAS[row.area][0],
+                "kind": row.kind,
+                "day": row.day,
+                "location": row.location,
+                "data": row.data,
+            }
+            for row in rows
+        ]
+    }
 
 
 @router.post("/portal/documents/{document_id}/review")
@@ -641,7 +718,7 @@ def get_analytics(place: str | None = Query(None, max_length=300), actor=ACTOR, 
                 "kind": operation.kind,
                 "enabled": operation.enabled,
                 "documents": len(held),
-                "review": sum(document.stage == "review" for document in held) if operation.kind == "invoice" else 0,
+                "review": sum(document.stage == "review" for document in held) if operation.kind != "statement" else 0,
                 "ready": sum(document.stage == "ready" for document in held) if operation.kind == "invoice" else 0,
                 "failed": failed,
             }
@@ -940,8 +1017,11 @@ class InstallOperation(StrictModel):
 
 def operation_kind(spec):
     """What an agent's documents are, from the shape of its answer: a statement lists invoices by number
-    and amount and has no invoice number of its own; anything else is treated as an invoice."""
+    and amount and has no invoice number of its own; an operations document is told by recording.kind_of; anything else is
+    treated as an invoice."""
     properties = spec.get("output_schema", {}).get("properties", {})
+    if kind_of(properties):
+        return kind_of(properties)
     for shape in properties.values():
         rows = shape.get("items", {}).get("properties", {}) if shape.get("type") == "array" else {}
         if "invoice_number" in rows and "amount" in rows and "invoice_number" not in properties:

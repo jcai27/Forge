@@ -208,6 +208,9 @@ def test_schemas_are_read_off_the_data_and_a_repeating_answer_becomes_a_vocabula
     }
     assert output_schema["required"] == ["category"]
     assert output_schema["properties"]["category"] == {"type": "string", "enum": sorted(TOPICS)}
+    # A date that repeats is still a date: next week's is a valid answer though no example has it.
+    weeks = [({"text": f"statement {n}"}, {"week_start": f"2026-03-{2 + 7 * (n % 3):02d}"}) for n in range(12)]
+    assert derive_schemas(weeks)[1]["properties"]["week_start"] == {"type": "string"}
     assert labels == {"category": sorted(TOPICS)}
     # Free text and numbers are not a vocabulary.
     free = [({"text": str(n)}, {"summary": f"unique {n}", "amount": n}) for n in range(10)]

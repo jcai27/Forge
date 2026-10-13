@@ -1139,3 +1139,30 @@ Checks: Ruff; 458 SQLite tests passed (6 PG-only skips); strict TypeScript. All 
 a browser at 1440 and 1280 wide with no refused request or page error. Not run: PostgreSQL suite,
 migration 0016 on PostgreSQL.
 
+## An agent for each operations area
+
+- `factory/recording.py`: an operations agent's answer is checked and written into `portal_records`
+  (migration 0017 adds `document_id`). Kinds are told from the answer's shape.
+- Seven agents built through Agent Factory on generated documents, 24 examples each (8 development,
+  6 selection, 10 held back), target 0.7, on gpt-6-luna: till reports, cash-up sheets, delivery
+  payout statements, timesheets, stock counts, catering enquiries, certificates. Each scored 1.0 on
+  its 10 held-back examples, for $0.008 to $0.021 a build. Installed in the sample workspace; 80 of
+  its 81 starting documents were read exactly as the answers have them (one certificate's holder
+  was misread and no check can catch it), and all 14 documents kept for live upload, in 2 to 6
+  seconds each.
+- Those scores are on clean typed PDFs from the same generator the agents were built on. They show
+  the pipeline works, not how the agents would do on real documents.
+- Found on the way: a derived answer schema made a repeated date a fixed vocabulary, so three
+  agents rejected a week not among their examples and one recorded a statement under the wrong
+  week. Dates are no longer a vocabulary (`intake.derive_schemas`); the three were rebuilt.
+- Found on the way: with a location's stock count or timesheet for a week not yet in, its food cost
+  and labour were divided by sales that included that week. Each is now set against the sales its
+  paperwork covers, and missing paperwork is reported.
+- The mock-up agents of the previous entry are gone. `demo/operations/build.sh` builds everything
+  from nothing, `reset.sh` restores the starting state, `CALL.md` is the script.
+
+Checks: `bash scripts/test.sh`; `rehearse-operations.mjs` twice in a row with a reset between, and
+`rehearse.mjs` for the invoice demo: no response of 400 or above, no page error. Not run:
+PostgreSQL suite, migrations 0016 and 0017 on PostgreSQL. Purchasing has no agent in the sample
+workspace.
+

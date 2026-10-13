@@ -4,7 +4,7 @@
 
 Writes to the local database directly and contacts nothing. It opens a customer workspace under the
 local demo builder (the one the "Open local demo workspace" button signs in to), replaces any sample
-records it holds with a fresh set from sample.py, and keeps a customer login for it in
+records it holds with the generated history (see documents.split for what is left to the agents), and keeps a customer login for it in
 demo/operations/.login (not in git). Run it again at any time: the records come out the same.
 """
 
@@ -13,6 +13,7 @@ import secrets
 import sys
 from pathlib import Path
 
+from documents import split
 from factory.db import SessionLocal
 from factory.models import Membership, OperationsRecord, Organization, Project, User
 from factory.security import passwords
@@ -20,7 +21,7 @@ from sample import GROUP, generate
 from sqlalchemy import delete, select
 
 HERE = Path(__file__).parent
-BUILDER, LOGIN, KEPT = "demo@agentfactory.local", "finance@harbortable-sample.example", HERE / ".login"
+BUILDER, LOGIN, KEPT = "demo@agentfactory.local", "harbor@demo.test", HERE / ".login"
 
 
 def main():
@@ -43,7 +44,8 @@ def main():
         db.execute(
             delete(OperationsRecord).where(OperationsRecord.org_id == org.id, OperationsRecord.source == "sample")
         )
-        records = generate()
+        # The history only: the last week reaches the workspace through agents reading documents.
+        records, _ = split(generate())
         db.add_all(OperationsRecord(org_id=org.id, source="sample", **item) for item in records)
         password = json.loads(KEPT.read_text())["password"] if KEPT.exists() else secrets.token_urlsafe(12)
         person = db.scalar(select(User).where(User.email == LOGIN))

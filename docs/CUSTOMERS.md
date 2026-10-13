@@ -159,9 +159,25 @@ overview of all of them. Each returns tiles, a chart, ranked bars, tables and wh
 needs somebody; the rules and their limits are constants at the top of that file. A workspace with
 records gets an Operations group in the sidebar and opens on the overview.
 
-No agent writes these records yet. The only ones that exist are generated (`source = "sample"`) by
-`demo/operations/`, for an invented restaurant group. A workspace holding sample records says so on
-every page and in the top bar; that mark comes from the data and must not be removable in the UI.
+**Agents that fill them.** An agent whose answer has the shape of a till report, cash-up sheet,
+payout statement, timesheet, stock count, catering enquiry or certificate is installed as an
+operation of that kind (`recording.kind_of`), told from the answer's shape as invoices and
+statements are. When a document is read, `factory/recording.py` checks the answer against what the
+workspace knows (its locations, menu, stock categories, agreed platform rates, and the documents
+already received) and writes it into `portal_records` with `source = "agent"` and the document's
+id. A document the checks doubt is held and writes nothing until a person approves it; one that
+names a place, dish or platform the workspace does not have cannot be recorded at all until it is
+corrected. A correction replaces what the document wrote. A catering quote is priced in code from
+the menu (`operations.draft_quote`); the agent reads the enquiry and never proposes a price.
+
+Percentages are worked out only where the paperwork exists (food cost over weeks with a stock
+count, labour over days with a timesheet), and a day or week with nothing for a location that was
+trading is reported as paperwork that has not arrived (`operations.missing`).
+
+The only workspace with these agents is the sample one built by `demo/operations/`: the agents are
+real, their documents and seven of its eight weeks are generated. A workspace holding sample
+records says so on every page and in the top bar; that mark comes from the data and must not be
+removable in the UI.
 
 ## Where results go
 

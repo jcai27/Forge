@@ -25,7 +25,7 @@ from setup import sign_in
 
 HERE = Path(__file__).parent
 CUSTOMER = "Steel City Diners"
-LOGIN = "owner@steelcity-demo.example"
+LOGIN = "steel@demo.test"
 # Invoices in the exhibits that have no answer in labels.json, because the reading used to write the
 # answers did not add up. The customer received them all the same, and the supplier's statement lists
 # them: left out, each would show as billed and never received, which is not what happened.

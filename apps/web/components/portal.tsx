@@ -1,16 +1,16 @@
 'use client';
 import {useEffect, useRef, useState} from 'react';
 import Link from 'next/link';
-import {ArrowLeft, ArrowRight, Building2, LayoutDashboard, LoaderCircle, Banknote, CalendarHeart, ClipboardCheck, Bike, FlaskConical, Landmark, ShoppingCart, Users, Utensils, Warehouse, Check, DollarSign, Download, Package, Tags, TrendingUp, Truck, FileSpreadsheet, LogOut, Mail, Pencil, ReceiptText, Trash2, TriangleAlert, Upload} from 'lucide-react';
+import {ArrowLeft, ArrowRight, Building2, LayoutDashboard, LoaderCircle, Banknote, Bot, CalendarHeart, ClipboardCheck, Bike, FlaskConical, Landmark, ShoppingCart, Users, Utensils, Warehouse, Check, DollarSign, Download, Package, Tags, TrendingUp, Truck, FileSpreadsheet, LogOut, Mail, Pencil, ReceiptText, Trash2, TriangleAlert, Upload} from 'lucide-react';
 import {API_URL, PORTAL, token, useResource} from '@/lib/api';
 import {Button} from './ui/button';
 import {Badge, Card, Empty, ErrorState, Heading, Loading, humanize, useAction} from './shared';
 import {StoredPage} from './stored-page';
-import {AreaPage} from './portal-areas';
+import {AreaPage, AgentsIndex} from './portal-areas';
 
 type Row = Record<string, unknown>;
 type Fields = {single: string[]; tables: Record<string, string[]>};
-type Operation = {id: string; name: string; enabled: boolean; kind: 'invoice' | 'statement'; documents: number; fields: Fields};
+type Operation = {id: string; name: string; enabled: boolean; kind: string; reads: string | null; area: string | null; documents: number; fields: Fields};
 type PortalMe = {email: string; areas: {area: string; title: string}[]; sample: boolean; workspace: {id: string; name: string; kind: string}; role: string; can_work: boolean; operations: Operation[]};
 type Stage = 'review' | 'ready' | 'approved' | 'exported';
 type Exception = {kind: string; message: string; document_id?: string; lines?: number[]};
@@ -42,10 +42,11 @@ const dollars = (cents: number) => `$${(cents / 100).toLocaleString(undefined, {
 function initials(value: string) {return value.split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || '–';}
 
 /** The tabs an agent's page has. A statement reader has no prices or books of its own. */
-const TABS: Record<Operation['kind'], {value: string; label: string}[]> = {
+const TABS: Record<string, {value: string; label: string}[]> = {
   invoice: [{value: 'documents', label: 'Documents'}, {value: 'results', label: 'Results'}, {value: 'prices', label: 'Prices'}, {value: 'books', label: 'Books'}, {value: 'channels', label: 'Channels'}],
   statement: [{value: 'documents', label: 'Documents'}, {value: 'channels', label: 'Channels'}],
 };
+const tabsOf = (operation: Operation) => TABS[operation.kind] ?? TABS.statement;
 const DASHBOARD = `${PORTAL}/dashboard`;
 const AREA_ICONS: Record<string, typeof ReceiptText> = {sales: Utensils, purchasing: ShoppingCart, inventory: Warehouse, labour: Users, cash: Banknote, delivery: Bike, catering: CalendarHeart, accounting: Landmark, compliance: ClipboardCheck};
 const home = (operation: Operation, tab = 'documents') => `${PORTAL}/agents/${operation.id}${tab === 'documents' ? '' : `/${tab}`}`;
@@ -61,18 +62,19 @@ export function Portal({path, logout}: {path: string; logout: () => void}) {
   // This place is for a customer's workspace only. Any other session is turned away, not shown an empty platform.
   if (me.data.workspace.kind !== 'customer') return <div className="login"><main className="login-main"><div className="login-card"><h1>No customer workspace</h1><p className="muted small" style={{margin:'8px 0 20px'}}>This account is not signed in to a customer workspace.</p><Button className="full" onClick={logout}>Sign in with another account</Button></div></main></div>;
   const operation = parts[0] === 'agents' ? all.find(item => item.id === parts[1]) : undefined;
-  const tab = operation ? TABS[operation.kind].find(item => item.value === (parts[2] ?? 'documents')) : undefined;
+  const tab = operation ? tabsOf(operation).find(item => item.value === (parts[2] ?? 'documents')) : undefined;
   const areas = me.data.areas.filter(item => item.area !== 'overview'), area = parts[0] === 'areas' ? areas.find(item => item.area === parts[1]) : undefined;
   let page, here = 'Dashboard';
   if (parts[0] === 'documents' && parts[1]) {page = <DocumentPage id={parts[1]} operations={all} canWork={canWork}/>; here = 'Document';}
   else if (operation && tab) {
     here = tab.label;
     page = <>
-      <nav className="tabs no-print" aria-label={operation.name}>{TABS[operation.kind].map(item => <Link key={item.value} className={`tab ${item.value === tab.value ? 'active' : ''}`} aria-current={item.value === tab.value ? 'page' : undefined} href={home(operation, item.value)}>{item.label}</Link>)}</nav>
+      <nav className="tabs no-print" aria-label={operation.name}>{tabsOf(operation).map(item => <Link key={item.value} className={`tab ${item.value === tab.value ? 'active' : ''}`} aria-current={item.value === tab.value ? 'page' : undefined} href={home(operation, item.value)}>{item.label}</Link>)}</nav>
       {tab.value === 'results' ? <Results operation={operation} statements={statements}/> : tab.value === 'prices' ? <Prices operation={operation}/> : tab.value === 'books' ? <Books operation={operation} canWork={canWork}/> : tab.value === 'channels' ? <Channels operation={operation} canWork={canWork}/> : <InboxPage operation={operation} canWork={canWork} statement={operation.kind === 'statement'}/>}
     </>;
   }
   else if (area) {here = area.title; page = <AreaPage key={area.area} area={area.area}/>;}
+  else if (parts[0] === 'agents' && !parts[1] && areas.length) {here = 'Agents'; page = <AgentsIndex operations={all} areas={areas}/>;}
   else if (parts[0] === 'agents' || parts[0] === 'areas') page = <Card><Empty title="This page is not here">It may have been removed from your workspace. <Link className="link" href={DASHBOARD}>Back to the dashboard</Link></Empty></Card>;
   // A workspace with operations records opens on all of them together; one with only documents, on what its agents bought.
   else page = areas.length ? <AreaPage key="overview" area="overview"/> : <Dashboard operations={all}/>;
@@ -81,9 +83,10 @@ export function Portal({path, logout}: {path: string; logout: () => void}) {
       <Link href={DASHBOARD} className="brand"><span className="brand-icon"><Building2 size={16}/></span>{me.data.workspace.name}</Link>
       <nav className="nav" aria-label="Primary">
         <Link className={`nav-link ${here === 'Dashboard' ? 'active' : ''}`} aria-current={here === 'Dashboard' ? 'page' : undefined} href={DASHBOARD}><LayoutDashboard size={16}/>Dashboard</Link>
+        {areas.length > 0 && <Link className={`nav-link ${here === 'Agents' ? 'active' : ''}`} aria-current={here === 'Agents' ? 'page' : undefined} href={`${PORTAL}/agents`}><Bot size={16}/>Agents</Link>}
         {areas.length > 0 && <><div className="nav-label">Operations</div>{areas.map(item => {const Icon = AREA_ICONS[item.area] ?? ReceiptText, active = item.area === area?.area; return <Link key={item.area} className={`nav-link ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} href={`${PORTAL}/areas/${item.area}`}><Icon size={16}/>{item.title}</Link>;})}</>}
-        {(all.length > 0 || !areas.length) && <div className="nav-label">Agents</div>}
-        {all.map(item => {const Icon = item.kind === 'statement' ? FileSpreadsheet : ReceiptText, active = item.id === operation?.id; return <Link key={item.id} className={`nav-link ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} href={home(item)}><Icon size={16}/>{item.name}</Link>;})}
+        {!areas.length && <div className="nav-label">Agents</div>}
+        {!areas.length && all.map(item => {const Icon = item.kind === 'statement' ? FileSpreadsheet : ReceiptText, active = item.id === operation?.id; return <Link key={item.id} className={`nav-link ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} href={home(item)}><Icon size={16}/>{item.name}</Link>;})}
         {!all.length && !areas.length && <div className="muted small" style={{padding:'4px 10px'}}>None yet</div>}
       </nav>
       <div className="sidebar-bottom"><span className="avatar">{initials(me.data.workspace.name)}</span><div style={{minWidth:0}}><div className="org-name">{me.data.workspace.name}</div><div className="org-role">Operations platform</div></div></div>
@@ -299,11 +302,14 @@ function InboxPage({operation, canWork, statement = false}: {operation: Operatio
   }
   const items = documents.data?.items ?? [], columns = operation.fields.single.slice(0, 5), table = Object.keys(operation.fields.tables)[0];
   const stages = insights.data?.stages ?? {review: 0, ready: 0, approved: 0, exported: 0}, failed = insights.data?.failed ?? 0;
+  // An operations agent's documents are recorded as they are read; only the doubtful ones wait.
+  const record = operation.area !== null;
   const tabs: {value: Stage | 'all' | 'failed'; label: string; count?: number}[] = statement
     ? [{value: 'all', label: 'All'}, {value: 'failed', label: 'Could not be read', count: failed}]
+    : record ? [{value: 'all', label: 'All'}, {value: 'review', label: 'Needs a person', count: stages.review}, {value: 'ready', label: 'Recorded', count: stages.ready + stages.approved}, {value: 'failed', label: 'Could not be read', count: failed}]
     : [{value: 'all', label: 'All'}, {value: 'review', label: 'Needs a person', count: stages.review}, {value: 'ready', label: 'Ready to approve', count: stages.ready}, {value: 'approved', label: 'Approved', count: stages.approved}, {value: 'exported', label: 'Sent to books', count: stages.exported}, {value: 'failed', label: 'Could not be read', count: failed}];
   return <>
-    <Heading title={operation.name} subtitle={statement ? 'Statements from your suppliers, checked against the invoices you have received.' : 'Documents as they arrive, what was read from each, and what needs you.'} action={canWork ? <div className="control-group">{!statement && stages.ready > 0 && <Button variant="secondary" disabled={pending} onClick={async () => {const result = await act<{approved: number}>(`/portal/operations/${operation.id}/approve-ready`, {}); if (result) toast(`${result.approved} approved.`);}}><Check size={15}/>Approve the {stages.ready} ready</Button>}<input ref={input} id="portal-upload" type="file" multiple accept=".pdf,.png,.jpg,.jpeg" hidden onChange={event => void upload(event.target.files)}/><Button disabled={!!progress || !operation.enabled} onClick={() => input.current?.click()}><Upload size={15}/>{progress ? 'Reading…' : statement ? 'Upload a statement' : 'Upload documents'}</Button></div> : undefined}/>
+    <Heading title={operation.name} subtitle={statement ? 'Statements from your suppliers, checked against the invoices you have received.' : record ? `${operation.reads}: read as they arrive, checked, and recorded. Anything doubtful waits for you.` : 'Documents as they arrive, what was read from each, and what needs you.'} action={canWork ? <div className="control-group">{!statement && !record && stages.ready > 0 && <Button variant="secondary" disabled={pending} onClick={async () => {const result = await act<{approved: number}>(`/portal/operations/${operation.id}/approve-ready`, {}); if (result) toast(`${result.approved} approved.`);}}><Check size={15}/>Approve the {stages.ready} ready</Button>}<input ref={input} id="portal-upload" type="file" multiple accept=".pdf,.png,.jpg,.jpeg" hidden onChange={event => void upload(event.target.files)}/><Button disabled={!!progress || !operation.enabled} onClick={() => input.current?.click()}><Upload size={15}/>{progress ? 'Reading…' : statement ? 'Upload a statement' : 'Upload documents'}</Button></div> : undefined}/>
     {!operation.enabled && <div className="notice" style={{marginBottom:16}}>This work is paused by your provider. Nothing new is being read.</div>}
     {progress && <div className="reading" role="status"><LoaderCircle size={18} className="animate-spin" style={{color:'var(--accent)',flex:'none'}}/><span><b>{progress}</b><br/><span className="muted small">Each page is read, every line is entered, then the checks run. A page takes about ten to twenty seconds.</span></span><span className="bar"/></div>}
     <ErrorState error={documents.error}/>
@@ -313,7 +319,7 @@ function InboxPage({operation, canWork, statement = false}: {operation: Operatio
       <td><Link className="link" href={open(item.id)}><b>{item.name}</b></Link>{item.error && <div className="cell-sub">{item.error}</div>}</td>
       {columns.map(column => <td key={column}>{display(column, item.fields[column])}</td>)}
       {table && <td className="num">{item.rows[table] ?? '—'}</td>}
-      <td style={{whiteSpace:'nowrap'}}>{statement ? <Badge value={item.status === 'processed' ? 'read' : item.status}/> : <><Badge value={standing(item)}/>{item.exceptions > 0 && item.stage === 'review' && <div className="cell-sub">{item.exceptions} to check</div>}{item.corrected && <div className="cell-sub">corrected</div>}</>}</td>
+      <td style={{whiteSpace:'nowrap'}}>{statement ? <Badge value={item.status === 'processed' ? 'read' : item.status}/> : <><Badge value={record && item.status === 'processed' && item.stage !== 'review' ? 'recorded' : standing(item)}/>{item.exceptions > 0 && item.stage === 'review' && <div className="cell-sub">{item.exceptions} to check</div>}{item.corrected && <div className="cell-sub">corrected</div>}</>}</td>
     </tr>)}</tbody></table> : documents.isLoading ? <Loading/> : <Empty title={stage === 'all' ? 'No documents yet' : 'Nothing here'}>{stage === 'all' ? 'Upload a PDF or a photo, or connect a mailbox under Channels and they will arrive here.' : 'No documents stand at this point.'}</Empty>}</Card>
   </>;
 }
@@ -332,24 +338,25 @@ function DocumentPage({id, operations, canWork}: {id: string; operations: Operat
   const data = document.data, operation = operations.find(item => item.id === data.operation_id) ?? operations[0], statement = operation?.kind === 'statement';
   const current = draft ?? data.answer ?? {}, agent = data.agent_answer ?? {};
   const single = Object.keys(current).filter(field => !Array.isArray(current[field])), tables = Object.keys(current).filter(field => Array.isArray(current[field]));
-  const editing = draft !== null, sent = data.stage === 'exported';
+  const editing = draft !== null, sent = data.stage === 'exported', record = !!operation?.area;
   // The lines the checks point at, numbered from one as the messages number them.
   const flagged = new Set(data.stage === 'review' ? data.exception_list.flatMap(item => item.lines ?? []) : []), first = Math.min(...flagged);
   const setField = (field: string, text: string) => setDraft({...current, [field]: coerce(text, (data.answer ?? {})[field])});
   const setCell = (table: string, index: number, column: string, text: string) => setDraft({...current, [table]: (current[table] as Row[]).map((row, position) => position === index ? {...row, [column]: coerce(text, ((data.answer ?? {})[table] as Row[])[index]?.[column])} : row)});
   async function save(corrected: Row | null) {const saved = await act<DocumentDetail>(`/portal/documents/${id}/review`, corrected ? {corrected, approve: true} : {approve: true}); if (saved) {setDraft(null); toast(corrected ? 'Correction saved and approved.' : 'Approved.');}}
   return <>
-    <Heading title={data.name} subtitle={`${SOURCES[data.source] ?? data.source}${data.sender ? ` from ${data.sender}` : ''} · received ${new Date(data.received_at).toLocaleString()}`} action={<Badge value={statement ? data.status === 'processed' ? 'read' : data.status : standing(data)}/>}/>
+    <Heading title={data.name} subtitle={`${SOURCES[data.source] ?? data.source}${data.sender ? ` from ${data.sender}` : ''} · received ${new Date(data.received_at).toLocaleString()}`} action={<Badge value={statement ? data.status === 'processed' ? 'read' : data.status : operation?.area && data.status === 'processed' && data.stage !== 'review' ? 'recorded' : standing(data)}/>}/>
     <Link className="link" href={operation ? home(operation) : DASHBOARD} style={{display:'inline-flex',alignItems:'center',gap:6,marginBottom:16}}><ArrowLeft size={14}/>{operation?.name ?? 'Dashboard'}</Link>
     {data.status === 'failed' && <div className="error" role="alert">This document could not be read. {data.error}</div>}
     {data.status === 'processing' && <div className="notice" role="status">Reading this document…</div>}
-    {data.exception_list.length > 0 && <div className="notice" style={{marginBottom:16}} role="status"><div className="row" style={{gap:8,alignItems:'center',marginBottom:6}}><TriangleAlert size={16}/><b>{data.stage === 'review' ? 'This needs a person before it is approved' : 'The checks raised these; a person approved it anyway'}</b></div><ul style={{margin:0,paddingLeft:22}}>{data.exception_list.map((item, index) => <li key={index}>{item.message}{item.document_id && <> <Link className="link" href={open(item.document_id)}>Open it</Link></>}</li>)}</ul></div>}
-    {data.status === 'processed' && !statement && data.exception_list.length === 0 && data.stage !== 'review' && <p className="muted small" style={{marginBottom:12}}>{data.stage === 'ready' ? 'The checks found nothing wrong: the lines add up to the total, the prices are in line with the last ones paid, and this invoice has not been seen before.' : data.approved_automatically ? 'Approved automatically: the checks found nothing wrong.' : sent ? 'Sent to the books.' : 'Approved by a person.'}</p>}
+    {data.exception_list.length > 0 && <div className="notice" style={{marginBottom:16}} role="status"><div className="row" style={{gap:8,alignItems:'center',marginBottom:6}}><TriangleAlert size={16}/><b>{data.stage === 'review' ? record ? 'This needs a person before it is recorded' : 'This needs a person before it is approved' : 'The checks raised these; a person approved it anyway'}</b></div><ul style={{margin:0,paddingLeft:22}}>{data.exception_list.map((item, index) => <li key={index}>{item.message}{item.document_id && <> <Link className="link" href={open(item.document_id)}>Open it</Link></>}</li>)}</ul></div>}
+    {record && data.status === 'processed' && data.stage !== 'review' && <Recorded id={id} stamp={data.reviewed_at ?? ''}/>}
+    {data.status === 'processed' && !statement && !record && data.exception_list.length === 0 && data.stage !== 'review' && <p className="muted small" style={{marginBottom:12}}>{data.stage === 'ready' ? 'The checks found nothing wrong: the lines add up to the total, the prices are in line with the last ones paid, and this invoice has not been seen before.' : data.approved_automatically ? 'Approved automatically: the checks found nothing wrong.' : sent ? 'Sent to the books.' : 'Approved by a person.'}</p>}
     {statement && data.status === 'processed' && <StatementCheck id={id}/>}
     <Card><div style={{display:'grid',gridTemplateColumns:'minmax(0, 5fr) minmax(0, 7fr)',gap:24,alignItems:'start'}}>
       <div className="stack">{data.page_ids.length > 0 && <p className="muted small no-print" style={{margin:0}}>{data.page_ids.length === 1 ? 'The page as it arrived.' : `The ${data.page_ids.length} pages as they arrived.`} Click a page to enlarge it.</p>}{data.page_ids.length ? data.page_ids.map((hash, index) => <StoredPage key={hash} path={`/portal/pages/${hash}`} label={`${data.name} page ${index + 1}`}/>) : <p className="muted small">No page image was kept for this document.</p>}</div>
       <div style={{position:'sticky',top:16,minWidth:0}}>
-        <div className="row between wrap" style={{marginBottom:8}}><h2>What was read</h2>{canWork && data.status === 'processed' && !sent && !statement && <div className="control-group">{editing ? <><Button variant="secondary" disabled={pending} onClick={() => setDraft(null)}>Cancel</Button><Button disabled={pending} onClick={() => void save(draft)}><Check size={14}/>Save and approve</Button></> : <><Button variant="secondary" disabled={pending} onClick={() => setDraft({...(data.answer ?? {})})}><Pencil size={14}/>Correct</Button>{data.stage !== 'approved' && <Button disabled={pending} onClick={() => void save(null)}><Check size={14}/>Approve</Button>}</>}</div>}</div>
+        <div className="row between wrap" style={{marginBottom:8}}><h2>What was read</h2>{canWork && data.status === 'processed' && !sent && !statement && <div className="control-group">{editing ? <><Button variant="secondary" disabled={pending} onClick={() => setDraft(null)}>Cancel</Button><Button disabled={pending} onClick={() => void save(draft)}><Check size={14}/>Save and approve</Button></> : <><Button variant="secondary" disabled={pending} onClick={() => setDraft({...(data.answer ?? {})})}><Pencil size={14}/>Correct</Button>{data.stage !== 'approved' && !(record && data.stage === 'ready') && <Button disabled={pending} onClick={() => void save(null)}><Check size={14}/>{record ? 'Record anyway' : 'Approve'}</Button>}</>}</div>}</div>
         {data.corrected && !editing && <p className="muted small" style={{marginBottom:8}}>A person corrected this. Where the reading was different, it is shown underneath.</p>}
         {single.length > 0 && <div className="table-wrap"><table className="table"><tbody>{single.map(field => <tr key={field}><th style={{width:'38%'}}>{label(field)}</th><td>{editing ? <input aria-label={label(field)} className="input" value={shown(current[field]) === '—' ? '' : String(current[field])} onChange={event => setField(field, event.target.value)}/> : <><b>{display(field, current[field])}</b>{data.corrected && shown(agent[field]) !== shown(current[field]) && <div className="cell-sub">read as {display(field, agent[field])}</div>}</>}</td></tr>)}</tbody></table></div>}
         {tables.map(table => {const rows = current[table] as Row[], columns = operation?.fields.tables[table] ?? Array.from(new Set(rows.flatMap(row => Object.keys(row)))); return <div key={table} style={{marginTop:20}}>
@@ -359,6 +366,28 @@ function DocumentPage({id, operations, canWork}: {id: string; operations: Operat
       </div>
     </div></Card>
   </>;
+}
+
+type Recording = {items: {area: string; area_title: string; kind: string; day: string; location: string; data: Record<string, unknown>}[]};
+type QuoteLines = {lines: {item: string; portions: number; price: number; amount: number}[]; discount: number; discount_percent: number; servers: number; staff: number; total: number; deposit: number; per_guest: number};
+/** What became of an operations document: the records it was written into, and for an enquiry the quote worked out from it. */
+function Recorded({id, stamp}: {id: string; stamp: string}) {
+  const made = useResource<Recording>(`/portal/documents/${id}/records?${stamp}`);
+  const items = made.data?.items ?? [];
+  if (!items.length) return null;
+  const first = items[0], quote = first.data.quote as QuoteLines | undefined;
+  return <div style={{marginBottom:20}}><Card>
+    <div className="row between wrap"><div><h2>{quote ? 'The quote' : 'Recorded'}</h2><p className="muted small">{quote ? 'Priced in code from the menu, the guest count and the staff the event needs. The agent read the enquiry; it did not choose the price.' : `The checks found nothing wrong, so ${items.length === 1 ? 'this was' : `these ${items.length} records were`} written to ${first.area_title} as it was read.`}</p></div><Link className="link" href={`${PORTAL}/areas/${first.area}`} style={{display:'inline-flex',alignItems:'center',gap:4}}>{first.area_title}<ArrowRight size={13}/></Link></div>
+    {quote && <div className="grid grid-2" style={{marginTop:12,alignItems:'start'}}>
+      <div className="table-wrap"><table className="table"><thead><tr><th>Item</th><th className="num">Portions</th><th className="num">Each</th><th className="num">Amount</th></tr></thead><tbody>
+        {quote.lines.map(line => <tr key={line.item}><td>{line.item}</td><td className="num">{line.portions}</td><td className="num">{dollars(line.price)}</td><td className="num">{dollars(line.amount)}</td></tr>)}
+        {quote.discount > 0 && <tr><td colSpan={3}>Less {quote.discount_percent}% for the size of the party</td><td className="num">−{dollars(quote.discount)}</td></tr>}
+        <tr><td colSpan={3}>{quote.servers} server{quote.servers === 1 ? '' : 's'} for the event</td><td className="num">{dollars(quote.staff)}</td></tr>
+        <tr className="strong"><td colSpan={3}>Quote</td><td className="num">{dollars(quote.total)}</td></tr>
+      </tbody></table></div>
+      <div className="agent-stats" style={{gridTemplateColumns:'repeat(2, minmax(0, 1fr))'}}><div><span>Per guest</span><b>{dollars(quote.per_guest)}</b></div><div><span>Deposit to confirm</span><b>{dollars(quote.deposit)}</b></div></div>
+    </div>}
+  </Card></div>;
 }
 
 const MATCH: Record<string, string> = {matched: 'agrees', amount_differs: 'amount differs', not_received: 'not on file'};

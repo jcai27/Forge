@@ -7,4 +7,5 @@ set -a
 source .env
 set +a
 (cd apps/api && .venv/bin/alembic upgrade head)
-PYTHONPATH=apps/api exec apps/api/.venv/bin/python demo/operations/seed.py "$@"
+cd apps/api
+PYTHONPATH=. exec uv run -q --with reportlab python ../../demo/operations/seed.py "$@"

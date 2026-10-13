@@ -29,6 +29,11 @@ AREAS = {
     "compliance": ("Compliance and upkeep", "Licences and certificates, temperature logs and repair tickets."),
 }
 
+# The area whose records each page is mostly worked out from.
+AREA_RECORDS = {
+    area: area for area in ("sales", "purchasing", "inventory", "labour", "cash", "delivery", "catering", "compliance")
+}
+
 # The rules that decide what needs attention.
 CASH_TOLERANCE = 2500  # a till this many cents out is worth a look
 BANKING_DAYS = 2  # cash counted but not at the bank after this many days
@@ -130,9 +135,79 @@ def used(scope, location=None):
     )
 
 
+def monday(day):
+    return day - timedelta(days=day.weekday())
+
+
+def counted_weeks(scope, location=None):
+    """The location-weeks a stock count is on record for. Food cost can only be worked out for those: a week's
+    sales with no count to set against them would make a location look as if it used nothing."""
+    return {(row.location, row.day) for row in scope.rows("inventory", "count_week", location)}
+
+
+def counted_sales(scope, location=None):
+    """Sales in the weeks that have a stock count, in all and by week."""
+    weeks, by_week = counted_weeks(scope, location), {}
+    for row in scope.rows("sales", "day", location):
+        if (row.location, monday(row.day)) in weeks:
+            by_week[monday(row.day)] = by_week.get(monday(row.day), 0) + row.data["net"]
+    return sum(by_week.values()), by_week
+
+
+def sold_items(scope, location=None):
+    """What sold in the weeks that have a stock count: the dishes the recipes are costed from."""
+    weeks = counted_weeks(scope, location)
+    return [row for row in scope.rows("sales", "item_week", location) if (row.location, monday(row.day)) in weeks]
+
+
 def recipe_cost(scope, location=None):
     """What the recipes say the dishes sold should have used."""
-    return sum(row.data["qty"] * row.data["cost"] for row in scope.rows("sales", "item_week", location))
+    return sum(row.data["qty"] * row.data["cost"] for row in sold_items(scope, location))
+
+
+def staffed_sales(scope, location=None):
+    """Sales on the days a timesheet covers, in all and by week: labour is a share of those, not of days still to come in."""
+    days, by_week = {(row.location, row.day) for row in scope.rows("labour", "day", location)}, {}
+    for row in scope.rows("sales", "day", location):
+        if (row.location, row.day) in days:
+            by_week[monday(row.day)] = by_week.get(monday(row.day), 0) + row.data["net"]
+    return sum(by_week.values()), by_week
+
+
+def missing(scope):
+    """Paperwork that has not arrived, by area: a day or week one location has nothing for while the business
+    was plainly trading. A page worked out without it is short, and should say so."""
+    found = {area: [] for area in ("sales", "cash", "labour", "inventory", "delivery")}
+
+    def note(area, text):
+        found[area].append({"level": "warn", "text": text})
+
+    def have(area, kind):
+        return {(row.location, row.day) for row in scope.rows(area, kind)}
+
+    sold, cash = have("sales", "day"), have("cash", "day")
+    traded = {day for _, day in sold}
+    for place in scope.places():
+        for day in sorted(traded):
+            if (place, day) not in sold:
+                note("sales", f"{place}: no till report has arrived for {short(day)}.")
+            elif (place, day) not in cash:
+                note("cash", f"{place}: no cash-up sheet has arrived for {short(day)}.")
+        weeks = sorted({monday(day) for where, day in sold if where == place and monday(day) >= scope.start})
+        staffed = {monday(row.day) for row in scope.rows("labour", "day", place)}
+        counted = {row.day for row in scope.rows("inventory", "count_week", place)}
+        paid = {}
+        for row in scope.rows("delivery", "payout", place):
+            paid.setdefault(row.day, set()).add(row.data["platform"])
+        platforms = set().union(*paid.values()) if paid else set()
+        for week in weeks:
+            if week not in staffed:
+                note("labour", f"{place}: no timesheet has arrived for the week of {short(week)}.")
+            if week not in counted:
+                note("inventory", f"{place}: no stock count has arrived for the week of {short(week)}.")
+            for platform in sorted(platforms - paid.get(week, set())):
+                note("delivery", f"{place}: no {platform} payout statement has arrived for the week of {short(week)}.")
+    return found
 
 
 def figures(scope, location=None):
@@ -159,9 +234,10 @@ def figures(scope, location=None):
         "other": other,
         "other_lines": costs,
         "profit": profit,
-        "food_percent": percent(goods, sales),
-        "labour_percent": percent(labour, sales),
-        "prime_percent": percent(goods + labour, sales),
+        # Each against the sales it can be set against: weeks with a stock count, days with a timesheet.
+        "food_percent": (food := percent(goods, counted_sales(scope, location)[0])),
+        "labour_percent": (staff := percent(labour, staffed_sales(scope, location)[0])),
+        "prime_percent": round(food + staff, 1) if food is not None and staff is not None else None,
         "margin": percent(profit, sales),
     }
 
@@ -395,13 +471,13 @@ def inventory(scope):
     counts = scope.rows("inventory", "count_week")
     last = max((row.day for row in counts), default=None)
     on_hand = sum(row.data["closing"] for row in counts if row.day == last)
-    food_sales = scope.total("sales", "day", "net")
+    food_sales, sold_by_week = counted_sales(scope)
     actual, recipes = used(scope), recipe_cost(scope)
     waste = scope.rows("inventory", "waste")
     wasted = sum(row.data["cost"] for row in waste)
     places, alerts = [], []
     for place in scope.places():
-        sold = scope.total("sales", "day", "net", place)
+        sold = counted_sales(scope, place)[0]
         was_used, should = used(scope, place), recipe_cost(scope, place)
         logged = sum(row.data["cost"] for row in scope.rows("inventory", "waste", place))
         gap = round(percent(was_used, sold) - percent(should, sold), 1) if sold else None
@@ -435,7 +511,7 @@ def inventory(scope):
         entry["used"] += row.data["opening"] + row.data["purchases"] - row.data["closing"]
         if row.day == last:
             entry["closing"] += row.data["closing"]
-    for row in scope.rows("sales", "item_week"):
+    for row in sold_items(scope):
         if row.data["stock"] in categories:
             categories[row.data["stock"]]["recipes"] += row.data["qty"] * row.data["cost"]
     for row in waste:
@@ -455,9 +531,6 @@ def inventory(scope):
     weekly = {}
     for row in counts:
         weekly[row.day] = weekly.get(row.day, 0) + row.data["opening"] + row.data["purchases"] - row.data["closing"]
-    sold_by_week = {
-        date.fromisoformat(point["start"]): point["value"] for point in scope.by_week("sales", "day", "net")
-    }
     trend = [
         {"start": week.isoformat(), "value": percent(value, sold_by_week.get(week, 0)) or 0}
         for week, value in sorted(weekly.items())
@@ -526,14 +599,14 @@ def labour(scope):
     cost = sum(row.data["cost"] for row in days)
     hours = sum(row.data["kitchen_hours"] + row.data["floor_hours"] + row.data["management_hours"] for row in days)
     overtime = sum(row.data["overtime_hours"] for row in days)
-    sold = scope.total("sales", "day", "net")
+    sold, sold_by_week = staffed_sales(scope)
     places, alerts = [], []
     for place in scope.places():
         rows = scope.rows("labour", "day", place)
         worked = sum(row.data["kitchen_hours"] + row.data["floor_hours"] + row.data["management_hours"] for row in rows)
         planned = sum(row.data["scheduled_hours"] for row in rows)
         extra = sum(row.data["overtime_hours"] for row in rows)
-        paid, sales_here = sum(row.data["cost"] for row in rows), scope.total("sales", "day", "net", place)
+        paid, sales_here = sum(row.data["cost"] for row in rows), staffed_sales(scope, place)[0]
         share, extra_share = percent(paid, sales_here), percent(extra, worked)
         places.append(
             {
@@ -569,9 +642,6 @@ def labour(scope):
     for row in days:
         week = row.day - timedelta(days=row.day.weekday())
         weekly[week] = weekly.get(week, 0) + row.data["cost"]
-    sold_by_week = {
-        date.fromisoformat(point["start"]): point["value"] for point in scope.by_week("sales", "day", "net")
-    }
     return {
         "tiles": [
             tile("Labour cost", cost, "money", f"{round(hours):,} hours worked"),
@@ -1105,6 +1175,16 @@ def accounting(scope):
         for place, book in books.items()
         if book["profit"] < 0
     ]
+    # A profit worked out before all the paperwork is in is too high by whatever is missing.
+    waiting = [alert for area in missing(scope).values() for alert in area]
+    if waiting:
+        alerts.append(
+            {
+                "level": "warn",
+                "text": f"{len(waiting)} documents for this period have not arrived, so costs here are short of the "
+                "truth and profit is overstated until they do. Each is listed on its own page.",
+            }
+        )
     tax = scope.total("sales", "day", "tax")
     weekly = scope.by_week("sales", "day", "net")
     return {
@@ -1162,7 +1242,13 @@ def accounting(scope):
 
 def compliance(scope):
     papers, alerts = [], []
-    for row in sorted(scope.rows("compliance", "certificate", dated=False), key=lambda row: row.day):
+    current = {}
+    for row in scope.rows("compliance", "certificate", dated=False):
+        # A renewal is the same document for the same holder with a later date: the earlier one is spent.
+        held = (row.location, row.data["name"], row.data["holder"])
+        if held not in current or row.day > current[held].day:
+            current[held] = row
+    for row in sorted(current.values(), key=lambda row: row.day):
         left = (row.day - scope.end).days
         state = "expired" if left < 0 else "expiring" if left <= EXPIRY_DAYS else "current"
         papers.append(
@@ -1346,6 +1432,21 @@ BUILDERS = {
 }
 
 
+def with_missing(build, area):
+    """An area's page with the paperwork it is still waiting for added to what its rules found."""
+
+    def built(scope):
+        page = build(scope)
+        page["alerts"] = page["alerts"] + missing(scope)[area]
+        return page
+
+    return built
+
+
+for _area in ("sales", "cash", "labour", "inventory", "delivery"):
+    BUILDERS[_area] = with_missing(BUILDERS[_area], _area)
+
+
 def overview(scope):
     """The group at a glance, and everything any area's rules say needs somebody."""
     whole = figures(scope)
@@ -1423,5 +1524,61 @@ def view(area, rows, location=None, weeks=8):
         "to": scope.end.isoformat(),
         "weeks": scope.weeks,
         "sample": any(getattr(row, "source", "sample") == "sample" for row in rows),
+        # How much of what the page is worked out from came through an agent reading a document.
+        "from_agents": sum(getattr(row, "source", "") == "agent" for row in rows if row.area == AREA_RECORDS.get(area)),
         **built,
+    }
+
+
+# What a catering quote is priced from. A package is dishes and how many of each a guest is served.
+PACKAGES = {
+    "Lunch buffet": {"Chicken sandwich": 0.6, "Cheeseburger": 0.4, "Caesar salad": 1, "Fries": 1, "Soft drink": 1.5},
+    "Seafood supper": {
+        "Clam chowder": 1,
+        "Fish and chips": 0.5,
+        "Grilled salmon": 0.5,
+        "Caesar salad": 0.5,
+        "Key lime pie": 1,
+    },
+    "Seated dinner": {"Clam chowder": 1, "Ribeye": 0.5, "Grilled salmon": 0.5, "Caesar salad": 1, "Key lime pie": 1},
+}
+GUESTS_PER_SERVER, SERVICE_HOURS, SERVER_RATE = 20, 5, 2200
+VOLUME = ((100, 10), (50, 5))  # at this many guests, this percent off the food
+DEPOSIT_PERCENT = 30
+
+
+def draft_quote(menu, package, guests, drinks=False):
+    """A catering quote from the menu's own prices and recipe costs: menu is each dish's {"price", "cost"} in cents."""
+    menu = {dish: (recipe["price"], recipe["cost"]) for dish, recipe in menu.items()}
+    servings = dict(PACKAGES[package])
+    if drinks:
+        servings["Draft beer"] = 2
+    lines, food, cost = [], 0, 0
+    for dish, each in servings.items():
+        if dish not in menu:
+            continue
+        portions = -(-guests * each // 1)  # rounded up: nobody is served part of a dish
+        price, recipe = menu[dish]
+        lines.append({"item": dish, "portions": int(portions), "price": price, "amount": int(portions * price)})
+        food += int(portions * price)
+        cost += int(portions * recipe)
+    off = next((percent_off for least, percent_off in VOLUME if guests >= least), 0)
+    discount = round(food * off / 100)
+    servers = -(-guests // GUESTS_PER_SERVER)
+    staff = servers * SERVICE_HOURS * SERVER_RATE
+    total = food - discount + staff
+    return {
+        "package": package,
+        "guests": guests,
+        "lines": lines,
+        "food": food,
+        "discount_percent": off,
+        "discount": discount,
+        "servers": servers,
+        "staff": staff,
+        "total": total,
+        "per_guest": round(total / guests),
+        "deposit": round(total * DEPOSIT_PERCENT / 100),
+        "cost": cost + staff,
+        "margin": percent(total - cost - staff, total),
     }

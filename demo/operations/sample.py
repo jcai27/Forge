@@ -75,6 +75,7 @@ def generate(seed="harbor-table-1"):
         for week in range(WEEKS):
             monday = START + timedelta(days=week * 7)
             week_sales = week_delivery = 0
+            day_sales = []
             for offset in range(7):
                 day = monday + timedelta(days=offset)
                 net = cents(base * WEEKDAY[offset] * (1 + 0.004 * week) * rng.uniform(0.93, 1.07))
@@ -101,6 +102,7 @@ def generate(seed="harbor-table-1"):
                     )
                 )
                 week_sales += net
+                day_sales.append((day, net))
                 week_delivery += delivery
                 # Labour follows sales, on top of a management day that does not.
                 cost = round(net * (0.262 + labour_extra) * rng.uniform(0.96, 1.04)) + 31000
@@ -151,25 +153,28 @@ def generate(seed="harbor-table-1"):
                         card_settled=settled,
                     )
                 )
-            # What sold, and so what the recipes say was used.
+            # What sold, and so what the recipes say was used. The last week is kept by the day, as the tills
+            # report it, because that week's records are written from documents; earlier weeks by the week.
             should = {category: 0 for category in STOCK}
             for dish, (category, stock, price, cost, share) in MENU.items():
-                sold = round(week_sales * share * rng.uniform(0.94, 1.06) / price)
-                out.append(
-                    record(
-                        "sales",
-                        "item_week",
-                        monday,
-                        place,
-                        item=dish,
-                        category=category,
-                        stock=stock,
-                        qty=sold,
-                        sales=sold * price,
-                        cost=cost,
+                spans = day_sales if week == WEEKS - 1 else [(monday, week_sales)]
+                for when, taken in spans:
+                    sold = round(taken * share * rng.uniform(0.94, 1.06) / price)
+                    out.append(
+                        record(
+                            "sales",
+                            "item_week",
+                            when,
+                            place,
+                            item=dish,
+                            category=category,
+                            stock=stock,
+                            qty=sold,
+                            sales=sold * price,
+                            cost=cost,
+                        )
                     )
-                )
-                should[stock] += sold * cost
+                    should[stock] += sold * cost
             for category in STOCK:
                 over = OVERUSE.get((place, category), rng.uniform(0.02, 0.04))
                 usage = round(should[category] * (1 + over) * rng.uniform(0.985, 1.015))
@@ -261,6 +266,17 @@ def generate(seed="harbor-table-1"):
                     out_of_range=rng.choice((0, 0, 0, 1, 2)),
                 )
             )
+
+    # What the workspace knows before any document arrives: its locations, its menu and recipe costs, and
+    # the commission agreed with each delivery platform.
+    for place in LOCATIONS:
+        out.append(record("master", "location", START, place))
+    for dish, (category, stock, price, cost, _) in MENU.items():
+        out.append(
+            record("master", "recipe", START, "", item=dish, category=category, stock=stock, price=price, cost=cost)
+        )
+    for platform, (_, agreed) in PLATFORMS.items():
+        out.append(record("master", "contract", START, "", platform=platform, rate=agreed))
 
     def day(offset):
         return END - timedelta(days=offset)

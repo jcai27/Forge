@@ -492,4 +492,6 @@ class OperationsRecord(Owned, Base):
     location: Mapped[str] = mapped_column(String(200), default="")
     # Amounts in cents.
     data: Mapped[dict] = mapped_column(JSON, default=dict)
+    # "sample": generated. "agent": written from a document an agent read, which document_id names.
     source: Mapped[str] = mapped_column(String(20), default="sample")
+    document_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
