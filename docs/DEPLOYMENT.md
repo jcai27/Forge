@@ -109,8 +109,9 @@ The test suite on PostgreSQL:
 
 ## What only a real deployment proves
 
-- That `render.yaml` is accepted as written. It follows Render's Blueprint specification
-  (https://render.com/docs/blueprint-spec) but has never been submitted.
+- That `render.yaml` deploys as written. It validates against Render's published schema
+  (https://render.com/schema/render.yaml.json, no errors) and follows the Blueprint specification
+  (https://render.com/docs/blueprint-spec), but it has never been submitted.
 - That Render passes `NEXT_PUBLIC_API_URL` to the web image's build.
 - HTTPS, the proxy headers and the request limits behind Render's proxy.
 - That 512 MB is enough for the worker under real documents.
