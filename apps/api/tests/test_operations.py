@@ -84,6 +84,10 @@ def test_the_rules_find_a_short_till_a_late_deposit_and_an_overcharged_commissio
     staffed = view("labour", [*rows, *worked, *later], weeks=2)
     assert staffed["tiles"][1]["value"] == 30.0  # $2,100 of labour on $7,000 of sales, not on the fortnight's $14,000
     assert "CAFE: no timesheet has arrived for the week of Mar 9." in [alert["text"] for alert in staffed["alerts"]]
+    # And the other way round: a day worked whose till report has not arrived is left out of the share too,
+    # so a week is not made to look expensive by sales that are simply late.
+    late = [row for row in [*rows, *worked] if not (row.area == "sales" and row.day == "2026-03-08")]
+    assert view("labour", late)["tiles"][1]["value"] == 30.0  # six days of each: $1,800 on $6,000
 
 
 def test_food_cost_is_stock_used_against_what_the_recipes_say():

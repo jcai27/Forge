@@ -31,9 +31,14 @@ function shown(value: string | number | null | undefined, kind: Kind, large = fa
 function Chart({series}: {series: Area['series']}) {
   const most = Math.max(...series.points.map(point => point.value), 0), every = Math.ceil(series.points.length / 10);
   if (!series.points.length || most <= 0) return <p className="muted small">Nothing to chart in this period.</p>;
+  // A share that moves between 29% and 31% is a row of identical bars when drawn from zero. A percentage is drawn
+  // from just under its lowest value, and the chart says where it starts.
+  const least = Math.min(...series.points.filter(point => point.value > 0).map(point => point.value));
+  const floor = series.kind === 'percent' && most - least < most * 0.5 ? Math.max(0, Math.floor(least - (most - least || 1) * 0.6)) : 0;
+  const tall = (value: number) => value <= 0 ? 0 : Math.max(2, (value - floor) / (most - floor || 1) * 100);
   return <div role="img" aria-label={`${series.title}, highest ${shown(most, series.kind)}`}>
-    <div className="muted small" style={{textAlign:'right',marginBottom:6}}><span style={{display:'inline-block',width:9,height:9,borderRadius:3,background:'#e0a100',marginRight:6}}/>highest {series.bucket}: {shown(most, series.kind)}</div>
-    <div className="columns" style={{gap:series.points.length > 40 ? 2 : 8,padding:'0 4px'}}>{series.points.map(point => <div key={point.start} className={`column ${point.value === most ? 'peak' : ''}`}><span style={{height:`${point.value / most * 100}%`,minHeight:point.value > 0 ? 3 : 0}}/><em><b>{series.bucket === 'week' ? 'Week of ' : ''}{day(point.start)}</b><br/>{shown(point.value, series.kind)}</em></div>)}</div>
+    <div className="muted small" style={{textAlign:'right',marginBottom:6}}><span style={{display:'inline-block',width:9,height:9,borderRadius:3,background:'#e0a100',marginRight:6}}/>highest {series.bucket}: {shown(most, series.kind)}{floor > 0 && <> · lowest {shown(least, series.kind)} · bars start at {shown(floor, series.kind)}</>}</div>
+    <div className="columns" style={{gap:series.points.length > 40 ? 2 : 8,padding:'0 4px'}}>{series.points.map(point => <div key={point.start} className={`column ${point.value === most ? 'peak' : ''}`}><span style={{height:`${tall(point.value)}%`,minHeight:point.value > 0 ? 3 : 0}}/><em><b>{series.bucket === 'week' ? 'Week of ' : ''}{day(point.start)}</b><br/>{shown(point.value, series.kind)}</em></div>)}</div>
     <div style={{display:'flex',gap:series.points.length > 40 ? 2 : 8,marginTop:8,padding:'0 4px'}}>{series.points.map((point, index) => <div key={point.start} className="muted" style={{flex:1,minWidth:2,fontSize:11.5,textAlign:'center',whiteSpace:'nowrap',overflow:'visible'}}>{index % every === 0 ? day(point.start) : ''}</div>)}</div>
   </div>;
 }
@@ -44,7 +49,7 @@ function Ranked({rows, kind}: {rows: {name: string; value: number}[]; kind: Kind
 }
 
 // How many findings a page lists before asking to show the rest.
-const FIRST = 8;
+const FIRST = 6;
 const NUMERIC: Kind[] = ['money', 'percent', 'points', 'count', 'hours'];
 function Table({table}: {table: Area['tables'][number]}) {
   return <Card className="flush table-wrap"><div style={{padding:'16px 20px 8px'}}><h2>{table.title}</h2>{table.note && <p className="muted small">{table.note}</p>}</div>
@@ -56,11 +61,18 @@ function Table({table}: {table: Area['tables'][number]}) {
 
 /** One operations area: its figures for the chosen location and weeks, and what its rules say needs somebody. */
 export function AreaPage({area}: {area: string}) {
-  const [location, setLocation] = useState(''), [weeks, setWeeks] = useState(8), [all, setAll] = useState(false);
+  const [location, setLocation] = useState(''), [weeks, setWeeks] = useState(8), [all, setAll] = useState(false), [only, setOnly] = useState('');
   const query = new URLSearchParams({weeks: String(weeks), ...(location ? {location} : {})});
   const view = useResource<Area>(`/portal/areas/${area}?${query}`), data = view.data;
   if (!data) return view.isLoading ? <Loading/> : <ErrorState error={view.error}/>;
   const overview = area === 'overview', bad = data.alerts.filter(alert => alert.level === 'bad').length;
+  const groups = Object.values(data.alerts.reduce<Record<string, {area: string; title: string; count: number; bad: number}>>((found, alert) => {
+    if (!alert.area) return found;
+    const entry = found[alert.area] ??= {area: alert.area, title: alert.area_title ?? alert.area, count: 0, bad: 0};
+    entry.count += 1; entry.bad += alert.level === 'bad' ? 1 : 0;
+    return found;
+  }, {}));
+  const listed = data.alerts.filter(alert => !only || alert.area === only);
   return <>
     <section className="hero">
       <div className="hero-top"><div><h1>{overview ? 'Dashboard' : data.title}</h1><p className="hero-sub">{data.location ?? 'All locations'} · {day(data.from)} to {day(data.to, true)}</p></div>
@@ -72,8 +84,9 @@ export function AreaPage({area}: {area: string}) {
     </section>
     {data.sample && <div className="sample-note" role="note"><FlaskConical size={15}/><span><b>Sample data.</b> This is not a real business. {data.from_agents > 0 ? <>{data.from_agents.toLocaleString()} of the records behind this page were written by an agent reading sample documents; the earlier weeks are generated history.</> : <>These figures are generated. In a working workspace an agent fills this page from {data.fed_by.charAt(0).toLowerCase() + data.fed_by.slice(1)}</>}</span></div>}
     <div className="tiles">{data.tiles.slice(1).map(tile => <div className="tile" key={tile.label}><div style={{minWidth:0}}><div className="tile-label">{tile.label}</div><div className={`tile-value ${tile.tone}`}>{shown(tile.value, tile.kind, true)}</div><div className="tile-sub">{tile.sub}</div></div></div>)}</div>
-    {data.alerts.length > 0 && <Card className="attention"><h2>{overview ? 'Needs attention' : 'To look at'}</h2><p className="muted small" style={{marginBottom:10}}>{overview ? 'What the rules of each area turned up, most pressing first.' : 'What the rules of this area turned up.'}</p>
-      <ul>{data.alerts.slice(0, all ? undefined : FIRST).map((alert, index) => <li key={index} className={alert.level}><span className="mark"/><span style={{flex:1}}>{alert.text}</span>{alert.area && <Link className="link" href={`${PORTAL}/areas/${alert.area}`} style={{whiteSpace:'nowrap',display:'inline-flex',alignItems:'center',gap:4}}>{alert.area_title}<ArrowRight size={13}/></Link>}</li>)}</ul>{data.alerts.length > FIRST && <button type="button" className="link" style={{background:'none',border:0,padding:'10px 0 0'}} onClick={() => setAll(!all)}>{all ? 'Show fewer' : `Show all ${data.alerts.length}`}</button>}</Card>}
+    {data.alerts.length > 0 && <Card className="attention"><h2>{overview ? 'Needs attention' : 'To look at'}</h2><p className="muted small" style={{marginBottom:10}}>{overview ? `${bad} that cost money or break a rule, ${data.alerts.length - bad} to keep an eye on. Most pressing first.` : 'What the rules of this area turned up.'}</p>
+      {groups.length > 1 && <div className="area-chips" role="group" aria-label="Area">{[{area: '', title: 'All', count: data.alerts.length, bad}, ...groups].map(group => <button type="button" key={group.area} aria-pressed={only === group.area} onClick={() => {setOnly(group.area); setAll(false);}}>{group.title}<span className={group.bad ? 'bad' : undefined}>{group.count}</span></button>)}</div>}
+      <ul>{listed.slice(0, all ? undefined : FIRST).map((alert, index) => <li key={index} className={alert.level}><span className="mark"/><span style={{flex:1}}>{alert.text}</span>{alert.area && <Link className="link" href={`${PORTAL}/areas/${alert.area}`} style={{whiteSpace:'nowrap',display:'inline-flex',alignItems:'center',gap:4}}>{alert.area_title}<ArrowRight size={13}/></Link>}</li>)}</ul>{listed.length > FIRST && <button type="button" className="link" style={{background:'none',border:0,padding:'10px 0 0'}} onClick={() => setAll(!all)}>{all ? 'Show fewer' : `Show all ${listed.length}`}</button>}</Card>}
     {overview && data.tables.map(table => <div key={table.title} style={{marginBottom:24}}><Table table={table}/></div>)}
     <Card><h2 style={{marginBottom:12}}>{data.series.title}</h2><Chart series={data.series}/></Card>
     {data.bars.length > 0 && <div className={data.bars.length > 1 ? 'grid grid-2' : undefined} style={{alignItems:'start',marginTop:24}}>{data.bars.map(bar => <Card key={bar.title}><h2 style={{marginBottom:4}}>{bar.title}</h2><p className="muted small" style={{marginBottom:12}}>{bar.note}</p><Ranked rows={bar.rows} kind={bar.kind}/></Card>)}</div>}

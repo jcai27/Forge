@@ -127,11 +127,14 @@ def ranked(rows, key="value"):
 # Figures several areas share.
 
 
-def used(scope, location=None):
-    """Stock used, in cents: what was there at the start, plus what came in, less what is left."""
+def used(scope, location=None, matched=False):
+    """Stock used, in cents: what was there at the start, plus what came in, less what is left. With matched,
+    only in the weeks food cost can be worked out for (see counted_weeks)."""
+    weeks = counted_weeks(scope, location) if matched else None
     return sum(
         row.data["opening"] + row.data["purchases"] - row.data["closing"]
         for row in scope.rows("inventory", "count_week", location)
+        if weeks is None or (row.location, row.day) in weeks
     )
 
 
@@ -140,9 +143,16 @@ def monday(day):
 
 
 def counted_weeks(scope, location=None):
-    """The location-weeks a stock count is on record for. Food cost can only be worked out for those: a week's
-    sales with no count to set against them would make a location look as if it used nothing."""
-    return {(row.location, row.day) for row in scope.rows("inventory", "count_week", location)}
+    """The location-weeks food cost can be worked out for: a stock count is on record, and so is a till report
+    for every day the business traded that week. A week's sales with no count would make a location look as if
+    it used nothing; a week's count with a day of sales still to come would make it look wasteful."""
+    sold = {(row.location, row.day) for row in scope.rows("sales", "day")}
+    traded = {day for _, day in sold}
+    return {
+        (row.location, row.day)
+        for row in scope.rows("inventory", "count_week", location)
+        if all((row.location, day) in sold for day in traded if monday(day) == row.day)
+    }
 
 
 def counted_sales(scope, location=None):
@@ -171,6 +181,15 @@ def staffed_sales(scope, location=None):
     for row in scope.rows("sales", "day", location):
         if (row.location, row.day) in days:
             by_week[monday(row.day)] = by_week.get(monday(row.day), 0) + row.data["net"]
+    return sum(by_week.values()), by_week
+
+
+def staffed_cost(scope, location=None):
+    """Labour cost on the days a till report covers, in all and by week: the other half of the same match."""
+    days, by_week = {(row.location, row.day) for row in scope.rows("sales", "day", location)}, {}
+    for row in scope.rows("labour", "day", location):
+        if (row.location, row.day) in days:
+            by_week[monday(row.day)] = by_week.get(monday(row.day), 0) + row.data["cost"]
     return sum(by_week.values()), by_week
 
 
@@ -235,8 +254,8 @@ def figures(scope, location=None):
         "other_lines": costs,
         "profit": profit,
         # Each against the sales it can be set against: weeks with a stock count, days with a timesheet.
-        "food_percent": (food := percent(goods, counted_sales(scope, location)[0])),
-        "labour_percent": (staff := percent(labour, staffed_sales(scope, location)[0])),
+        "food_percent": (food := percent(used(scope, location, matched=True), counted_sales(scope, location)[0])),
+        "labour_percent": (staff := percent(staffed_cost(scope, location)[0], staffed_sales(scope, location)[0])),
         "prime_percent": round(food + staff, 1) if food is not None and staff is not None else None,
         "margin": percent(profit, sales),
     }
@@ -472,14 +491,19 @@ def inventory(scope):
     last = max((row.day for row in counts), default=None)
     on_hand = sum(row.data["closing"] for row in counts if row.day == last)
     food_sales, sold_by_week = counted_sales(scope)
-    actual, recipes = used(scope), recipe_cost(scope)
+    actual, recipes = used(scope, matched=True), recipe_cost(scope)
+    counted = counted_weeks(scope)
     waste = scope.rows("inventory", "waste")
     wasted = sum(row.data["cost"] for row in waste)
     places, alerts = [], []
     for place in scope.places():
         sold = counted_sales(scope, place)[0]
-        was_used, should = used(scope, place), recipe_cost(scope, place)
-        logged = sum(row.data["cost"] for row in scope.rows("inventory", "waste", place))
+        was_used, should = used(scope, place, matched=True), recipe_cost(scope, place)
+        logged = sum(
+            row.data["cost"]
+            for row in scope.rows("inventory", "waste", place)
+            if (row.location, monday(row.day)) in counted
+        )
         gap = round(percent(was_used, sold) - percent(should, sold), 1) if sold else None
         unexplained = was_used - should - logged
         places.append(
@@ -504,7 +528,7 @@ def inventory(scope):
                 }
             )
     categories = {}
-    for row in counts:
+    for row in (row for row in counts if (row.location, row.day) in counted):
         entry = categories.setdefault(
             row.data["category"], {"category": row.data["category"], "used": 0, "closing": 0, "recipes": 0, "waste": 0}
         )
@@ -529,7 +553,7 @@ def inventory(scope):
     for row in waste:
         reasons[row.data["reason"]] = reasons.get(row.data["reason"], 0) + row.data["cost"]
     weekly = {}
-    for row in counts:
+    for row in (row for row in counts if (row.location, row.day) in counted):
         weekly[row.day] = weekly.get(row.day, 0) + row.data["opening"] + row.data["purchases"] - row.data["closing"]
     trend = [
         {"start": week.isoformat(), "value": percent(value, sold_by_week.get(week, 0)) or 0}
@@ -607,7 +631,7 @@ def labour(scope):
         planned = sum(row.data["scheduled_hours"] for row in rows)
         extra = sum(row.data["overtime_hours"] for row in rows)
         paid, sales_here = sum(row.data["cost"] for row in rows), staffed_sales(scope, place)[0]
-        share, extra_share = percent(paid, sales_here), percent(extra, worked)
+        share, extra_share = percent(staffed_cost(scope, place)[0], sales_here), percent(extra, worked)
         places.append(
             {
                 "location": place,
@@ -638,19 +662,16 @@ def labour(scope):
         {"name": name, "value": round(sum(row.data[key] for row in days))}
         for key, name in (("kitchen_hours", "Kitchen"), ("floor_hours", "Floor"), ("management_hours", "Management"))
     ]
-    weekly = {}
-    for row in days:
-        week = row.day - timedelta(days=row.day.weekday())
-        weekly[week] = weekly.get(week, 0) + row.data["cost"]
+    matched, weekly = staffed_cost(scope)
     return {
         "tiles": [
             tile("Labour cost", cost, "money", f"{round(hours):,} hours worked"),
             tile(
                 "Share of sales",
-                percent(cost, sold),
+                percent(matched, sold),
                 "percent",
                 f"limit {LABOUR_LIMIT:g}%",
-                "bad" if (percent(cost, sold) or 0) > LABOUR_LIMIT else "",
+                "bad" if (percent(matched, sold) or 0) > LABOUR_LIMIT else "",
             ),
             tile("Sales per hour worked", round(sold / hours) if hours else None, "money"),
             tile("Overtime", round(overtime), "hours", f"{percent(overtime, hours)}% of hours"),
