@@ -58,7 +58,10 @@ SETTINGS = {
     ],
     "default_account": "5000",
     "supplier_accounts": {"Gordon Food Service": "5000"},
-    "tax_code": "",
+    # Xero needs a tax type on every line. This is the name of a rate in a new US Xero organisation; it must
+    # be changed to match the organisation a file is imported into.
+    "tax_code": "Tax Exempt (0%)",
+    "date_format": "mdy",
 }
 
 

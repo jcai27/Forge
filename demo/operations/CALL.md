@@ -48,8 +48,10 @@ that names a place, dish or platform you do not have, or that has arrived before
 catch is a plausible misreading: one certificate here has the wrong job title recorded.
 
 **Which of this exists for real documents today?** Supplier invoices and statements
-(`demo/restaurant/`). Everything on this workspace would need building again on a real customer's
-own documents, and measuring there.
+(`demo/restaurant/`), and a sales summary agent that read eight of eight held-back real
+point-of-sale summaries from a public bankruptcy docket (`demo/sales/`): one restaurant, typed
+PDFs. Everything else on this workspace would need building again on a real customer's own
+documents, and measuring there.
 
 **What about purchasing?** Its page in this workspace runs on generated records; no agent fills it
 here.
@@ -66,7 +68,9 @@ connections to any system.
 
 ## Known limits
 
-- Runs on this machine only. Documents are typed PDFs, not scans or photos.
+- Runs on this machine only. Hosting is written up and proven in production mode locally
+  (docs/DEPLOYMENT.md); nothing is deployed.
+- Documents are typed PDFs, not scans or photos.
 - Seven of the eight weeks are generated history; only the last week came through agents.
 - Eight documents are missing at the start on purpose (the ones in `live/`), and the pages say so.
   Until they are uploaded, profit is overstated by their costs; the Profit and loss page says that too.

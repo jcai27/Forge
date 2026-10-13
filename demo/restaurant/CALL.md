@@ -41,6 +41,8 @@ with a report of how they compared with what you keyed."
 
 ## What the numbers are
 
+- **Xero's tax type** is set to "Tax Exempt (0%)" in this demo so a file can be made. It is a
+  placeholder: it must be the name of a rate in the organisation the file goes into.
 - **58 invoices at the start, 1,241 lines.** Real, from In re Gas City, Ltd. (Bankr. N.D. Ill.
   10-47879, document 427). Three more are kept back to upload live.
 - **One held for a person.** A real misreading by the agent, caught by the price check. Nothing
@@ -67,21 +69,28 @@ the total with tax, a price far from the last one paid is held, a repeated invoi
 an unreadable field is held. What they cannot catch is a misreading that still adds up and is
 close to the last price.
 
-**Does it load into QuickBooks or Xero?** The files follow each product's published bill-import
-layout. They have **not** been imported into a live account of either; say exactly that. There is
-no direct connection, only the file and a webhook.
+**Does it load into QuickBooks or Xero?** The files have been checked field by field against each
+vendor's published import instructions (docs/ACCOUNTING_EXPORTS.md) and corrected where they
+differed. They have **not** been imported into a live account of either; say exactly that. Two
+things to ask first: which QuickBooks plan they are on, because in the US Intuit only lets
+**Advanced** import bills from a file; and for Xero, the exact name of their tax rate, which every
+line must carry. There is no direct connection, only the file and a webhook.
 
 **Where do our documents go?** Pages are sent to OpenAI's API to be read, and the pages and
 results are kept in the application's database, each customer in a workspace of its own. Today
-that is a laptop. There is no hosted service, no security certification and no uptime commitment
-yet. Do not imply otherwise.
+that is a laptop. A hosted deployment is written up and proven in production mode on one machine
+(docs/DEPLOYMENT.md), but nothing is hosted yet: no security certification, no uptime commitment.
+Do not imply otherwise.
 
 **Can it read our suppliers?** It was built and measured on three suppliers (Gordon Food Service
 and two produce houses). Some sideways Sysco pages read poorly before a page-turning fix and have
 not been measured since. Their suppliers are untested.
 
-**Email?** A mailbox can be connected (Channels) and is checked every two minutes. It has been
-tested against a stand-in mail server, not a real Gmail or Outlook account. Do not demonstrate it.
+**Email?** A mailbox can be connected (Channels) and is checked every two minutes, read-only.
+Gmail connects with an app password; Outlook and Microsoft 365 need a Microsoft sign-in that takes
+some setting up on their side (docs/MAILBOXES.md). The code is tested against a stand-in that
+answers as those servers do, and has **not** been run against a real mailbox. Do not demonstrate
+it until `scripts/mailbox_check.py` has passed on one.
 
 **What does it cost?** No price is set. Decide yours before the call. Reading these invoices cost
 well under a cent each in model fees, so the price is about your time and their value, not cost.

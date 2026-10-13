@@ -48,8 +48,8 @@ from factory.models import (
 )
 from factory.operations import AREAS, view
 from factory.payables import (
+    DATE_FORMATS,
     EXPORT_FORMATS,
-    QUICKBOOKS_BATCH,
     analytics,
     answer,
     check,
@@ -57,8 +57,10 @@ from factory.payables import (
     insights,
     overview,
     price_gaps,
+    quickbooks_batch,
     reconcile,
     uncoded,
+    unsendable,
 )
 from factory.reading import MAX_IMAGE_BYTES, Reader, image_type
 from factory.recording import KINDS, Masters, kind_of
@@ -353,6 +355,10 @@ async def check_channel(db, channel, fetch=check_mailbox):
             except HTTPException as error:
                 # One attachment that cannot be taken in does not hold up the rest, or the mailbox.
                 problem = f"{item['name']}: {error.detail}"
+        kept = position.pop("secret", None)
+        if kept:
+            # A sign-in service handed back a newer token: it replaces the stored one, encrypted as before.
+            channel.encrypted_secret = encrypt(kept)
         channel.cursor, channel.last_error = position, problem[:300] if problem else None
     except MailboxError as error:
         channel.last_error = str(error)[:300]
@@ -754,13 +760,15 @@ class OperationSettings(StrictModel):
     default_account: str = Field(default="", max_length=40)
     supplier_accounts: dict[str, str] = Field(default_factory=dict)
     tax_code: str = Field(default="", max_length=60)
+    # How dates are written in an export file: month first, day first, or year-month-day.
+    date_format: str = Field(default="mdy", pattern="^(mdy|dmy|iso)$")
 
 
 def settings_view(db, operation):
     settings = OperationSettings.model_validate(operation.settings or {}).model_dump()
     documents = processed(db, operation)
     suppliers = sorted({str((answer(document) or {}).get("supplier") or "") for document in documents} - {""})
-    return {**settings, "suppliers": suppliers, "formats": EXPORT_FORMATS}
+    return {**settings, "suppliers": suppliers, "formats": EXPORT_FORMATS, "date_formats": list(DATE_FORMATS)}
 
 
 @router.get("/portal/operations/{operation_id}/settings")
@@ -823,7 +831,7 @@ def create_export(operation_id: str, body: CreateExport, actor=ACTOR, db=DB):
     """
     may_work(actor)
     operation = operation_of(db, actor, operation_id)
-    settings = operation.settings or {}
+    settings = OperationSettings.model_validate(operation.settings or {}).model_dump()
     waiting = [document for document in processed(db, operation) if document.stage == "approved"]
     if not waiting:
         raise HTTPException(409, "No approved documents are waiting to be sent")
@@ -833,8 +841,12 @@ def create_export(operation_id: str, body: CreateExport, actor=ACTOR, db=DB):
             "Choose a ledger account before sending to the books: none is set for "
             + ", ".join(uncoded(settings, waiting)),
         )
+    refused = unsendable(body.format, waiting, settings)
+    if refused:
+        raise HTTPException(422, refused)
     if body.format == "quickbooks":
-        waiting = waiting[:QUICKBOOKS_BATCH]
+        # One file holds only so many bills and rows; the rest stay approved for the next file.
+        waiting = quickbooks_batch(waiting, settings)
     batch = ExportBatch(
         org_id=actor.org_id,
         operation_id=operation.id,
@@ -894,8 +906,12 @@ class CreateChannel(StrictModel):
     # mailbox: the IMAP server, the account and its password. webhook: the https address, and an optional bearer key.
     host: str | None = Field(default=None, min_length=3, max_length=253)
     username: str | None = Field(default=None, min_length=1, max_length=320)
-    password: str | None = Field(default=None, min_length=1, max_length=500)
+    # An app password, or for a Microsoft mailbox the refresh token from signing in (see docs/MAILBOXES.md).
+    password: str | None = Field(default=None, min_length=1, max_length=8000)
     folder: str = Field(default="INBOX", min_length=1, max_length=200)
+    # Set for a Microsoft mailbox: the application registered to read it, and its tenant.
+    client_id: str | None = Field(default=None, pattern="^[0-9a-fA-F-]{36}$")
+    tenant: str = Field(default="common", pattern="^[A-Za-z0-9.-]{1,100}$")
     url: str | None = Field(default=None, min_length=9, max_length=2000)
     key: str | None = Field(default=None, min_length=1, max_length=500)
 
@@ -917,6 +933,8 @@ async def create_channel(operation_id: str, body: CreateChannel, actor=ACTOR, db
         if not (body.host and body.username and body.password):
             raise HTTPException(422, "A mailbox needs its IMAP server, the account name and its password")
         channel.config = {"host": body.host.strip().lower(), "username": body.username, "folder": body.folder}
+        if body.client_id:
+            channel.config.update(auth="microsoft", client_id=body.client_id, tenant=body.tenant)
         try:
             # Opening it proves the details work, and finds where the mailbox stands now: only mail that
             # arrives after this is taken in, never the mailbox's history.

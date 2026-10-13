@@ -1,0 +1,123 @@
+# Agent Factory on Render: the API, the worker, the web app, PostgreSQL and a key value store for request limits.
+# See docs/DEPLOYMENT.md. Values marked sync: false are asked for once when the blueprint is created and are
+# kept in Render's own store, never in this repository.
+#
+# The sandbox that runs builder-written tool code is not part of this deployment: it needs a Unix socket shared
+# between two containers with no network, which this platform does not offer. Without SANDBOX_SOCKET the
+# application refuses such tools rather than running them in process.
+databases:
+  - name: agent-factory-db
+    plan: 0.1c-256mb
+    postgresMajorVersion: "17"
+    databaseName: factory
+    user: factory
+    region: oregon
+
+envVarGroups:
+  - name: agent-factory-settings
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: REGISTRATION
+        value: invited
+      - key: EXECUTION_MODE
+        value: hybrid
+      - key: OPENAI_MODEL
+        value: gpt-6-luna
+      - key: BUILDER_MODEL
+        value: gpt-6-luna
+      - key: READER_MODEL
+        value: gpt-6-luna
+      - key: AGENT_MODELS
+        value: '["gpt-6-luna"]'
+      - key: DOCUMENT_READING
+        value: "true"
+      # Requests arrive through Render's proxy: without this every visitor would share one request limit.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+
+services:
+  - type: keyvalue
+    name: agent-factory-limits
+    plan: 256mb
+    region: oregon
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
+
+  - type: web
+    name: agent-factory-api
+    runtime: docker
+    region: oregon
+    plan: 0.5c-512mb
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    dockerCommand: sh -c "uvicorn factory.api:app --host 0.0.0.0 --port $PORT --proxy-headers"
+    preDeployCommand: alembic upgrade head
+    healthCheckPath: /health
+    autoDeployTrigger: "off"
+    envVars:
+      - fromGroup: agent-factory-settings
+      - key: DATABASE_URL
+        fromDatabase:
+          name: agent-factory-db
+          property: connectionString
+      - key: REDIS_HOSTPORT
+        fromService:
+          name: agent-factory-limits
+          type: keyvalue
+          property: hostport
+      - key: JWT_SECRET
+        generateValue: true
+      # Fernet key for stored credentials. Generate one and keep a copy: without it they cannot be read back.
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      # The address that may create the first account, as a JSON list: ["you@example.com"]
+      - key: OWNER_EMAILS
+        sync: false
+      # The web app's public address, as a JSON list: ["https://agent-factory-web.onrender.com"]
+      - key: CORS_ORIGINS
+        sync: false
+
+  - type: worker
+    name: agent-factory-worker
+    runtime: docker
+    region: oregon
+    plan: 0.5c-512mb
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    dockerCommand: python /app/services/worker/main.py
+    autoDeployTrigger: "off"
+    envVars:
+      - fromGroup: agent-factory-settings
+      - key: DATABASE_URL
+        fromDatabase:
+          name: agent-factory-db
+          property: connectionString
+      - key: REDIS_HOSTPORT
+        fromService:
+          name: agent-factory-limits
+          type: keyvalue
+          property: hostport
+      # The same three values as the API: copy them across, or the worker cannot read what the API stored.
+      - key: JWT_SECRET
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+
+  - type: web
+    name: agent-factory-web
+    runtime: docker
+    region: oregon
+    plan: 0.5c-512mb
+    dockerfilePath: ./apps/web/Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    autoDeployTrigger: "off"
+    envVars:
+      # Built into the pages: the API's public address. Changing it means building the web app again.
+      - key: NEXT_PUBLIC_API_URL
+        sync: false

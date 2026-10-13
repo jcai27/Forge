@@ -38,6 +38,7 @@ from factory.intake import (
     remove_dataset,
     truth_source,
 )
+from factory.memberships import invitation_view
 from factory.memberships import router as membership_router
 from factory.portal import router as portal_router
 from factory.proposals import ProposalError, approve_proposal, create_proposal, openapi_to_config
@@ -264,13 +265,33 @@ LIMIT = Query(50, ge=1, le=200)
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "execution_mode": settings().execution_mode}
+    return {
+        "status": "ok",
+        "execution_mode": settings().execution_mode,
+        # What the sign-in page may offer: the local demo workspace, and whether anyone may make an account.
+        "demo_sign_in": settings().environment == "development",
+        "registration": settings().registration,
+    }
 
 
 @app.post("/auth/register", status_code=201)
 def register(body: Register, db=DB):
     if "@" not in body.email:
         raise HTTPException(422, "Valid email required")
+    email = body.email.lower().strip()
+    if settings().registration == "invited" and email not in {
+        owner.lower().strip() for owner in settings().owner_emails
+    }:
+        invited = [
+            invitation
+            for invitation in db.scalars(
+                select(m.OrganizationInvitation).where(func.lower(m.OrganizationInvitation.email) == email)
+            )
+            if invitation_view(invitation)["status"] == "pending"
+        ]
+        if not invited:
+            # The same answer whether or not the address is known, so it cannot be used to look for invitations.
+            raise HTTPException(403, "Registration is by invitation")
     org = m.Organization(name=body.organization)
     user = m.User(email=body.email.lower().strip(), password_hash=passwords.hash(body.password))
     db.add_all([org, user])

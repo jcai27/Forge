@@ -276,3 +276,48 @@ def test_concurrent_invitation_claims_create_one_membership(client, db, seeded):
         )
         == 1
     )
+
+
+def test_a_hosted_instance_registers_only_its_owner_and_people_who_were_invited(client, db, seeded, monkeypatch):
+    from factory.config import settings
+
+    monkeypatch.setattr(settings(), "registration", "invited")
+    monkeypatch.setattr(settings(), "owner_emails", ["Owner@Example.invalid"])
+
+    def register(email):
+        body = {"email": email, "password": "long-enough-password", "organization": "Personal"}
+        return client.post("/auth/register", json=body, headers={"Authorization": ""})
+
+    # A stranger gets no workspace, and so cannot spend the owner's provider key.
+    assert register("stranger@example.invalid").status_code == 403
+    # The owner can make the first account, whatever the capitals.
+    assert register("owner@example.invalid").status_code == 201
+    # An invitation lets its address in, once created; revoked, it does not.
+    invitation = client.post("/organizations/invitations", json={"email": "New.Hire@example.invalid", "role": "viewer"})
+    assert invitation.status_code == 201, invitation.text
+    client.post(f"/organizations/invitations/{invitation.json()['id']}/revoke", json={})
+    assert register("new.hire@example.invalid").status_code == 403
+    again = client.post("/organizations/invitations", json={"email": "new.hire@example.invalid", "role": "viewer"})
+    assert again.status_code == 201 and register("new.hire@example.invalid").status_code == 201
+
+
+def test_production_needs_closed_registration_and_takes_a_bare_database_address(monkeypatch):
+    from factory.config import Settings, settings
+
+    strong = {
+        "environment": "production",
+        "jwt_secret": "x" * 48,
+        "encryption_key": "k",
+        "database_url": "postgresql://u:p@h/d",
+    }
+    with pytest.raises(ValueError, match="REGISTRATION=invited"):
+        Settings(**strong).validate_production()
+    Settings(**strong, registration="invited").validate_production()
+    # A provider's bare address is read as the driver this application ships.
+    monkeypatch.setenv("DATABASE_URL", "postgres://user:secret@db.internal:5432/factory")
+    settings.cache_clear()
+    try:
+        assert settings().database_url == "postgresql+psycopg://user:secret@db.internal:5432/factory"
+    finally:
+        monkeypatch.undo()
+        settings.cache_clear()

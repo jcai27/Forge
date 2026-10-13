@@ -209,6 +209,13 @@ a rate or decides a finding. Work a percentage out only over the periods its pap
 report missing paperwork rather than treating it as zero. A date is never a fixed vocabulary in a
 derived schema. The demo's agents score well on documents drawn by their own generator: say so, and
 never quote those scores as accuracy on a customer's documents.
+Hosting is documented in docs/DEPLOYMENT.md: production requires REGISTRATION=invited with OWNER_EMAILS,
+because a hosted instance runs on its owner's provider key; never reopen registration there. Prove
+production changes with scripts/prod-local.sh. Mailboxes (docs/MAILBOXES.md): Microsoft takes no password
+for IMAP, only XOAUTH2 with a stored refresh token; keep the folder read-only, fetch with BODY.PEEK, and
+store a rotated refresh token encrypted. Export files (docs/ACCOUNTING_EXPORTS.md) follow the vendors'
+published limits; refuse to produce a file the receiving system would refuse, and never describe a file as
+import-proven until it has been imported.
 
 Invariants: tenant ownership is checked server-side on every resource access;
 immutable versions; evaluations use isolated state; production writes require

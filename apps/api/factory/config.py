@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     database_url: str = "sqlite:///./factory.db"
     redis_url: str = "redis://localhost:6379/0"
+    # Where a provider gives the request-limit store as host:port and not as an address.
+    redis_hostport: str = ""
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
     # Optional OpenAI-compatible endpoint (for example a local model server). Empty uses the OpenAI API.
@@ -64,6 +66,11 @@ class Settings(BaseSettings):
     encryption_key: str = ""
     environment: str = "development"
     cors_origins: list[str] = ["http://localhost:3000"]
+    # Who may create an account. "open": anyone, with a workspace of their own, which is right on a laptop.
+    # "invited": only an address in owner_emails, or one holding an invitation that is still pending. A hosted
+    # instance runs on its owner's provider key, so a stranger with a workspace could spend the owner's money.
+    registration: str = "open"
+    owner_emails: list[str] = []
 
     def validate_provider(self):
         if self.openai_api not in ("responses", "chat_completions"):
@@ -81,6 +88,8 @@ class Settings(BaseSettings):
                 raise ValueError("Production requires ENCRYPTION_KEY")
             if not self.database_url.startswith("postgresql"):
                 raise ValueError("Production requires PostgreSQL")
+            if self.registration != "invited":
+                raise ValueError("Production requires REGISTRATION=invited, with OWNER_EMAILS for the first account")
 
 
 def mode_for(template):
@@ -96,6 +105,15 @@ def mode_for(template):
 @lru_cache
 def settings():
     value = Settings()
+    # Hosting providers hand out the address in the bare form, which SQLAlchemy takes to mean a driver this
+    # application does not ship. It is the same database either way.
+    for bare in ("postgresql://", "postgres://"):
+        if value.database_url.startswith(bare):
+            value.database_url = "postgresql+psycopg://" + value.database_url[len(bare) :]
+    if value.redis_hostport:
+        value.redis_url = f"redis://{value.redis_hostport}/0"
+    if value.registration not in ("open", "invited"):
+        raise ValueError("REGISTRATION must be open or invited")
     value.validate_provider()
     value.validate_production()
     return value

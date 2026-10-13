@@ -28,6 +28,7 @@ test('customer invoice workflow: review, reconcile a statement and export approv
   await expect(portal.getByText('1 approved invoice is waiting to be sent.')).toBeVisible();
   await portal.getByLabel('Your ledger accounts').fill('5000, Food cost');
   await portal.getByLabel('Account for anything not set below').selectOption('5000');
+  await portal.getByLabel('Tax type or code').fill('Tax Exempt (0%)');
   await portal.getByRole('button', {name: 'Save', exact: true}).click();
   await expect(portal.getByRole('alert').filter({hasText: 'Saved.'})).toBeVisible();
   await expect(portal.getByRole('button', {name: 'Send 1 and download'})).toBeEnabled();

@@ -28,8 +28,13 @@ EXPORT_FORMATS = {
     "quickbooks": "QuickBooks Online bills import (CSV)",
     "lines": "Every line (CSV)",
 }
-# QuickBooks advises importing no more than this many bills in one file.
+# QuickBooks advises importing no more than this many bills in one file, and takes only spreadsheets of
+# fewer than 1,000 rows. Both are from Intuit's own help pages, cited in docs/ACCOUNTING_EXPORTS.md.
 QUICKBOOKS_BATCH = 100
+QUICKBOOKS_ROWS = 999
+# How a date is written in an export file. Neither system takes one fixed format: Xero reads dates the way
+# the organisation's region writes them, and QuickBooks asks which format the file uses while importing.
+DATE_FORMATS = {"mdy": "%m/%d/%Y", "dmy": "%d/%m/%Y", "iso": "%Y-%m-%d"}
 
 
 def number(value):
@@ -283,11 +288,19 @@ def bill_lines(document, settings):
         due = (date.fromisoformat(issued) + timedelta(days=int(settings.get("terms_days", 30)))).isoformat()
     except ValueError:
         due = ""
+    shape = DATE_FORMATS.get(str(settings.get("date_format") or "iso"), "%Y-%m-%d")
+
+    def written(day):
+        try:
+            return date.fromisoformat(day).strftime(shape)
+        except ValueError:
+            return day
+
     header = {
         "supplier": str(data.get("supplier") or ""),
         "number": str(data.get("invoice_number") or ""),
-        "date": issued,
-        "due": due,
+        "date": written(issued),
+        "due": written(due),
         "account": account_for(settings, data.get("supplier")),
         "tax": str(settings.get("tax_code") or ""),
     }
@@ -358,7 +371,7 @@ def export_file(kind, documents, settings):
     elif kind == "quickbooks":
         writer.writerow(
             [
-                "Bill No.",
+                "Bill no.",
                 "Supplier",
                 "Bill Date",
                 "Due Date",
@@ -404,6 +417,39 @@ def export_file(kind, documents, settings):
                 row.update(document=document.name, account=account_for(settings, data.get("supplier")))
                 writer.writerow([_safe(row.get(column, "")) for column in columns])
     return buffer.getvalue()
+
+
+def unsendable(kind, documents, settings):
+    """Why approved documents cannot go into a file of this kind as things stand, if they cannot. The rules are
+    the receiving system's own, so a file that would be refused on import is not produced."""
+    if kind == "xero" and not str(settings.get("tax_code") or "").strip():
+        return (
+            "Xero's bill template needs a tax type on every line. Set one under Accounts and approval: it must be "
+            "the name of a tax rate in your Xero organisation, exactly as Xero shows it."
+        )
+    if kind == "quickbooks":
+        credits = [
+            document.name for document in documents if (number((answer(document) or {}).get("total_cents")) or 0) < 0
+        ]
+        if credits:
+            return (
+                "QuickBooks' bill import does not take a bill with a total below zero, and has no credit notes: "
+                + ", ".join(credits[:5])
+                + ". Enter these in QuickBooks by hand, or send them another way."
+            )
+    return None
+
+
+def quickbooks_batch(documents, settings):
+    """As many of the documents as one QuickBooks file may hold: up to its bill limit and its row limit."""
+    chosen, rows = [], 1
+    for document in documents[:QUICKBOOKS_BATCH]:
+        lines = len(bill_lines(document, settings)[1])
+        if chosen and rows + lines > QUICKBOOKS_ROWS:
+            break
+        chosen.append(document)
+        rows += lines
+    return chosen
 
 
 # A supplier's statement against the invoices received.

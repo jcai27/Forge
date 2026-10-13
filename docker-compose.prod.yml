@@ -1,0 +1,48 @@
+# Laid over docker-compose.yml to run the whole application in production mode on one machine: the same images
+# and settings as a hosted deployment, beside whatever is already running in development.
+#
+#   bash scripts/prod-local.sh up      # build and start, on ports 8010 (API) and 3010 (web)
+#   bash scripts/prod-local.sh check   # prove it: health, closed registration, no demo sign-in, a sign-in end to end
+#   bash scripts/prod-local.sh down    # stop and remove it, with its database
+name: agent-factory-prod
+x-production: &production
+  ENVIRONMENT: production
+  REGISTRATION: invited
+  OWNER_EMAILS: ${OWNER_EMAILS:?set OWNER_EMAILS}
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
+  CORS_ORIGINS: '["http://127.0.0.1:3010","http://localhost:3010"]'
+  EXECUTION_MODE: ${EXECUTION_MODE:-hybrid}
+  OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
+  BUILDER_MODEL: ${BUILDER_MODEL:-gpt-6-luna}
+  READER_MODEL: ${READER_MODEL:-gpt-6-luna}
+  AGENT_MODELS: '${AGENT_MODELS:-["gpt-6-luna"]}'
+  DOCUMENT_READING: ${DOCUMENT_READING:-true}
+services:
+  postgres:
+    ports: !reset []
+    volumes: !override ["postgres_prod_data:/var/lib/postgresql/data"]
+  redis:
+    ports: !reset []
+  migrate:
+    environment: *production
+  api:
+    environment: *production
+    ports: !override ["127.0.0.1:8010:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  worker:
+    environment: *production
+    restart: unless-stopped
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: http://127.0.0.1:8010
+    ports: !override ["127.0.0.1:3010:3000"]
+    restart: unless-stopped
+volumes:
+  postgres_prod_data:

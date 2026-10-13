@@ -5,7 +5,7 @@ import {usePathname} from 'next/navigation';
 import {QueryClient, QueryClientProvider, useQueryClient} from '@tanstack/react-query';
 import {Boxes, Building2, LayoutDashboard, Plug, ShieldCheck, Settings, Plus, LogOut, CircleCheck} from 'lucide-react';
 import type {Me, Agent, Metrics} from '../../../packages/contracts/src';
-import {PORTAL, api, inPortal, sessionKey, useResource} from '@/lib/api';
+import {API_URL, PORTAL, api, inPortal, sessionKey, useResource} from '@/lib/api';
 import {Button} from './ui/button';
 import {ToastContext, Loading} from './shared';
 import {Dashboard, NewAgent} from './workspace-pages';
@@ -50,6 +50,9 @@ function Session() {
 }
 function Login({onLogin}: {onLogin: () => void}) {
   const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [organization, setOrganization] = useState(''), [register, setRegister] = useState(false), [error, setError] = useState(''), [pending, setPending] = useState(false);
+  // What this instance offers at the door. A hosted one has no demo workspace, and takes new accounts by invitation only.
+  const [offers, setOffers] = useState({demo_sign_in: false, registration: 'invited'});
+  useEffect(() => {fetch(`${API_URL}/health`).then(response => response.json()).then(setOffers).catch(() => {});}, []);
   async function login(demo = false) {setPending(true); setError(''); try {const result = await api<{token: string}>(demo ? '/auth/demo' : register ? '/auth/register' : '/auth/login', demo ? {} : register ? {email, password, organization} : {email, password}); localStorage.setItem('factory-token', result.token); onLogin();} catch(e) {setError(e instanceof Error ? e.message : 'Sign in failed');} finally {setPending(false);}}
   return <div className="login">
     <aside className="login-aside">
@@ -76,9 +79,10 @@ function Login({onLogin}: {onLogin: () => void}) {
         <Button className="full" disabled={pending}>{pending ? 'Connecting…' : register ? 'Create workspace' : 'Sign in'}</Button>
       </form>
       <Button variant="ghost" className="full" style={{marginTop:8}} onClick={() => setRegister(!register)}>{register ? 'Already have an account? Sign in' : 'Create an account'}</Button>
-      <div className="or">Local development</div>
+      {register && offers.registration === 'invited' && <p className="help">Accounts here are by invitation. Use the email address you were invited with.</p>}
+      {offers.demo_sign_in && <><div className="or">Local development</div>
       <Button variant="secondary" className="full" disabled={pending} onClick={() => void login(true)}>Open local demo workspace</Button>
-      <p className="help">Fictional business data. Runs are deterministic and labeled as demo, never as live model execution.</p>
+      <p className="help">Fictional business data. Runs are deterministic and labeled as demo, never as live model execution.</p></>}
     </div></main>
   </div>;
 }

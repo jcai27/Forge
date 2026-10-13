@@ -440,6 +440,10 @@ def test_approved_invoices_go_to_the_books_once_coded_to_an_account(client, seed
     }
     saved = client.put(f"{url}/settings", headers=customer, json=settings).json()
     assert saved["suppliers"] == ["Gordon Food Service"] and "xero" in saved["formats"]
+    # Xero's template needs a tax type on every line: without one the file would be refused on import, so it is not made.
+    untaxed = client.post(f"{url}/exports", headers=customer, json={"format": "xero"})
+    assert untaxed.status_code == 422 and "tax type" in untaxed.json()["error"]["message"]
+    client.put(f"{url}/settings", headers=customer, json={**settings, "tax_code": "Tax Exempt (0%)"})
     waiting = client.get(f"{url}/exports", headers=customer).json()
     assert (waiting["waiting"], waiting["uncoded_suppliers"], waiting["items"]) == (1, [], [])
     batch = client.post(f"{url}/exports", headers=customer, json={"format": "xero"})
@@ -447,7 +451,8 @@ def test_approved_invoices_go_to_the_books_once_coded_to_an_account(client, seed
     lines = client.get(f"/portal/exports/{batch.json()['id']}/file", headers=customer).text.strip().splitlines()
     assert lines[0].startswith("*ContactName,*InvoiceNumber,*InvoiceDate,*DueDate")
     # The supplier's account, the due date from the terms, and a bill that adds up to the invoice.
-    assert lines[1] == "Gordon Food Service,1,2026-02-01,2026-03-01,206539 CASE LARGE EGGS,5,9.37,5000,"
+    # Dates month first unless the customer chooses otherwise.
+    assert lines[1] == "Gordon Food Service,1,02/01/2026,03/01/2026,206539 CASE LARGE EGGS,5,9.37,5000,Tax Exempt (0%)"
     # It went once: the document is marked, cannot be changed here, and is not sent again.
     gone = client.get(f"/portal/documents/{first['id']}", headers=customer).json()
     assert gone["stage"] == "exported" and gone["export_id"] == batch.json()["id"]
@@ -483,9 +488,35 @@ def test_a_bill_always_adds_up_to_the_invoice_and_weights_are_one_unit():
     assert shown == [("1", "98.24"), ("5", "9.37"), ("1", "2.21"), ("1", "12.70")]
     assert sum(amount for *_, amount in lines) * 100 == 16000
     quickbooks = export_file("quickbooks", [document], {"default_account": "5000"}).splitlines()
-    assert quickbooks[0].startswith("Bill No.,Supplier,Bill Date,Due Date,Account") and len(quickbooks) == 5
+    # The headings are QuickBooks' own names for its mandatory bill fields.
+    assert quickbooks[0] == "Bill no.,Supplier,Bill Date,Due Date,Account,Line Description,Line Amount,Line Tax Code"
+    assert len(quickbooks) == 5
     # A description a spreadsheet would run as a formula is written as text.
     assert "'=SUM(A1)" in quickbooks[3]
+    # Dates are written the way the customer's accounting system is set to read them.
+    assert bill_lines(document, {"date_format": "dmy", "terms_days": 14})[0]["due"] == "15/02/2026"
+    assert bill_lines(document, {"date_format": "mdy", "terms_days": 14})[0]["date"] == "02/01/2026"
+    # QuickBooks takes fewer than 1,000 rows and at most 100 bills in a file: the rest wait for the next one.
+    from factory.payables import quickbooks_batch, unsendable
+
+    many = [SimpleNamespace(corrected=None, output=answer, name=f"{n}.pdf") for n in range(400)]
+    first = quickbooks_batch(many, {"default_account": "5000"})
+    assert len(first) == 100 and len(export_file("quickbooks", first, {"default_account": "5000"}).splitlines()) == 401
+    long = {
+        **answer,
+        "total_cents": 150000,
+        "items": [{"description": "x", "quantity": 1, "unit_price": 5, "amount": 5.0}] * 300,
+    }
+    heavy = [SimpleNamespace(corrected=None, output=long, name=f"{n}.pdf") for n in range(10)]
+    assert len(quickbooks_batch(heavy, {})) == 3  # 300 lines a bill: three fit under a thousand rows with the heading
+    # It takes no bill below zero, and Xero none without a tax type.
+    credit = SimpleNamespace(corrected=None, output={**answer, "total_cents": -500}, name="credit.pdf")
+    assert "credit.pdf" in unsendable("quickbooks", [document, credit], {})
+    assert (
+        unsendable("quickbooks", [document], {}) is None
+        and unsendable("xero", [document], {"tax_code": "NONE"}) is None
+    )
+    assert "tax type" in unsendable("xero", [document], {})
 
 
 def test_a_suppliers_statement_is_reconciled_against_the_invoices_received(client, seeded, db, workspace):  # noqa: F811

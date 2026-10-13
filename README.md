@@ -136,6 +136,21 @@ See [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) and [docs/ARCHITECTURE.md](docs
 Production needs a strong `JWT_SECRET`, a Fernet `ENCRYPTION_KEY`, PostgreSQL and Redis.
 Generate a Fernet key using `.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`
 from apps/api. Set `ENVIRONMENT=production` to enforce these settings and disable demo login.
+## Leaving the laptop
+
+What is proven and what is not, as of October 2026:
+
+| | Proven | Not proven |
+|---|---|---|
+| Hosting | The same images run in production mode on one machine (`bash scripts/prod-local.sh up`, then `check`): PostgreSQL, migrations to 0017, closed registration, no demo sign-in, a backup. The test suite passes on PostgreSQL. A Render blueprint (`render.yaml`) and steps are in docs/DEPLOYMENT.md. | Nothing is deployed. The blueprint has never been submitted. |
+| Mailbox | The IMAP code against a stand-in answering as Gmail and Outlook do, including Microsoft sign-in. `scripts/mailbox_check.py` proves a real one in two commands. docs/MAILBOXES.md. | No real mailbox has been read. |
+| Accounting | Both export files checked field by field against Intuit's and Xero's published instructions, and corrected. docs/ACCOUNTING_EXPORTS.md. | Neither file has been imported into a live organisation. Xero's own page could not be read. |
+| Real documents | Supplier invoices and statements (demo/restaurant), and point-of-sale sales summaries: 8 of 8 held back (demo/sales). | Every other operations agent is measured on generated documents only. |
+
+A hosted instance needs `ENVIRONMENT=production`, which requires `REGISTRATION=invited`: only
+`OWNER_EMAILS` and invited people can create an account, because it runs on its owner's model
+provider key.
+
 Keep secrets in your deployment secret manager. Real business writes require separate
 explicit authorization; no development or evaluation command performs them.
 

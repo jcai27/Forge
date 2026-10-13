@@ -1166,3 +1166,48 @@ Checks: `bash scripts/test.sh`; `rehearse-operations.mjs` twice in a row with a 
 PostgreSQL suite, migrations 0016 and 0017 on PostgreSQL. Purchasing has no agent in the sample
 workspace.
 
+## Ready to leave the laptop, as far as that can be proven without accounts
+
+**Hosting: proven locally, not deployed.**
+- The whole suite passes on PostgreSQL: 473 passed. (The first run was cut short when the disk
+  filled and PostgreSQL went into recovery; rerun clean.)
+- `scripts/prod-local.sh up` builds the images and runs them in production mode beside the
+  development app; `check` passed: health, demo sign-in off, a stranger refused, the owner
+  registered and signed in, a customer workspace opened in PostgreSQL, migrations at 0017, a
+  `pg_dump` backup, the web app built against the API, the worker running, and cross-origin
+  requests allowed from the web address only.
+- New for hosting: `REGISTRATION=invited` (required in production, with `OWNER_EMAILS`), because an
+  open sign-up on a hosted instance lets a stranger spend the owner's model key; a provider's bare
+  `postgresql://` address is accepted; the request-limit store can be given as host and port; the
+  sign-in page hides the demo button and says accounts are by invitation.
+- `render.yaml` and docs/DEPLOYMENT.md name Render, about $37 a month. Never submitted. The
+  sandbox for builder-written code is not part of it.
+
+**Mailbox: ready, blocked on credentials.**
+- Outlook.com and Microsoft 365 take no password or app password for IMAP any more. The mailbox
+  code could not have connected to one. Microsoft sign-in (XOAUTH2 with a stored refresh token) is
+  added, with `scripts/outlook_signin.py` to get the token.
+- The IMAP code had no tests of its own. It has five now, against a stand-in. Also fixed: the
+  mailbox's position is read from the folder's opening; a message is found among other server
+  updates; a refused sign-in says what to do; a logo in a signature is not taken for a document.
+- `scripts/mailbox_check.py` connects a real mailbox, takes in one emailed invoice and proves no
+  flag changed. Not run: no credentials.
+
+**Accounting: specification-checked, not import-proven.**
+- Against Intuit's pages: a QuickBooks file now stops before 1,000 rows as well as at 100 bills; a
+  bill below zero stops the export; the heading is "Bill no."; dates are written as the customer
+  sets. In the US only QuickBooks Online Advanced imports bills from a file.
+- Against Xero's template as documented: an export is refused without a tax type, which was
+  written blank. Xero's own help page could not be read here.
+
+**Real documents: one more kind.**
+- demo/sales: thirteen real point-of-sale sales summaries from In re Smokecraft Clarendon, LLC
+  (Bankr. D. Md. 24-13609), three layouts, typed. Built through Agent Factory on five; **eight of
+  eight held back right in all fourteen figures**, one round, $0.01. One restaurant, one system.
+- Also searched for on RECAP: delivery platform payout statements, time cards, payroll registers,
+  stock counts, cash-up sheets, licences. Hits exist, scattered one or two to a docket (time cards
+  and liquor licences most often); no filing with a set large enough to build and measure on was
+  found, and those were not gathered.
+
+Checks: `bash scripts/test.sh`; both rehearsals; the PostgreSQL suite; `scripts/prod-local.sh check`.
+
