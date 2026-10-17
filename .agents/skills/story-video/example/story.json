@@ -1,0 +1,72 @@
+{
+  "name": "the-box",
+  "title": "The Box: how a steel container remade world trade",
+  "summary": "A one-minute history of the shipping container.",
+  "style": "documentary",
+  "voice": { "engine": "kokoro", "voice": "am_michael", "speed": 1.0 },
+  "sources": [
+    { "title": "Containerization", "publisher": "Wikipedia", "url": "https://en.wikipedia.org/wiki/Containerization" },
+    { "title": "SS Ideal X", "publisher": "Wikipedia", "url": "https://en.wikipedia.org/wiki/SS_Ideal_X" },
+    { "title": "Malcom McLean", "publisher": "Wikipedia", "url": "https://en.wikipedia.org/wiki/Malcom_McLean" },
+    "Further reading: Marc Levinson, The Box (Princeton University Press, 2006)"
+  ],
+  "beats": [
+    { "id": "open",
+      "shot": { "type": "clip", "clip": "assets/ship-clip.mp4" },
+      "say": "Almost everything you own came to you inside a steel box." },
+
+    { "id": "title",
+      "shot": { "type": "title", "kicker": "A short history", "title": "The Box", "subtitle": "How a steel container remade world trade", "bg": "assets/ship-sea.jpg" } },
+
+    { "id": "by-hand", "chapter": "Before the box",
+      "shot": { "type": "image", "image": "assets/hold.jpg", "label": "Before the box", "caption": "Every sack, carried by hand" },
+      "say": ["Before the box, cargo was loaded by hand.", "Sack by sack. Crate by crate."] },
+
+    { "id": "slow",
+      "shot": { "type": "image", "image": "assets/dockers.png", "label": "Hallstavik, Sweden, 1962", "caption": "Slow, heavy, expensive work" },
+      "say": "It was slow. It was heavy. And it was expensive." },
+
+    { "id": "question",
+      "shot": { "type": "text", "text": "Why not lift the *whole trailer*?", "at": 1, "bg": "assets/dockers.png" },
+      "say": [{ "text": "Then a trucking man named Malcom McLean asked a simple question.", "speak": "Then a trucking man named Malcolm Mc Clane asked a simple question." },
+              "Why not lift the whole trailer onto the ship?"] },
+
+    { "id": "ch-voyage", "shot": { "type": "chapter", "title": "The first voyage" } },
+
+    { "id": "dates",
+      "shot": { "type": "timeline", "title": "Twelve years", "events": [
+        { "year": "1956", "label": "The Ideal X sails from Newark to Houston" },
+        { "year": "1966", "label": "Container ships cross the Atlantic" },
+        { "year": "1968", "label": "The world agrees on standard sizes" } ] },
+      "say": [{ "text": "In April 1956 his ship, the Ideal X, left Newark for Houston.", "speak": "In April nineteen fifty six, his ship, the Ideal Ex, left Newark for Houston." },
+              "Ten years later, containers were crossing the Atlantic.",
+              { "text": "And by 1968, the world had agreed on standard sizes.", "speak": "And by nineteen sixty eight, the world had agreed on standard sizes." }] },
+
+    { "id": "fifty-eight",
+      "shot": { "type": "stat", "value": 58, "label": "containers on that first voyage" },
+      "say": { "text": "It carried just 58 containers.", "speak": "It carried just fifty eight containers." } },
+
+    { "id": "cost", "chapter": "What it saved",
+      "shot": { "type": "compare",
+        "left": { "label": "By hand", "value": "$5.86", "text": "to load one ton" },
+        "right": { "label": "By container", "value": "16¢", "text": "to load one ton" } },
+      "say": [{ "text": "Loading a ship by hand cost $5.86 a ton.", "speak": "Loading a ship by hand cost five dollars eighty six a ton." },
+              { "text": "With containers, about 16 cents.", "speak": "With containers, about sixteen cents." }] },
+
+    { "id": "cranes",
+      "shot": { "type": "image", "image": "assets/cranes.jpg", "label": "Antwerp", "caption": "Ports rebuilt around the box" },
+      "say": "Ports were rebuilt around the box." },
+
+    { "id": "anywhere",
+      "shot": { "type": "clip", "clip": "assets/ship-clip.mp4" },
+      "say": "And shipping became so cheap that where a thing is made stopped mattering very much." },
+
+    { "id": "changed",
+      "shot": { "type": "list", "title": "What the box changed", "items": ["Ships loaded far faster", "The cost of loading collapsed", "Factories could be anywhere"] },
+      "say": ["Faster loading.", "Cheaper freight.", "Factories anywhere."] },
+
+    { "id": "end",
+      "shot": { "type": "outro", "title": "It is just a *box*", "subtitle": "And it changed everything", "note": "Sources and image credits are in the description", "bg": "assets/ship-sea.jpg" },
+      "say": "It is just a box. And it changed everything." }
+  ]
+}
