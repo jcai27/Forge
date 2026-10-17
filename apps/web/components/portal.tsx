@@ -1,5 +1,5 @@
 'use client';
-import {useEffect, useRef, useState} from 'react';
+import {Fragment, useEffect, useRef, useState} from 'react';
 import Link from 'next/link';
 import {ArrowLeft, ArrowRight, Building2, LayoutDashboard, LoaderCircle, Banknote, Bot, CalendarHeart, ClipboardCheck, Bike, FlaskConical, Landmark, ShoppingCart, Users, Utensils, Warehouse, Check, DollarSign, Download, Package, Tags, TrendingUp, Truck, FileSpreadsheet, LogOut, Mail, Pencil, ReceiptText, Trash2, TriangleAlert, Upload} from 'lucide-react';
 import {API_URL, PORTAL, token, useResource} from '@/lib/api';
@@ -49,6 +49,13 @@ const TABS: Record<string, {value: string; label: string}[]> = {
 const tabsOf = (operation: Operation) => TABS[operation.kind] ?? TABS.statement;
 const DASHBOARD = `${PORTAL}/dashboard`;
 const AREA_ICONS: Record<string, typeof ReceiptText> = {sales: Utensils, purchasing: ShoppingCart, inventory: Warehouse, labour: Users, cash: Banknote, delivery: Bike, catering: CalendarHeart, accounting: Landmark, compliance: ClipboardCheck};
+const NAV_STAGES: {title: string; areas: string[]; kinds: string[]}[] = [
+  {title: 'Suppliers and stock', areas: ['purchasing', 'inventory'], kinds: ['invoice']},
+  {title: 'People and premises', areas: ['labour', 'compliance'], kinds: []},
+  {title: 'Sales and takings', areas: ['sales', 'delivery', 'cash'], kinds: []},
+  {title: 'Finance', areas: ['accounting'], kinds: ['statement']},
+  {title: 'Customers', areas: ['catering'], kinds: []},
+];
 const home = (operation: Operation, tab = 'documents') => `${PORTAL}/agents/${operation.id}${tab === 'documents' ? '' : `/${tab}`}`;
 const open = (id: string) => `${PORTAL}/documents/${id}`;
 
@@ -64,6 +71,20 @@ export function Portal({path, logout}: {path: string; logout: () => void}) {
   const operation = parts[0] === 'agents' ? all.find(item => item.id === parts[1]) : undefined;
   const tab = operation ? tabsOf(operation).find(item => item.value === (parts[2] ?? 'documents')) : undefined;
   const areas = me.data.areas.filter(item => item.area !== 'overview'), area = parts[0] === 'areas' ? areas.find(item => item.area === parts[1]) : undefined;
+  // Follow the work from supplier paperwork to customer work, regardless of installation order.
+  const navigation = NAV_STAGES.map(stage => ({
+    title: stage.title,
+    links: [
+      ...all.filter(item => stage.kinds.includes(item.kind) || (!areas.length && stage.areas.includes(item.area ?? '')))
+        .sort((a, b) => stage.areas.indexOf(a.area ?? '') - stage.areas.indexOf(b.area ?? ''))
+        .map(item => ({key: item.id, title: item.name, href: home(item), Icon: AREA_ICONS[item.area ?? ''] ?? (item.kind === 'statement' ? FileSpreadsheet : ReceiptText), active: item.id === operation?.id})),
+      ...stage.areas.flatMap(key => areas.filter(item => item.area === key))
+        .map(item => ({key: item.area, title: item.title, href: `${PORTAL}/areas/${item.area}`, Icon: AREA_ICONS[item.area] ?? ReceiptText, active: item.area === area?.area})),
+    ],
+  }));
+  const otherAreas = areas.filter(item => !NAV_STAGES.some(stage => stage.areas.includes(item.area)));
+  if (otherAreas.length) navigation.push({title: 'Other operations', links: otherAreas.map(item => ({key: item.area, title: item.title, href: `${PORTAL}/areas/${item.area}`, Icon: AREA_ICONS[item.area] ?? ReceiptText, active: item.area === area?.area}))});
+  const otherAgents = !areas.length ? all.filter(item => !NAV_STAGES.some(stage => stage.kinds.includes(item.kind) || stage.areas.includes(item.area ?? ''))) : [];
   let page, here = 'Dashboard';
   if (parts[0] === 'documents' && parts[1]) {page = <DocumentPage id={parts[1]} operations={all} canWork={canWork}/>; here = 'Document';}
   else if (operation && tab) {
@@ -83,10 +104,10 @@ export function Portal({path, logout}: {path: string; logout: () => void}) {
       <Link href={DASHBOARD} className="brand"><span className="brand-icon"><Building2 size={16}/></span>{me.data.workspace.name}</Link>
       <nav className="nav" aria-label="Primary">
         <Link className={`nav-link ${here === 'Dashboard' ? 'active' : ''}`} aria-current={here === 'Dashboard' ? 'page' : undefined} href={DASHBOARD}><LayoutDashboard size={16}/>Dashboard</Link>
+        {navigation.filter(stage => stage.links.length > 0).map(stage => <Fragment key={stage.title}><div className="nav-label">{stage.title}</div>{stage.links.map(({key, title, href, Icon, active}) => <Link key={key} className={`nav-link ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} href={href}><Icon size={16}/>{title}</Link>)}</Fragment>)}
+        {(areas.length > 0 || otherAgents.length > 0) && <div className="nav-label">Workspace</div>}
         {areas.length > 0 && <Link className={`nav-link ${here === 'Agents' ? 'active' : ''}`} aria-current={here === 'Agents' ? 'page' : undefined} href={`${PORTAL}/agents`}><Bot size={16}/>Agents</Link>}
-        {areas.length > 0 && <><div className="nav-label">Operations</div>{areas.map(item => {const Icon = AREA_ICONS[item.area] ?? ReceiptText, active = item.area === area?.area; return <Link key={item.area} className={`nav-link ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} href={`${PORTAL}/areas/${item.area}`}><Icon size={16}/>{item.title}</Link>;})}</>}
-        {!areas.length && <div className="nav-label">Agents</div>}
-        {!areas.length && all.map(item => {const Icon = item.kind === 'statement' ? FileSpreadsheet : ReceiptText, active = item.id === operation?.id; return <Link key={item.id} className={`nav-link ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} href={home(item)}><Icon size={16}/>{item.name}</Link>;})}
+        {otherAgents.map(item => {const active = item.id === operation?.id; return <Link key={item.id} className={`nav-link ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} href={home(item)}><ReceiptText size={16}/>{item.name}</Link>;})}
         {!all.length && !areas.length && <div className="muted small" style={{padding:'4px 10px'}}>None yet</div>}
       </nav>
       <div className="sidebar-bottom"><span className="avatar">{initials(me.data.workspace.name)}</span><div style={{minWidth:0}}><div className="org-name">{me.data.workspace.name}</div><div className="org-role">Operations platform</div></div></div>
@@ -136,7 +157,7 @@ export function PortalLogin({onLogin}: {onLogin: () => void}) {
       <p className="muted small" style={{marginBottom:24}}>{joining ? 'Use the email your invitation was sent to, choose a password, and enter the code.' : 'Use the account your workspace invitation was accepted with.'}</p>
       {error && <div role="alert" className="error">{error}</div>}
       <form onSubmit={event => {event.preventDefault(); void submit();}}>
-        <div className="field"><label htmlFor="portal-email">Email</label><input id="portal-email" className="input" type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)}/></div>
+        <div className="field"><label htmlFor="portal-email">{joining ? 'Email' : 'Email or username'}</label><input id="portal-email" className="input" type={joining ? 'email' : 'text'} autoComplete={joining ? 'email' : 'username'} required value={email} onChange={event => setEmail(event.target.value)}/></div>
         <div className="field"><label htmlFor="portal-password">Password</label><input id="portal-password" className="input" type="password" autoComplete={joining ? 'new-password' : 'current-password'} required minLength={joining ? 10 : 1} value={password} onChange={event => setPassword(event.target.value)}/></div>
         {joining && <div className="field"><label htmlFor="portal-code">Invitation code</label><input id="portal-code" className="input" type="password" required minLength={32} maxLength={128} autoComplete="off" value={code} onChange={event => setCode(event.target.value)}/></div>}
         <Button className="full" disabled={pending}>{pending ? 'Connecting…' : joining ? 'Join workspace' : 'Sign in'}</Button>

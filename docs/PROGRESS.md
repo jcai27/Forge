@@ -1211,3 +1211,25 @@ workspace.
 
 Checks: `bash scripts/test.sh`; both rehearsals; the PostgreSQL suite; `scripts/prod-local.sh check`.
 
+## Simple local demo sign-in (2026-10-13)
+
+- Both sign-in forms accept a username, so `demo` / `demo` opens the Harbor Table Group
+  sample customer dashboard. Registration and joining still use email addresses.
+- Operations seeding always sets this demo password, rather than generating one on a fresh
+  setup, and refuses outside development. No authentication bypass was added.
+- Verified the running app from both `/portal` and `/`: dashboard and Sample data mark
+  visible, no failed HTTP requests (including 429) or page errors. Ruff, strict TypeScript,
+  3 Vitest tests and 29 membership/portal API tests passed; 2 PostgreSQL-only tests skipped.
+  Full browser and PostgreSQL suites were not rerun for this change.
+
+## Customer sidebar follows the work (2026-10-13)
+
+- Replaced installation-order navigation with groups: suppliers and stock, people and premises,
+  sales and takings, finance, and customers. The Agents directory follows under Workspace.
+- Installed supplier invoices appear first and statements under Finance, including workspaces
+  that have operations areas. Empty groups disappear; unclassified areas/agents remain reachable.
+- Verified strict TypeScript and 3 Vitest tests. Targeted browser checks in Harbor Table Group
+  and Steel City Diners confirmed link order, navigation and active states, the Sample data mark,
+  and retention of links at mobile width; zero failed HTTP responses, 429s or page errors.
+  Inspected the desktop screenshot. Full browser and PostgreSQL suites were not rerun.
+

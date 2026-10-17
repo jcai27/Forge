@@ -12,7 +12,7 @@ showing you what the platform does across a business, not somebody's results."
     bash demo/restaurant/start.sh        # leave running
     bash demo/operations/reset.sh        # before every showing
 
-- Sign in at http://localhost:3000/portal as `harbor@demo.test` / `harbortable`.
+- Sign in at http://localhost:3000/portal as `demo` / `demo`.
 - Have `demo/operations/data/live/` open in a file window: two documents for each agent.
 - Optional dry run: `cd apps/web && node tests/demo/rehearse-operations.mjs`, then reset again.
 

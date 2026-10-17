@@ -157,7 +157,10 @@ works one area out from them in `factory/operations.py`: sales, purchasing, stoc
 labour, cash and banking, delivery platforms, catering, profit and loss, compliance, and an
 overview of all of them. Each returns tiles, a chart, ranked bars, tables and what its rules say
 needs somebody; the rules and their limits are constants at the top of that file. A workspace with
-records gets an Operations group in the sidebar and opens on the overview.
+records opens on the overview. Its sidebar follows the work: suppliers and stock, people and
+premises, sales and takings, finance, then customers (catering and events). Installed supplier
+invoice agents come first, supplier statements sit under finance, and the Agents directory sits
+below the cycle. Empty groups are omitted; only this workspace's available areas and agents appear.
 
 **Agents that fill them.** An agent whose answer has the shape of a till report, cash-up sheet,
 payout statement, timesheet, stock count, catering enquiry or certificate is installed as an

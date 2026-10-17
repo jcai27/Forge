@@ -20,6 +20,9 @@ agent is shown on real invoices in `demo/restaurant/`. Profit and loss has no do
     bash demo/operations/build.sh      # documents, agents, workspace: everything, from nothing
     bash demo/operations/reset.sh      # back to the starting state before each showing
 
+Sign in at http://localhost:3000/portal with username `demo` and password `demo`.
+The seed script creates this account only in development; resets keep its sign-in working.
+
 `build.sh` draws the documents, builds each agent on 24 examples (8 for the builder, 6 to score
 changes, 10 held back), approves and deploys the ones that meet their target, installs them, and
 sends the last week's 81 documents through them. It carries on where it left off. `CALL.md` is the

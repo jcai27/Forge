@@ -1,6 +1,18 @@
 # Execution roadmap
 
 Authoritative scope: docs/AGENT_FACTORY_SPEC.md. The complete goal remains active.
+Customer sidebar (2026-10-13): grouped in operating order, from supplier invoices/purchasing
+and stock through staffing, daily trade and finance to customer events; Agents follows as a
+workspace utility. Verified TypeScript, 3 Vitest tests, and targeted browser navigation in both
+demo workspaces with no failed responses or page errors. Full acceptance suites not rerun.
+
+Local demo sign-in (2026-10-13): `demo` / `demo` opens the Harbor Table Group customer
+dashboard from `/portal` or the main sign-in. Both forms accept usernames; registration
+and invitation forms still require email addresses. Operations seeding fixes these credentials
+and refuses outside development. Verified: both browser sign-in paths, no failed requests or
+page errors; Ruff; TypeScript; 3 Vitest tests; 29 targeted API tests (2 PG-only skips).
+The full browser and PostgreSQL suites were not rerun for this change.
+
 See docs/ACCEPTANCE.md for requirement-level evidence and gaps; chronological evidence
 is in docs/PROGRESS.md. Latest verified milestone: 2026-10-10 builder harness (docs/BUILDER.md):
 search-loop fixes, tool-using optimizer with typed patches, screened multi-candidate rounds,

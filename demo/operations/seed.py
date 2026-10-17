@@ -9,11 +9,11 @@ demo/operations/.login (not in git). Run it again at any time: the records come 
 """
 
 import json
-import secrets
 import sys
 from pathlib import Path
 
 from documents import split
+from factory.config import settings
 from factory.db import SessionLocal
 from factory.models import Membership, OperationsRecord, Organization, Project, User
 from factory.security import passwords
@@ -21,10 +21,12 @@ from sample import GROUP, generate
 from sqlalchemy import delete, select
 
 HERE = Path(__file__).parent
-BUILDER, LOGIN, KEPT = "demo@agentfactory.local", "harbor@demo.test", HERE / ".login"
+BUILDER, LOGIN, KEPT = "demo@agentfactory.local", "demo", HERE / ".login"
 
 
 def main():
+    if settings().environment != "development":
+        sys.exit("The demo account can only be created in development.")
     with SessionLocal() as db:
         builder = db.scalar(select(User).where(User.email == BUILDER))
         home = builder and db.scalar(
@@ -47,7 +49,7 @@ def main():
         # The history only: the last week reaches the workspace through agents reading documents.
         records, _ = split(generate())
         db.add_all(OperationsRecord(org_id=org.id, source="sample", **item) for item in records)
-        password = json.loads(KEPT.read_text())["password"] if KEPT.exists() else secrets.token_urlsafe(12)
+        password = "demo"
         person = db.scalar(select(User).where(User.email == LOGIN))
         if person is None:
             person = User(email=LOGIN, password_hash=passwords.hash(password))

@@ -73,7 +73,7 @@ function Login({onLogin}: {onLogin: () => void}) {
       <p className="muted small" style={{marginBottom:24}}>{register ? 'Set up an organization and its first administrator.' : 'Use your workspace account to continue.'}</p>
       {error && <div role="alert" className="error">{error}</div>}
       <form onSubmit={e => {e.preventDefault(); void login();}}>
-        <div className="field"><label htmlFor="email">Email</label><input id="email" className="input" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)}/></div>
+        <div className="field"><label htmlFor="email">{register ? 'Email' : 'Email or username'}</label><input id="email" className="input" type={register ? 'email' : 'text'} autoComplete={register ? 'email' : 'username'} required value={email} onChange={e => setEmail(e.target.value)}/></div>
         <div className="field"><label htmlFor="password">Password</label><input id="password" className="input" type="password" autoComplete={register ? 'new-password' : 'current-password'} required minLength={register ? 10 : 1} value={password} onChange={e => setPassword(e.target.value)}/></div>
         {register && <div className="field"><label htmlFor="organization">Organization name</label><input id="organization" className="input" required value={organization} onChange={e => setOrganization(e.target.value)}/></div>}
         <Button className="full" disabled={pending}>{pending ? 'Connecting…' : register ? 'Create workspace' : 'Sign in'}</Button>
