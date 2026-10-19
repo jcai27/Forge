@@ -330,8 +330,9 @@ def bill_lines(document, settings):
 
 
 def _safe(value):
-    # A cell that a spreadsheet would run as a formula is written as text.
-    return "'" + value if isinstance(value, str) and value and value[0] in "=+-@" else value
+    # A text cell that a spreadsheet would run as a formula is written as text. Numbers are not passed
+    # through here: a negative amount must stay a number.
+    return "'" + value if isinstance(value, str) and value and value[0] in "=+-@\t\r" else value
 
 
 def export_file(kind, documents, settings):
@@ -357,17 +358,17 @@ def export_file(kind, documents, settings):
             header, lines = bill_lines(document, settings)
             for text, quantity, price, _ in lines:
                 row = [
-                    header["supplier"],
-                    header["number"],
-                    header["date"],
-                    header["due"],
-                    text,
+                    _safe(header["supplier"]),
+                    _safe(header["number"]),
+                    _safe(header["date"]),
+                    _safe(header["due"]),
+                    _safe(text),
                     f"{quantity.normalize():f}",
                     f"{price:f}",
-                    header["account"],
-                    header["tax"],
+                    _safe(header["account"]),
+                    _safe(header["tax"]),
                 ]
-                writer.writerow([_safe(cell) for cell in row])
+                writer.writerow(row)
     elif kind == "quickbooks":
         writer.writerow(
             [
@@ -385,16 +386,16 @@ def export_file(kind, documents, settings):
             header, lines = bill_lines(document, settings)
             for text, _, _, amount in lines:
                 row = [
-                    header["number"],
-                    header["supplier"],
-                    header["date"],
-                    header["due"],
-                    header["account"],
-                    text,
+                    _safe(header["number"]),
+                    _safe(header["supplier"]),
+                    _safe(header["date"]),
+                    _safe(header["due"]),
+                    _safe(header["account"]),
+                    _safe(text),
                     f"{amount:.2f}",
-                    header["tax"],
+                    _safe(header["tax"]),
                 ]
-                writer.writerow([_safe(cell) for cell in row])
+                writer.writerow(row)
     else:
         columns = [
             "document",

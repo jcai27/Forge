@@ -464,6 +464,39 @@ def test_approved_invoices_go_to_the_books_once_coded_to_an_account(client, seed
     assert client.get(f"/portal/exports/{batch.json()['id']}/file", headers=rival).status_code == 404
 
 
+def test_negative_amounts_are_exported_as_numbers_and_formula_text_is_guarded():
+    import csv
+    import io
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from factory.payables import export_file
+
+    starts = ["=1+1", "+1", "-1", "@SUM(A1)", "\tcmd", "\rcmd"]
+    answer = {
+        "supplier": "Sample Produce",
+        "invoice_number": "12",
+        "invoice_date": "2026-02-01",
+        "total_cents": 1150,
+        "items": [
+            {"description": "Carrots", "quantity": 2, "unit_price": 5, "amount": 10.0},
+            {"description": "Onions", "quantity": 1, "unit_price": 5, "amount": 5.0},
+        ]
+        + [{"description": text, "quantity": 1, "unit_price": 0, "amount": 0.0} for text in starts],
+    }
+    document = SimpleNamespace(corrected=None, output=answer, name="12.pdf")
+    settings = {"default_account": "5000", "tax_code": "Tax on Purchases"}
+    # The lines add up to more than the invoice: the balancing line is a negative number, not text.
+    xero = list(csv.reader(io.StringIO(export_file("xero", [document], settings), newline="")))
+    assert xero[-1][4] == "Tax and charges not on a line" and xero[-1][6] == "-3.50"
+    quickbooks = list(csv.reader(io.StringIO(export_file("quickbooks", [document], settings), newline="")))
+    assert quickbooks[-1][6] == "-3.50"
+    assert sum(Decimal(row[6]) for row in quickbooks[1:]) * 100 == 1150
+    # Text that a spreadsheet would run, or that starts with a tab or carriage return, is still guarded.
+    for rows, column in ((xero, 4), (quickbooks, 5)):
+        assert [row[column] for row in rows[3:-1]] == ["'" + text for text in starts]
+
+
 def test_a_bill_always_adds_up_to_the_invoice_and_weights_are_one_unit():
     from types import SimpleNamespace
 
