@@ -174,6 +174,60 @@ def test_a_microsoft_mailbox_signs_in_with_a_token_and_keeps_the_newest_refresh_
         check_mailbox(OUTLOOK, "refresh-2", position, 10)
 
 
+def plain(text, subject="Order", charset="utf-8"):
+    mail = EmailMessage()
+    mail["From"], mail["Subject"] = "Chef <chef@diner.example>", subject
+    mail.set_content(text, charset=charset)
+    return mail
+
+
+READ_BODY = {**GMAIL, "read_body": True}
+
+
+def test_with_read_body_a_plain_email_is_a_text_item_and_a_pdf_stays_the_only_item(connect):
+    start = {"validity": 7, "uid": 0}
+    server = connect(
+        Server(
+            [
+                (1, plain("2 cases brie, deliver Tuesday").as_bytes()),
+                (2, message(files=[("Invoice.pdf", "application/pdf", PDF)])),
+            ]
+        )
+    )
+    _, files = check_mailbox(READ_BODY, "app-password", start, 10)
+    assert [item["name"] for item in files] == ["Order.txt", "Invoice.pdf"]
+    assert files[0]["sender"] == "chef@diner.example" and "data" not in files[0]
+    assert files[0]["text"] == "From: Chef <chef@diner.example>\nSubject: Order\n\n2 cases brie, deliver Tuesday"
+    assert files[1]["data"] and "text" not in files[1]
+    assert any("BODY.PEEK[]" in call for call in server.calls)
+
+
+def test_without_read_body_no_text_items_appear(connect):
+    mail = [(1, plain("2 cases brie").as_bytes()), (2, message(files=[("Invoice.pdf", "application/pdf", PDF)]))]
+    connect(Server(mail))
+    _, files = check_mailbox(GMAIL, "app-password", {"validity": 7, "uid": 0}, 10)
+    assert [item["name"] for item in files] == ["Invoice.pdf"]
+    _, files = check_mailbox({**GMAIL, "read_body": False}, "app-password", {"validity": 7, "uid": 0}, 10)
+    assert [item["name"] for item in files] == ["Invoice.pdf"]
+
+
+def test_an_oversized_body_is_truncated():
+    import email
+
+    mail = email.message_from_bytes(plain("x" * 50_000).as_bytes())
+    assert len(mailbox.body_text(mail, 100)) == 100
+    assert len(mailbox.body_text(mail)) == mailbox.MAX_BODY_CHARS
+
+
+def test_a_multipart_alternative_message_uses_its_plain_part_only():
+    import email
+
+    mail = plain("plain words")
+    mail.add_alternative("<p>html words</p>", subtype="html")
+    text = mailbox.body_text(email.message_from_bytes(mail.as_bytes()), 1000)
+    assert "plain words" in text and "html" not in text
+
+
 def test_a_logo_in_a_signature_is_not_a_document_but_a_photographed_invoice_is():
     import email
 

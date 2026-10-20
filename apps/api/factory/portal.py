@@ -347,6 +347,10 @@ async def check_channel(db, channel, fetch=check_mailbox):
         position, files = await asyncio.to_thread(fetch, channel.config, password, channel.cursor or {}, MAILBOX_BATCH)
         problem = None
         for item in files:
+            if "data" not in item:
+                # A message body has no file to read yet; it is reported, not taken in, so the cursor still moves on.
+                problem = f"{item['name']}: message text is not taken in by this operation"
+                continue
             try:
                 _, new = await ingest(
                     db, operation, item["data"], item["name"], "mailbox", sender=item["sender"], channel_id=channel.id

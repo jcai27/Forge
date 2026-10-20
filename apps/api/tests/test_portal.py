@@ -277,6 +277,14 @@ async def test_documents_arrive_from_a_mailbox_and_an_inbound_address(client, se
     assert channel.cursor == {"validity": 7, "uid": 42} and "logo.gif" in channel.last_error
     assert await mailbox_tick(lambda: _same(db), fetch) == 0 and len(calls) == 1
 
+    # A message body (no file) is reported and does not stop the position from being saved.
+    channel.next_check_at = channel.last_checked_at
+    db.commit()
+    text_item = {"name": "Order.txt", "sender": "chef@diner.example", "text": "2 cases brie"}
+    assert await mailbox_tick(lambda: _same(db), lambda *args: ({"validity": 7, "uid": 43}, [text_item])) == 0
+    db.refresh(channel)
+    assert channel.cursor == {"validity": 7, "uid": 43} and "Order.txt" in channel.last_error
+
     # An inbound address takes a file from another system on the strength of its key alone.
     issued = client.post(url, headers=customer, json={"kind": "inbound", "name": "From the scanner"}).json()
     assert issued["key"] and issued["address"] == f"/portal/inbound/{issued['id']}"
