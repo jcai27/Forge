@@ -32,6 +32,8 @@ MAX_MESSAGE_BYTES = 25_000_000
 MAX_FILE_BYTES = 10_000_000
 # A picture placed in the body of a message smaller than this is a logo or a signature, not a document.
 INLINE_IMAGE_BYTES = 100_000
+# The most characters of a message body handed on as a document.
+MAX_BODY_CHARS = 20_000
 MICROSOFT_LOGIN = "login.microsoftonline.com"
 MICROSOFT_SCOPE = "https://outlook.office.com/IMAP.AccessAsUser.All offline_access"
 FILE_TYPES = {"application/pdf": ".pdf", "image/png": ".png", "image/jpeg": ".jpg"}
@@ -204,6 +206,31 @@ def attachments(message):
     return found
 
 
+def _header(message, name):
+    value = message.get(name, "")
+    try:
+        return str(make_header(decode_header(value)))
+    except (LookupError, ValueError):
+        return str(value)
+
+
+def body_text(message, limit=MAX_BODY_CHARS):
+    """The plain-text body of a message, headed by its sender and subject and cut to limit characters."""
+    texts = []
+    for part in message.walk():
+        if part.is_multipart() or part.get_content_type() != "text/plain":
+            continue
+        if part.get_content_disposition() == "attachment":
+            continue
+        data = part.get_payload(decode=True) or b""
+        try:
+            texts.append(data.decode(part.get_content_charset() or "utf-8", errors="replace"))
+        except LookupError:
+            texts.append(data.decode("utf-8", errors="replace"))
+    head = f"From: {_header(message, 'From')}\nSubject: {_header(message, 'Subject')}\n\n"
+    return (head + "\n".join(texts).strip())[:limit]
+
+
 def check_mailbox(config, password, cursor, limit):
     """Mail that arrived since the cursor: (new cursor, files), each file {name, sender, data}.
 
@@ -233,7 +260,11 @@ def check_mailbox(config, password, cursor, limit):
                 if status == "OK" and body:
                     message = email.message_from_bytes(body)
                     sender = parseaddr(message.get("From", ""))[1]
-                    files += [{"name": name, "sender": sender, "data": body} for name, body in attachments(message)]
+                    found = attachments(message)
+                    files += [{"name": name, "sender": sender, "data": body} for name, body in found]
+                    if config.get("read_body") and not found:
+                        subject = _header(message, "Subject").strip() or "Email"
+                        files.append({"name": subject[:200] + ".txt", "sender": sender, "text": body_text(message)})
             last = uid
         position = {"validity": position["validity"], "uid": last}
         if client.kept_secret != password:
