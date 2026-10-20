@@ -3,7 +3,8 @@
 import json
 
 import pytest
-from sqlalchemy import select
+from fastapi import HTTPException
+from sqlalchemy import func, select
 
 from factory.config import settings
 from factory.db import now
@@ -11,13 +12,14 @@ from factory.models import (
     AgentVersion,
     Channel,
     Deployment,
+    ExecutionRun,
     InboxDocument,
     Membership,
     Operation,
     Organization,
     UsageRecord,
 )
-from factory.portal import insights, mailbox_tick
+from factory.portal import check_channel, ingest, insights, mailbox_tick
 from factory.security import token_for
 from tests.test_documents import pdf, upload
 from tests.test_intake import Model, client, direct_agent, member, reply, user_text  # noqa: F401
@@ -305,6 +307,44 @@ async def test_documents_arrive_from_a_mailbox_and_an_inbound_address(client, se
         ).status_code
         == 201
     )
+
+
+async def test_an_email_body_is_taken_in_as_text(client, seeded, db, workspace, monkeypatch):  # noqa: F811
+    customer, operation = workspace["customer"], workspace["operation"]
+    url = f"/portal/operations/{operation.id}/channels"
+    monkeypatch.setattr("factory.portal.mailbox_position", lambda config, password: {"validity": 7, "uid": 40})
+    details = {"kind": "mailbox", "name": "Bodies", "host": "imap.example.com", "username": "ap@diner.example"}
+    plain = client.post(url, headers=customer, json={**details, "password": "app-password"}).json()
+    assert plain["config"]["read_body"] is False
+    made = client.post(url, headers=customer, json={**details, "password": "app-password", "read_body": True})
+    assert made.status_code == 201 and made.json()["config"]["read_body"] is True
+    channel = db.get(Channel, made.json()["id"])
+
+    answer = invoice(11, "2026-03-03", 9.5)[1]
+    body = "INVOICE 11\nDATA " + json.dumps(answer, separators=(",", ":"))
+
+    def fetch(config, password, cursor, limit):
+        item = {"name": "Email body", "sender": "billing@gfs.example", "text": body}
+        return {"validity": 7, "uid": 41}, [item, dict(item)]
+
+    assert await check_channel(db, channel, fetch) == 1
+    documents = list(db.scalars(select(InboxDocument).where(InboxDocument.source == "mailbox")))
+    assert len(documents) == 1
+    assert documents[0].pages == [{"text": body}] and documents[0].status == "processed"
+    assert db.get(ExecutionRun, documents[0].run_id).input == {operation.document_field: body}
+    # The same text again is the same document.
+    channel.cursor = {"validity": 7, "uid": 40}
+    assert await check_channel(db, channel, fetch) == 0
+    assert db.scalar(select(func.count()).select_from(InboxDocument).where(InboxDocument.source == "mailbox")) == 1
+    # The manual upload stays PDF and image only.
+    upload_url = f"/portal/operations/{operation.id}/documents"
+    assert client.post(upload_url, headers=customer, files=upload(body.encode(), "note.txt")).status_code == 422
+    # A paused operation takes nothing in.
+    operation.enabled = False
+    db.commit()
+    with pytest.raises(HTTPException) as paused:
+        await ingest(db, operation, b"", "Email body", "mailbox", text="Another email")
+    assert paused.value.status_code == 409
 
 
 class _same:

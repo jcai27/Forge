@@ -219,7 +219,7 @@ def assess(db, operation, document):
 # Taking a document in.
 
 
-async def ingest(db, operation, data, name, source, sender="", channel_id=None):
+async def ingest(db, operation, data, name, source, sender="", channel_id=None, text=None):
     """Read one file, run it through the operation's agent and keep the result. Returns (document, new).
 
     The same file twice is one document. Failures are recorded on the document, not raised: a
@@ -227,10 +227,15 @@ async def ingest(db, operation, data, name, source, sender="", channel_id=None):
     """
     if not operation.enabled:
         raise HTTPException(409, "This operation is paused")
-    if len(data) > MAX_IMAGE_BYTES:
-        raise HTTPException(422, f"{name} is larger than {MAX_IMAGE_BYTES // 1_000_000} MB")
-    if not (image_type(data) or data.lstrip()[:5] == b"%PDF-"):
-        raise HTTPException(422, f"{name} is not a PDF, PNG or JPEG file")
+    if text is not None:
+        # An email body: typed text, already in hand. Bounded like any document's text, hashed as UTF-8.
+        text = text[:MAX_FIELD_CHARS]
+        data = text.encode("utf-8")
+    else:
+        if len(data) > MAX_IMAGE_BYTES:
+            raise HTTPException(422, f"{name} is larger than {MAX_IMAGE_BYTES // 1_000_000} MB")
+        if not (image_type(data) or data.lstrip()[:5] == b"%PDF-"):
+            raise HTTPException(422, f"{name} is not a PDF, PNG or JPEG file")
     digest = hashlib.sha256(data).hexdigest()
     known = db.scalar(
         select(InboxDocument).where(InboxDocument.operation_id == operation.id, InboxDocument.content_hash == digest)
@@ -254,7 +259,10 @@ async def ingest(db, operation, data, name, source, sender="", channel_id=None):
     reader = Reader(db, operation.org_id)
     try:
         actor = actor_for(db, operation.org_id, operation.actor_id)
-        text, parts = await reader.read(data, name, MAX_FIELD_CHARS, version.spec.get("reading"), keep="all")
+        if text is not None:
+            parts = [{"text": text}]
+        else:
+            text, parts = await reader.read(data, name, MAX_FIELD_CHARS, version.spec.get("reading"), keep="all")
         # Each page as it was taken in: its image, and its text where the page was typed. Kept whole so the
         # document can be put through the agent again without the file.
         document.pages = parts or []
@@ -349,7 +357,14 @@ async def check_channel(db, channel, fetch=check_mailbox):
         for item in files:
             try:
                 _, new = await ingest(
-                    db, operation, item["data"], item["name"], "mailbox", sender=item["sender"], channel_id=channel.id
+                    db,
+                    operation,
+                    item.get("data", b""),
+                    item["name"],
+                    "mailbox",
+                    sender=item["sender"],
+                    channel_id=channel.id,
+                    text=item.get("text"),
                 )
                 taken += new
             except HTTPException as error:
@@ -909,6 +924,8 @@ class CreateChannel(StrictModel):
     # An app password, or for a Microsoft mailbox the refresh token from signing in (see docs/MAILBOXES.md).
     password: str | None = Field(default=None, min_length=1, max_length=8000)
     folder: str = Field(default="INBOX", min_length=1, max_length=200)
+    # Mailbox: also take in the text of each email, not only its attachments.
+    read_body: bool = False
     # Set for a Microsoft mailbox: the application registered to read it, and its tenant.
     client_id: str | None = Field(default=None, pattern="^[0-9a-fA-F-]{36}$")
     tenant: str = Field(default="common", pattern="^[A-Za-z0-9.-]{1,100}$")
@@ -933,6 +950,7 @@ async def create_channel(operation_id: str, body: CreateChannel, actor=ACTOR, db
         if not (body.host and body.username and body.password):
             raise HTTPException(422, "A mailbox needs its IMAP server, the account name and its password")
         channel.config = {"host": body.host.strip().lower(), "username": body.username, "folder": body.folder}
+        channel.config["read_body"] = body.read_body
         if body.client_id:
             channel.config.update(auth="microsoft", client_id=body.client_id, tenant=body.tenant)
         try:
